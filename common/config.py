@@ -59,6 +59,9 @@ class SprtConfigModel(BaseModel):
     # pydantic v2: forbid extra fields, optionally make immutable
     model_config = ConfigDict(extra="forbid", frozen=True)
     enabled: bool = Field(default=True)
+    # Either provide A/B directly or alpha/beta to derive thresholds
+    alpha: float | None = Field(default=None)
+    beta: float | None = Field(default=None)
     sigma: float = Field(default=1.0)
     A: float = Field(default=2.0)
     B: float = Field(default=-2.0)
@@ -85,10 +88,25 @@ def load_sprt_cfg(yaml_cfg: dict) -> SprtConfigModel:
 
     overrides = {
         "enabled": _maybe("AURORA_SPRT_ENABLED", lambda x: str(x).lower() in {"1", "true", "yes"}),
+        "alpha": _maybe("AURORA_SPRT_ALPHA", float),
+        "beta": _maybe("AURORA_SPRT_BETA", float),
         "sigma": _maybe("AURORA_SPRT_SIGMA", float),
         "A": _maybe("AURORA_SPRT_A", float),
         "B": _maybe("AURORA_SPRT_B", float),
         "max_obs": _maybe("AURORA_SPRT_MAX_OBS", int),
     }
     overrides = {k: v for k, v in overrides.items() if v is not None}
-    return base.model_copy(update=overrides)
+    cfg = base.model_copy(update=overrides)
+    # If alpha/beta provided (via YAML or env), derive A/B unless explicitly overridden by env A/B
+    try:
+        from core.scalper.sprt import thresholds_from_alpha_beta
+        if cfg.alpha is not None and cfg.beta is not None:
+            A, B = thresholds_from_alpha_beta(cfg.alpha, cfg.beta)
+            # Respect explicit A/B overrides when provided in overrides
+            if "A" not in overrides:
+                cfg = cfg.model_copy(update={"A": A})
+            if "B" not in overrides:
+                cfg = cfg.model_copy(update={"B": B})
+    except Exception:
+        pass
+    return cfg

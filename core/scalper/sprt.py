@@ -15,6 +15,8 @@ LLR_t <= B (REJECT H1), where typically A ~ log((1-β)/α), B ~ log(β/(1-α)).
 
 from dataclasses import dataclass
 from typing import Literal, Sequence
+import math
+import time
 
 
 Decision = Literal["CONTINUE", "ACCEPT", "REJECT"]
@@ -28,6 +30,19 @@ class SprtConfig:
     A: float  # upper threshold (accept H1)
     B: float  # lower threshold (reject H1)
     max_obs: int
+
+
+def thresholds_from_alpha_beta(alpha: float, beta: float) -> tuple[float, float]:
+    """Compute Wald SPRT thresholds A and B from type I/II errors.
+
+    A = log((1-beta)/alpha), B = log(beta/(1-alpha)).
+    Returns (A, B).
+    """
+    if not (0.0 < alpha < 1.0 and 0.0 < beta < 1.0):
+        raise ValueError("alpha and beta must be in (0,1)")
+    A = math.log((1.0 - beta) / alpha)
+    B = math.log(beta / (1.0 - alpha))
+    return A, B
 
 
 class SPRT:
@@ -59,12 +74,24 @@ class SPRT:
         return "CONTINUE"
 
     def run(self, xs: Sequence[float]) -> Decision:
+        return self.run_with_timeout(xs, time_limit_ms=None)
+
+    def run_with_timeout(self, xs: Sequence[float], time_limit_ms: float | None = None) -> Decision:
+        """Run SPRT over sequence xs. If time_limit_ms provided (milliseconds),
+        stop and return 'CONTINUE' if runtime exceeds the limit (inconclusive).
+        """
         self.reset()
         decision: Decision = "CONTINUE"
+        t0 = time.time()
         for x in xs:
             decision = self.update(float(x))
             if decision != "CONTINUE":
                 break
+            if time_limit_ms is not None:
+                elapsed_ms = (time.time() - t0) * 1000.0
+                if elapsed_ms > float(time_limit_ms):
+                    # timeout: return inconclusive to avoid blocking execution
+                    return "CONTINUE"
         return decision
 
     # Expose internals for observability

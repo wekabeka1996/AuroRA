@@ -23,21 +23,29 @@ jobs:
         run: |
           pip install ruff
           ruff check .
+      - name: Validate configs (strict for PR)
+        if: github.event_name == 'pull_request'
+        run: |
+          python tools/validate_config.py --strict configs/*.yaml || (echo "Config validation failed" && exit 1)
+      - name: Validate configs (strict + fail-unknown on main)
+        if: github.event_name == 'push'
+        run: |
+          python tools/validate_config.py --strict --fail-unknown configs/*.yaml || (echo "Config validation failed" && exit 1)
       - name: Run unit tests with coverage
         run: |
           pytest --cov=. --cov-report=term --cov-report=xml --maxfail=1 -q
       - name: Enforce coverage >=70%
         run: |
           coverage xml
-          python - <<'PY'
-import xml.etree.ElementTree as ET, sys
-tree = ET.parse('coverage.xml')
-rate = float(tree.getroot().attrib['line-rate']) * 100
-print(f"Coverage: {rate:.2f}%")
-if rate < 70:
-    print('Coverage threshold not met (70%)')
-    sys.exit(1)
-PY
+          python - << 'PY'
+          import xml.etree.ElementTree as ET, sys
+          tree = ET.parse('coverage.xml')
+          rate = float(tree.getroot().attrib['line-rate']) * 100
+          print(f"Coverage: {rate:.2f}%")
+          if rate < 70:
+              print('Coverage threshold not met (70%')
+              sys.exit(1)
+          PY
   docker-build:
     runs-on: ubuntu-latest
     needs: build-test

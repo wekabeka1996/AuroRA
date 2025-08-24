@@ -2,8 +2,10 @@ aurora:
   enabled: true
   dd_day_limit_pct: 4.0
   inventory_cap_usdt: 40
-  latency_guard_ms: 30
-  cooloff_base_sec: 120
+  latency_guard_ms: 30        # p95 threshold
+  latency_window_sec: 60      # aggregation window
+  cooloff_base_sec: 120       # default cooloff on WARN
+  halt_threshold_repeats: 2   # WARN repeats in 5m before HALT
 policy_shim:
   no_op_streak_to_cooloff: 2
   action_ratio_floor_10m: 0.08
@@ -29,3 +31,8 @@ trap:
   levels: 5
   z_threshold: 1.64   # ~= p95
   cancel_pctl: 90
+guards:
+  trap_guard_enabled: false  # env TRAP_GUARD=true/1/on to enable both z-score and score-based TRAP gates
+
+pretrade:
+  order_profile: er_before_slip  # env PRETRADE_ORDER_PROFILE can override (er_before_slip | slip_before_er)

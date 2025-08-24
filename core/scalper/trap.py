@@ -39,7 +39,7 @@ Type hints, docstrings, no external network deps.
 """
 
 from dataclasses import dataclass
-from typing import Iterable, Optional, Tuple
+from typing import Iterable, Optional, Tuple, List, Literal
 
 import numpy as np
 
@@ -151,3 +151,84 @@ class TrapWindow:
             n_trades=int(trades_cnt),
             flag=bool(flag),
         )
+
+
+# --- Normalized book_delta handling for TRAP v2.1 ---
+
+BookAction = Literal["add", "cancel", "trade"]
+
+
+@dataclass(frozen=True)
+class BookDelta:
+    ts: float  # seconds
+    side: Literal["bid", "ask"]
+    price: float
+    size: float
+    action: BookAction
+
+
+def _estimate_replenish_latency_ms(events: List[BookDelta], price_eps: float = 1e-6) -> float:
+    """Estimate typical replenish latency: time between cancel and next add at nearby price on same side.
+
+    Returns median latency in milliseconds over pairs found; if none found, returns a large sentinel (e.g., 1000ms).
+    """
+    latencies: List[float] = []
+    last_cancel_by_side_price: dict[tuple[str, int], float] = {}
+    for ev in sorted(events, key=lambda e: e.ts):
+        key = (ev.side, int(round(ev.price / max(price_eps, 1e-9))))
+        if ev.action == "cancel":
+            last_cancel_by_side_price[key] = ev.ts
+        elif ev.action == "add":
+            t0 = last_cancel_by_side_price.get(key)
+            if t0 is not None:
+                latencies.append(max(0.0, (ev.ts - t0) * 1000.0))
+                # reset to avoid chaining
+                last_cancel_by_side_price.pop(key, None)
+    if not latencies:
+        return 1000.0
+    arr = np.array(latencies, dtype=float)
+    return float(np.median(arr))
+
+
+def _cancel_add_sums(events: List[BookDelta], levels: int = 5) -> tuple[List[float], List[float]]:
+    """Aggregate positive cancel/add deltas across L1..Lk.
+
+    Here we do not maintain explicit levels by price distance; for a simple heuristic we sum per event type.
+    Return two lists (length=levels) that can be fed into compute_trap_raw.
+    """
+    cancel_sum = sum(ev.size for ev in events if ev.action == "cancel")
+    add_sum = sum(ev.size for ev in events if ev.action == "add")
+    # Distribute sums uniformly across levels as a placeholder; tests will use totals only
+    cancels = [cancel_sum / levels] * levels
+    adds = [add_sum / levels] * levels
+    return cancels, adds
+
+
+def trap_score_from_features(cancel_ratio: float, replenish_latency_ms: float) -> float:
+    """Map features to [0,1] score: higher when cancels dominate and replenish is very fast.
+
+    cancel_ratio in [0,1]; faster replenish => higher score. Use simple smooth mapping.
+    """
+    # Emphasize high cancel dominance
+    c = 1.0 / (1.0 + np.exp(-8.0 * (float(cancel_ratio) - 0.5)))  # sigmoid centered at 0.5
+    # Map latency to [0,1], 0ms -> 1.0; 1000ms -> ~0.0
+    r = float(np.clip(np.exp(-float(replenish_latency_ms) / 250.0), 0.0, 1.0))
+    score = float(np.clip(0.6 * c + 0.4 * r, 0.0, 1.0))
+    return score
+
+
+def trap_from_book_deltas(
+    events: List[BookDelta], *, window_s: float = 2.0, levels: int = 5
+) -> tuple[float, float, float, float]:
+    """Compute trap features from normalized book_delta events within a window.
+
+    Returns (cancel_ratio, replenish_latency_ms, cancel_sum, add_sum).
+    """
+    cancels, adds = _cancel_add_sums(events, levels=levels)
+    cancel_sum = float(np.sum(cancels))
+    add_sum = float(np.sum(adds))
+    denom = max(1e-6, cancel_sum + add_sum)
+    cancel_ratio = cancel_sum / denom
+    rep_ms = _estimate_replenish_latency_ms(events)
+    return cancel_ratio, rep_ms, cancel_sum, add_sum
+

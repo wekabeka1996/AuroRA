@@ -1,5 +1,7 @@
 # AURORA v1.2 (Production-Ready Skeleton)
 
+[![canary](https://github.com/${GITHUB_REPOSITORY}/actions/workflows/canary.yml/badge.svg)](https://github.com/${GITHUB_REPOSITORY}/actions/workflows/canary.yml)
+
 This repository implements the AURORA concept (teacher–student, certification, regime-aware) with a working API and training/inference pipelines.
 
 ## Quick start
@@ -67,6 +69,26 @@ python scripts/train_router_from_parquet.py --train data/processed/train.parquet
 - CI builds and runs smoke tests; extend with stricter checks for production.
 
 ---
+
+## pre-commit hooks
+
+Чтобы ловить ошибки до пуша, установите pre-commit и активируйте хуки:
+
+```bash
+pip install pre-commit
+pre-commit install
+```
+
+Проверить всё дерево:
+
+```bash
+pre-commit run --all-files
+```
+
+Включённые проверки:
+- Validate configs (python tools/validate_config.py --strict)
+- yamllint для configs/
+- ruff (c автофиксом), black
 
 ## Environment (.env)
 

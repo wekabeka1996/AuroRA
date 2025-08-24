@@ -30,3 +30,17 @@ groups:
         for: 10m
         labels: {severity: info}
         annotations: {summary: "High FSM transition rate for {{$labels.profile}}"}
+
+  - name: aurora_summary_gate
+    rules:
+      - alert: SummaryGateFail
+        expr: aurora_summary_gate_last_status{branch=~"main|release/.*"} == 1
+        for: 5m
+        labels: {severity: critical}
+        annotations: {summary: "Summary Gate FAIL on protected branch {{$labels.branch}} (sha {{$labels.sha}})"}
+
+      - alert: FrequentGateFail
+        expr: increase(aurora_summary_gate_fail_total[24h]) > 3
+        for: 0m
+        labels: {severity: warning}
+        annotations: {summary: "Summary Gate FAIL frequency > 3 in last 24h"}

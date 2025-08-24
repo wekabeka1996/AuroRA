@@ -12,6 +12,8 @@ def _client():
 
 
 def test_trap_gate_blocks_on_high_z(monkeypatch):
+    # Ensure TRAP guard is enabled regardless of YAML defaults
+    monkeypatch.setenv('TRAP_GUARD', 'on')
     client = _client()
 
     # We simulate TRAP inputs via market payload fields we introduce for the test only.

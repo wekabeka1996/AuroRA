@@ -1,3 +1,19 @@
+## Pre-trade gate ordering (frozen)
+
+Current order:
+
+latency (threshold + p95) → TRAP → expected_return → slippage → risk caps → SPRT → spread
+
+Switchable profile:
+
+- YAML: `pretrade.order_profile` (default `er_before_slip`)
+- ENV: `PRETRADE_ORDER_PROFILE` overrides YAML
+
+Observability contract includes:
+
+- `observability.reasons[]` (ordered reasons)
+- `observability.risk{cfg,ctx}`
+- `risk_scale` in response
 # R1 Acceptance (Controlled Planning)
 
 Минимальные критерии успешности (2 независимых прогона):

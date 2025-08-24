@@ -36,7 +36,8 @@ def test_expected_return_allows_when_positive():
     data = r.json()
     assert data["allow"] is True, data
     assert data["reason"] == "ok"
-    assert data["observability"]["reasons"] == []
+    # With explicit accept events, reasons include a tag when ER gate passes
+    assert "expected_return_accept" in data["observability"]["reasons"]
 
 
 def test_expected_return_blocks_when_negative():

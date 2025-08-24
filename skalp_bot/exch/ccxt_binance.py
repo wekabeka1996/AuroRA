@@ -3,6 +3,7 @@ import os
 import ccxt
 from typing import Any, Literal
 
+
 class CCXTBinanceAdapter:
     """
     CCXT Binance adapter with safe defaults and env-based credentials.
@@ -19,12 +20,34 @@ class CCXTBinanceAdapter:
 
         # Backward-compatible: read either flat cfg or nested exchange section
         exch = cfg.get("exchange", {}) if isinstance(cfg, dict) else {}
+        # Environment overrides
+        env_id = os.getenv("EXCHANGE_ID")
+        env_testnet = os.getenv("EXCHANGE_TESTNET")
+        env_use_futs = os.getenv("EXCHANGE_USE_FUTURES")
+
         use_futures = bool(exch.get("use_futures", cfg.get("use_futures", True)))
         testnet = bool(exch.get("testnet", cfg.get("testnet", True)))
+        if env_use_futs is not None:
+            use_futures = str(env_use_futs).lower() in {"1", "true", "yes"}
+        if env_testnet is not None:
+            testnet = str(env_testnet).lower() in {"1", "true", "yes"}
         exchange_id = exch.get("id", ("binanceusdm" if use_futures else "binance"))
-        recv_window_ms = int(exch.get("recv_window_ms", 5000))
-        timeout_ms = int(exch.get("timeout_ms", 20000))
-        adjust_time = bool(exch.get("adjust_for_time_diff", True))
+        if env_id:
+            exchange_id = env_id
+
+        # Per-request recvWindow and client timeout
+        try:
+            recv_window_ms = int(exch.get("recv_window_ms", os.getenv("BINANCE_RECV_WINDOW", 5000)))
+        except Exception:
+            recv_window_ms = 5000
+        try:
+            timeout_ms = int(exch.get("timeout_ms", 20000))
+        except Exception:
+            timeout_ms = 20000
+        try:
+            adjust_time = bool(exch.get("adjust_for_time_diff", True))
+        except Exception:
+            adjust_time = True
 
         # Build CCXT constructor params
         options = {
@@ -52,15 +75,15 @@ class CCXTBinanceAdapter:
 
         # Optionally load .env from repo root or CWD for convenience
         try:
-            root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-            for env_candidate in (os.path.join(root_dir, '.env'), os.path.join(os.getcwd(), '.env')):
+            root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+            for env_candidate in (os.path.join(root_dir, ".env"), os.path.join(os.getcwd(), ".env")):
                 if os.path.isfile(env_candidate):
-                    for line in open(env_candidate, 'r', encoding='utf-8'):
+                    for line in open(env_candidate, "r", encoding="utf-8"):
                         s = line.strip()
-                        if not s or s.startswith('#'):
+                        if not s or s.startswith("#"):
                             continue
-                        if '=' in s:
-                            k, v = s.split('=', 1)
+                        if "=" in s:
+                            k, v = s.split("=", 1)
                             k = k.strip()
                             v = v.strip().strip('"').strip("'")
                             if k and (k not in os.environ):
@@ -80,6 +103,8 @@ class CCXTBinanceAdapter:
         # Symbol and dry-run
         self.symbol = exch.get("symbol", cfg.get("symbol", "BTC/USDT"))
         self.dry = bool(cfg.get("dry_run", True))
+        if os.getenv("DRY_RUN") is not None:
+            self.dry = str(os.getenv("DRY_RUN")).lower() in {"1", "true", "yes"}
 
         # Optional: set leverage if provided (best-effort; ignore failures)
         lev = exch.get("leverage", cfg.get("leverage"))
@@ -90,6 +115,7 @@ class CCXTBinanceAdapter:
                     self.ex.set_leverage(int(lev), self.symbol)
             except Exception:
                 pass
+
     def fetch_top_of_book(self):
         def to_float(x: Any, default: float = 0.0) -> float:
             try:
@@ -98,27 +124,32 @@ class CCXTBinanceAdapter:
                 return default
 
         ob = self.ex.fetch_order_book(self.symbol, limit=5)
-        bids = [(to_float(p), to_float(q)) for p, q in ob.get('bids', [])[:5]]
-        asks = [(to_float(p), to_float(q)) for p, q in ob.get('asks', [])[:5]]
+        bids = [(to_float(p), to_float(q)) for p, q in ob.get("bids", [])[:5]]
+        asks = [(to_float(p), to_float(q)) for p, q in ob.get("asks", [])[:5]]
         raw_trades = self.ex.fetch_trades(self.symbol, limit=50) or []
-        trades = [{
-            "side": (t.get("side") or "buy"),
-            "qty": to_float(t.get("amount"), 0.0),
-            "price": to_float(t.get("price"), 0.0),
-            "ts": t.get("timestamp") or t.get("time") or 0,
-        } for t in raw_trades]
+        trades = [
+            {
+                "side": (t.get("side") or "buy"),
+                "qty": to_float(t.get("amount"), 0.0),
+                "price": to_float(t.get("price"), 0.0),
+                "ts": t.get("timestamp") or t.get("time") or 0,
+            }
+            for t in raw_trades
+        ]
         if not bids or not asks:
             # Fallback mid/spread when book is empty
-            return 0.0, 0.0, bids or [(0.0,0.0)], asks or [(0.0,0.0)], trades
+            return 0.0, 0.0, bids or [(0.0, 0.0)], asks or [(0.0, 0.0)], trades
         mid = (to_float(bids[0][0]) + to_float(asks[0][0])) / 2.0
         spread = to_float(asks[0][0]) - to_float(bids[0][0])
         return mid, spread, bids, asks, trades
+
     def place_order(self, side: Literal["buy", "sell"], qty: float, price: float | None = None):
         if self.dry:
             return {"info": "dry_run", "side": side, "qty": qty, "price": price}
-        order_type = 'limit' if price is not None else 'market'
-        params = {"timeInForce": "GTC"} if order_type == 'limit' else {}
+        order_type = "limit" if price is not None else "market"
+        params = {"timeInForce": "GTC"} if order_type == "limit" else {}
         return self.ex.create_order(self.symbol, order_type, side, qty, price, params)
+
     def cancel_all(self):
         if self.dry:
             return {"info": "dry_run"}
@@ -144,6 +175,6 @@ class CCXTBinanceAdapter:
     def fetch_ohlcv_1m(self, limit: int = 200):
         """Fetch 1m OHLCV bars for current symbol. Returns list of [ts, o,h,l,c,v]."""
         try:
-            return self.ex.fetch_ohlcv(self.symbol, timeframe='1m', limit=int(limit)) or []
+            return self.ex.fetch_ohlcv(self.symbol, timeframe="1m", limit=int(limit)) or []
         except Exception:
             return []

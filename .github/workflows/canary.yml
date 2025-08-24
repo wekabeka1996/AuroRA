@@ -1,0 +1,151 @@
+name: canary
+
+on:
+  push:
+    branches:
+      - 'feat/**'
+  pull_request:
+    branches:
+      - 'feat/**'
+      - 'main'
+  schedule:
+    - cron: '0 2 * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  trap-unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ runner.os }}-${{ hashFiles('requirements*.txt') }}
+      - run: python -m pip install -U pip
+      - run: python -m pip install -r requirements.txt -r requirements-dev.txt
+      - run: pytest -q tests/unit/test_trap_detector.py
+      - run: python tools/trap_report.py --out reports/trap_stats.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: trap-report
+          path: reports/trap_stats.json
+
+  trap-int:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ runner.os }}-${{ hashFiles('requirements*.txt') }}
+      - run: python -m pip install -U pip
+      - run: python -m pip install -r requirements.txt -r requirements-dev.txt
+      - run: pytest -q tests/integration/test_trap_env_override.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pretrade-trap-integration
+          path: |
+            reports/pretrade_trap_integration.md
+          if-no-files-found: ignore
+
+  latency-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ runner.os }}-${{ hashFiles('requirements*.txt') }}
+      - run: python -m pip install -U pip
+      - run: python -m pip install -r requirements.txt -r requirements-dev.txt
+      - run: pytest -q tests/integration/test_latency_guard.py
+      - name: Build canary summary artifacts
+        run: |
+          python tools/canary_summary.py \
+            --events logs/events.jsonl \
+            --out-ts reports/latency_p95_timeseries.csv \
+            --out-flow reports/escalations_flow.md \
+            --out-md reports/canary_60min_summary.md || true
+      - name: Run summary gate (strict)
+        if: ${{ hashFiles('logs/events.jsonl') != '' }}
+        run: |
+          python tools/summary_gate.py \
+            --summary reports/canary_60min_summary.md \
+            --events logs/events.jsonl \
+            --strict \
+            --status-out reports/summary_gate_status.json
+      - name: Publish gate status
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: summary_gate_status
+          path: reports/summary_gate_status.json
+          if-no-files-found: ignore
+      - name: Tail last RISK/HEALTH events (on failure)
+        if: failure() && hashFiles('logs/events.jsonl') != ''
+        run: |
+          echo "Last 10 RISK/HEALTH events:" && \
+          tail -n 200 logs/events.jsonl | egrep '"type":"(RISK|HEALTH)\.' | tail -n 10 || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: latency-guard-artifacts
+          path: |
+            reports/latency_p95_timeseries.csv
+            reports/escalations_flow.md
+            reports/canary_60min_summary.md
+          if-no-files-found: ignore
+
+  ops-commands:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ runner.os }}-${{ hashFiles('requirements*.txt') }}
+      - run: python -m pip install -U pip
+      - run: python -m pip install -r requirements.txt -r requirements-dev.txt
+      - run: pytest -q tests/integration/test_ops_commands.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ops-artifacts
+          path: |
+            reports/escalations_flow.md
+          if-no-files-found: ignore
+
+  risk-caps:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ runner.os }}-${{ hashFiles('requirements*.txt') }}
+      - run: python -m pip install -U pip
+      - run: python -m pip install -r requirements.txt -r requirements-dev.txt
+      - run: pytest -q tests/integration/test_risk_caps.py
+      - run: python tools/risk_denies_report.py --in logs/events.jsonl --out reports/risk_denies.csv || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: risk-caps-artifacts
+          path: |
+            reports/risk_denies.csv
+          if-no-files-found: ignore
