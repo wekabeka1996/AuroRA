@@ -1,0 +1,8 @@
+{
+  "schema_v": 1,
+  "profile_name": "smoke",
+  "profile_path": "configs\\profiles\\smoke.yaml",
+  "sha256_normalized_yaml": "b519b791e0eb5ef9365dc717bdc5f38532bc3b45eef10065c087b99f2e86f7ba",
+  "generated_at": "2025-08-21T03:01:43.272972",
+  "generator_ver": "1.0"
+}

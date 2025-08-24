@@ -1,0 +1,37 @@
+
+# WiseScalp v0.3 + Aurora integration example config
+symbol: "BTC/USDT"
+timeframe: "1s"
+dry_run: true
+testnet: true
+use_futures: true
+leverage: 10
+
+alpha:
+  obi_levels: 5
+  tfi_window: 50
+  micro_weight: 1.0
+  obi_weight: 1.0
+  tfi_weight: 1.0
+  entry_threshold: 0.35
+  exit_threshold: 0.05
+
+risk:
+  max_inventory: 0.01
+  max_drawdown_pct: 2.0
+  vol_window: 120
+  vol_max: 0.006
+  take_profit_ticks: 2.0
+  stop_loss_ticks: 2.0
+
+execution:
+  maker_mode: true
+  post_only: true
+  order_size: 0.001
+  cancel_after_s: 5
+  fees_bps: 1.0
+
+aurora:
+  enabled: true
+  base_url: "http://127.0.0.1:8000"
+  mode: "shadow"   # shadow|paper|prod

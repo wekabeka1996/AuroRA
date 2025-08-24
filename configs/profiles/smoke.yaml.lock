@@ -1,0 +1,11 @@
+{
+  "profile_path": "configs\\profiles\\smoke.yaml",
+  "checksum": "f0cd6182eb4e5361",
+  "validation": {
+    "is_valid": true,
+    "errors": [],
+    "warnings": []
+  },
+  "locked_at": "1755733770.658692",
+  "lock_created": "$(date -Iseconds)"
+}

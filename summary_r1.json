@@ -1,0 +1,21 @@
+{
+  "r1": {
+    "bridges": {
+      "count": 0,
+      "positive_fraction_eps": 0.0,
+      "mean": 0.0,
+      "p10": null,
+      "p50": null,
+      "p90": null,
+      "width_p90_p10": null
+    },
+    "blocks": {
+      "two_signals_block_count": 0,
+      "mi_guard_block_count": 0,
+      "reachability_reject_count": 0
+    },
+    "tau_drift_ema": null,
+    "tau_drift_ok": true,
+    "improvement_eps_reporting": "5e-4"
+  }
+}

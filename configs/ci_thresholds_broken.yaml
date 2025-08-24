@@ -1,0 +1,29 @@
+# CI Thresholds Configuration - Broken Example
+# This file contains intentional errors for testing
+
+thresholds:
+  alpha_target: "not_a_number"  # Error: should be number
+  invalid-name: 0.5            # Error: invalid threshold name
+  ctr_min: 0.95
+
+meta:
+  # Missing generation_time (required field)
+  window_size: "not_an_integer"  # Error: should be integer
+  var_ratio_rb: 1.5              # Error: should be <= 1
+
+hard_meta:
+  schema_version: 2              # Error: should be 1
+  window_n: -5                   # Error: should be >= 1
+  hard_candidate:
+    dcts_min: true
+  reasons:
+    # Missing reason for dcts_min - consistency error
+    other_metric: "some_reason"  # Error: reason without candidate
+  decided_by: "test"
+  timestamp: "invalid-timestamp"  # Error: invalid ISO format
+  
+  # Hard enablement with inconsistent candidacy
+  dcts_min:
+    hard_enabled: true  # Error: enabled but candidate check will fail
+  unknown_metric:
+    hard_enabled: false  # Error: not in candidates

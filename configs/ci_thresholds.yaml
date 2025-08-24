@@ -1,0 +1,32 @@
+# CI thresholds configuration (AUR-CI-701)
+# Target parameters
+alpha_target: 0.10            # fallback target (can be overridden by summary if present)
+coverage_tolerance: 0.03      # empirical coverage >= 1 - alpha_target - tolerance
+coverage_ema_tolerance: 0.03  # |coverage_ema_final - (1 - alpha_target)| <= tolerance
+
+# Transfer / TVF
+ctr_min: 0.95                 # CTR >= 0.95 (ignored if null or missing in summary)
+dcts_min: 0.90                # DCTS >= value (TVF2); raise to 0.95 after burn-in
+
+# Execution / gating
+max_churn_per_1k: 25          # decision churn per 1000 decisions
+max_exec_block_rate: 0.40     # execution block rate <= 0.40 (null to ignore)
+_tau_drift_note: "tau drift EMA exposed later via tau_drift_ema field"
+tau_drift_ema_max: 0.02       # null -> ignore
+
+# CI behaviour
+fail_fast: true               # if true stop at first violation
+
+# Soft warning band (AUR-CI-702)
+warnings:
+  warn_fraction: 0.8          # fraction of threshold above/below which we start warning
+  lower_bound_metrics:
+    - coverage_empirical
+    - ctr
+    - dcts
+  upper_bound_metrics:
+    - decision_churn_per_1k
+    - max_dro_penalty  # warn-only alias for acceptance.dro_penalty (PIPE-902 warn phase)
+
+# Robust risk (PIPE-902)
+max_dro_penalty: null        # set to a float to enforce DRO penalty ceiling

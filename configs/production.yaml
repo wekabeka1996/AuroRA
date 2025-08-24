@@ -1,0 +1,48 @@
+
+# Головний конфігураційний файл для запуску системи
+
+student:
+  d_obs: 11
+  d_latent: 32
+  d_hidden: 512
+  checkpoint: "checkpoints/dssm_best.pt"
+
+router:
+  num_regimes: 3
+  checkpoint: "checkpoints/router_best.pt" # Припускаємо, що роутер теж тренується і зберігається
+
+certification:
+  icp:
+    alpha_base: 0.1
+    window: 1000
+    aci_influence: 0.01
+    transition_influence: 0.02
+  dro:
+    alpha: 0.05
+    eps_base: 0.1
+  uncertainty:
+    gamma: 0.7
+
+trading:
+  max_latency_ms: 100
+  rebalance_threshold: 0.7 # Поріг kappa+ для перебалансування
+  position_limit: 0.5
+  stop_loss: 0.05
+
+api:
+  host: "127.0.0.1"
+  port: 8000
+
+calibration:
+  objective_weights:
+    w_pass: 1.0
+    w_derisk: 0.5
+    w_block: 2.0
+    w_viol: 3.0
+    w_lat: 1.0
+    w_sur: 1.0
+    w_flap: 0.5
+  hard_constraints:
+    - coverage>=bound
+    - surprisal<=guard*1.05
+    - latency<=slo*1.1

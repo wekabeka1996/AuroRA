@@ -1,0 +1,29 @@
+# R2 Production Configuration Profile
+# Strict thresholds for production
+
+# Acceptance thresholds (strict)
+acceptance:
+  coverage_target: 0.9
+  min_decisions: 1
+
+# Kappa thresholds (strict)  
+kappa_thresholds:
+  tau_d: 0.3  # DERISK threshold
+  tau_p: 0.7  # PASS threshold
+
+# Pre-loop gates (strict)
+preloop:
+  max_noop_ratio: 0.6  # 60% max NOOP
+  zero_budget_tolerance: 0  # No zero budget allowed
+  require_trigger: true  # Production requires auto-seed
+  
+# Monitoring thresholds
+monitoring:
+  main_loop_started_ratio_min: 0.95
+  skip_ratio_max: 0.3
+  
+# Schema and validation
+schema:
+  version: 1
+  profile_name: "r2_production"
+  strict_validation: true

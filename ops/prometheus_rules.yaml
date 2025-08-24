@@ -1,0 +1,32 @@
+groups:
+  - name: aurora_acceptance
+    rules:
+      - alert: AuroraHighLatencyP95
+        expr: histogram_quantile(0.95, sum by (le,profile) (rate(aurora_acceptance_latency_ms_bucket[5m]))) > 120
+        for: 10m
+        labels: {severity: warning}
+        annotations: {summary: "Latency p95 above SLO for {{$labels.profile}}"}
+
+      - alert: AuroraCoverageBelowTarget
+        expr: aurora_icp_coverage_ema{profile=~".+"} < 0.90
+        for: 15m
+        labels: {severity: critical}
+        annotations: {summary: "Coverage EMA below target for {{$labels.profile}}"}
+
+      - alert: AuroraHighSurprisalP95
+        expr: histogram_quantile(0.95, sum by (le,profile) (rate(aurora_acceptance_surprisal_v2_bucket[15m]))) > 2.5
+        for: 10m
+        labels: {severity: warning}
+        annotations: {summary: "Surprisal p95 above guard for {{$labels.profile}}"}
+
+      - alert: AuroraProlongedBlockState
+        expr: aurora_acceptance_state{state="BLOCK"} == 1
+        for: 15m
+        labels: {severity: warning}
+        annotations: {summary: "FSM stuck in BLOCK for {{$labels.profile}}"}
+
+      - alert: AuroraRapidStateFlapping
+        expr: sum by (profile) (rate(aurora_acceptance_state_transitions_total[10m])) > 6
+        for: 10m
+        labels: {severity: info}
+        annotations: {summary: "High FSM transition rate for {{$labels.profile}}"}

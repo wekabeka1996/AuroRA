@@ -1,0 +1,29 @@
+# Smoke Test Configuration Profile
+# Relaxed thresholds for smoke tests
+
+# Acceptance thresholds (relaxed)
+acceptance:
+  coverage_target: 0.85  # Lower than prod
+  min_decisions: 0  # Allow empty runs
+
+# Kappa thresholds (relaxed)
+kappa_thresholds:
+  tau_d: 0.4  # More permissive DERISK
+  tau_p: 0.8  # Higher PASS threshold
+
+# Pre-loop gates (relaxed)
+preloop:
+  max_noop_ratio: 1.0  # Allow 100% NOOP for testing
+  zero_budget_tolerance: 5  # Allow some zero budget
+  require_trigger: false  # Disable auto-seed requirement
+  
+# Monitoring thresholds (relaxed)
+monitoring:
+  main_loop_started_ratio_min: 0.8
+  skip_ratio_max: 0.5
+  
+# Schema and validation
+schema:
+  version: 1
+  profile_name: "smoke_test"
+  strict_validation: false

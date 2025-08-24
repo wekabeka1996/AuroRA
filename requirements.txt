@@ -1,0 +1,15 @@
+torch
+fastapi
+uvicorn
+numpy
+pandas
+prometheus-client
+cvxpy
+scikit-learn
+scipy
+ccxt
+pyarrow
+tenacity
+pyyaml
+requests
+structlog

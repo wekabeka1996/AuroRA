@@ -1,0 +1,30 @@
+# configs/nfsde.yaml
+# Гіперпараметри для навчання моделі вчителя (NFSDE)
+
+model:
+  d_state: 16      # Розмірність основного стану (ціни, волатильність і т.д.)
+  d_latent: 32     # Розмірність латентного простору (режимного ембеду)
+  h_blocks: 128    # Розмір блоку для розрахунку індексу Херста
+
+data:
+  source: "binance" # Джерело даних: binance, polygon, historical
+  symbol: "BTC/USDT"
+  timeframe: "1h"
+  start_date: "2023-01-01"
+  end_date: "2024-01-01"
+  sequence_length: 1000 # Довжина траєкторії для симуляції
+
+training:
+  epochs: 100
+  batch_size: 16
+  learning_rate: 1.0e-4
+  # Ваги для складових loss-функції (з концепції)
+  lambda_sig: 0.5      # MMD loss
+  lambda_sep: 1.0e-3   # Regularization loss
+  # Інші параметри
+  clip_grad_norm: 1.0
+  save_checkpoint_path: "checkpoints/nfsde_best.pt"
+
+# Параметри для симулятора
+simulation:
+  dt: 0.001 # Крок дискретизації

@@ -1,0 +1,36 @@
+# configs/dssm.yaml
+# Гіперпараметри для навчання моделі студента (DSSM)
+
+model:
+  d_obs: 20        # Розмірність спостережень (кількість фіч)
+  d_latent: 32     # Розмірність латентного простору (має співпадати з учителем)
+  d_hidden: 512    # Розмірність прихованих шарів
+
+teacher:
+  # Шлях до навченої моделі вчителя
+  checkpoint_path: "checkpoints/nfsde_best.pt"
+  # Параметри вчителя (мають відповідати конфігу nfsde.yaml)
+  d_state: 1
+  d_latent: 32
+
+data:
+  source: "binance"
+  symbol: "BTC/USDT"
+  timeframe: "1h"
+  start_date: "2023-01-01"
+  end_date: "2024-01-01"
+  sequence_length: 200 # Довжина послідовності для DSSM
+
+training:
+  epochs: 50
+  batch_size: 32
+  learning_rate: 1.0e-3
+  # Ваги для складових loss-функції (з концепції, розділ 3.2)
+  # Основний loss (ELBO) має вагу 1
+  lambda_sig: 0.2      # MMD loss (на сигнатурах)
+  lambda_tail: 0.1     # Tail-matching loss
+  lambda_kd: 0.1       # Knowledge Distillation (KL в латенті)
+  lambda_sep: 0.0      # Separation loss (зазвичай не використовується для студента)
+  # Інші параметри
+  clip_grad_norm: 2.0
+  save_checkpoint_path: "checkpoints/dssm_best.pt"

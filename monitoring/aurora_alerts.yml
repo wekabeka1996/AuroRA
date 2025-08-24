@@ -1,0 +1,41 @@
+groups:
+- name: aurora_ga_gates
+  rules:
+  - alert: AuroraMainLoopStartedRateLow
+    annotations:
+      description: 'Main loop started ratio is {{ $value }} (threshold: 0.95)'
+      summary: AURORA main loop started ratio below threshold
+    expr: aurora_ga_gate_main_loop_started_ratio < 0.95
+    for: 5m
+    labels:
+      component: aurora-ga-gates
+      severity: critical
+  - alert: AuroraZeroBudgetDetected
+    annotations:
+      description: '{{ $value }} zero budget events in recent runs'
+      summary: AURORA zero budget events detected
+    expr: aurora_ga_gate_zero_budget_count > 0
+    for: 1m
+    labels:
+      component: aurora-ga-gates
+      severity: warning
+  - alert: AuroraNoopRatioHigh
+    annotations:
+      description: 'Mean NOOP ratio is {{ $value }} (threshold: 0.85)'
+      summary: AURORA NOOP ratio is high
+    expr: aurora_ga_gate_noop_ratio_mean > 0.85
+    for: 10m
+    labels:
+      component: aurora-ga-gates
+      severity: warning
+- name: aurora_canary
+  rules:
+  - alert: AuroraCanaryTestsFailing
+    annotations:
+      description: 'Canary success rate is {{ $value }} (threshold: 0.67)'
+      summary: AURORA canary tests failing
+    expr: aurora_canary_test_success_rate < 0.67
+    for: 5m
+    labels:
+      component: aurora-canary
+      severity: critical

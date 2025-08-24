@@ -1,0 +1,14 @@
+# Checkpoint Analyzer Profiles
+profiles:
+  normal:
+    min_cosine: 0.992     # minimal acceptable cosine similarity to previous
+    min_nonzero_std: 1.0e-6  # layers with std below => potentially frozen
+    allow_nan: false
+    allow_inf: false
+    max_frozen_fraction: 0.10
+  strict:
+    min_cosine: 0.995
+    min_nonzero_std: 2.0e-6
+    allow_nan: false
+    allow_inf: false
+    max_frozen_fraction: 0.05

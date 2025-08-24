@@ -1,0 +1,37 @@
+{
+  "__inputs": [],
+  "__requires": [
+    {"type": "panel", "id": "timeseries", "name": "Time series", "version": "8.0.0"}
+  ],
+  "title": "AURORA Core Metrics",
+  "timezone": "browser",
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Prediction Latency (ms)",
+      "targets": [
+        {"expr": "histogram_quantile(0.95, sum(rate(aurora_prediction_latency_ms_bucket[5m])) by (le))", "refId": "A"},
+        {"expr": "histogram_quantile(0.99, sum(rate(aurora_prediction_latency_ms_bucket[5m])) by (le))", "refId": "B"}
+      ],
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0}
+    },
+    {
+      "type": "timeseries",
+      "title": "Kappa Plus",
+      "targets": [
+        {"expr": "aurora_kappa_plus", "refId": "A"}
+      ],
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0}
+    },
+    {
+      "type": "timeseries",
+      "title": "Router Regime",
+      "targets": [
+        {"expr": "aurora_regime", "refId": "A"}
+      ],
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8}
+    }
+  ],
+  "schemaVersion": 36,
+  "version": 1
+}
