@@ -172,3 +172,35 @@ AURORA_MODE=shadow
 Быстрый старт:
 
 1) Создайте `.env` из `.env.example` и задайте ключи при необходимости. 2) Запустите API: `python tools/auroractl.py start-api`. 3) Прогон канарейки: `python tools/auroractl.py canary --minutes 5`. 4) Сводка: `python tools/auroractl.py metrics --window-sec 600`.
+
+## Repo layout after archive
+
+After running `tools/archive_nonprod.py` the repository will move non-production materials into `archive/YYYYMMDD/` while preserving relative paths. The working repo will keep production-critical code and CLI tools.
+
+Typical post-archive layout:
+
+- `api/`, `core/`, `skalp_bot/`, `configs/`, `tests/`, `tools/` (including `auroractl.py`)
+- `archive/YYYYMMDD/` (contains `notebooks/`, `experiments/`, `prototypes/`, `scripts/legacy/`, `docs/drafts/`, `tmp/`, `*.ps1`, etc.)
+
+How to restore files from archive
+
+1. Find the archive folder for the date you ran the script, e.g. `archive/20250826/`.
+2. You can manually move files back using file explorer or a command-line move. Example (PowerShell):
+
+```powershell
+# Restore a notebook
+Move-Item archive\20250826\notebooks\analysis.ipynb notebooks\analysis.ipynb
+
+# Restore an entire folder
+Move-Item archive\20250826\experiments\* experiments\
+```
+
+3. Alternatively, use Python to programmatically restore entries listed in `archive/YYYYMMDD/ARCHIVE_INDEX.md`.
+
+Usage examples
+
+```bash
+python tools/archive_nonprod.py --dry-run
+python tools/archive_nonprod.py
+```
+

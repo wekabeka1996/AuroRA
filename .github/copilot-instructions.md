@@ -14,7 +14,7 @@ Purpose: help AI agents be productive immediately. Focus on THIS codebase’s ar
   - Prometheus at `/metrics` (see `monitoring/`), JSONL event bus: `logs/events.jsonl` via `common/events.py` (structlog friendly).
 
 ## Critical workflows
-- Install + tests (Windows PowerShell):
+ - Install + tests (Windows PowerShell):
   - `python -m pip install -r requirements.txt`
   - `python -m pip install -r requirements-dev.txt`
   - Run targeted tests to avoid legacy name clash: `pytest -q tests\unit\test_binance_tfi.py tests\unit\test_calibrator.py`
@@ -26,6 +26,8 @@ Purpose: help AI agents be productive immediately. Focus on THIS codebase’s ar
   - Set `.env` (see `.env.example`): BINANCE_API_KEY/SECRET, AURORA_MODE=shadow.
   - Start runner (reads `skalp_bot/configs/default.yaml`): module `skalp_bot.runner.run_live_aurora`.
   - On Windows prefer a small PS script over one‑liners to avoid quoting issues.
+
+Note: this developer environment uses bash as the default interactive shell; prefer providing bash-compatible examples for shell commands. PowerShell-specific notes are included above for Windows users.
 
 ## Project‑specific conventions
 - Config‑driven:
