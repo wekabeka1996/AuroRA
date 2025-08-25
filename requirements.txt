@@ -13,3 +13,5 @@ tenacity
 pyyaml
 requests
 structlog
+typer
+python-dotenv

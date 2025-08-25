@@ -61,9 +61,29 @@ class CCXTBinanceAdapter:
             "options": options,
         }
 
-        # Instantiate exchange by id
-        ex_class = getattr(ccxt, exchange_id)
+        # Instantiate exchange by id with safe fallback
+        try:
+            ex_class = getattr(ccxt, exchange_id)
+        except AttributeError:
+            # Fallback: some ccxt builds may not expose binanceusdm; use binance with futures defaultType
+            if exchange_id == "binanceusdm" and hasattr(ccxt, "binance"):
+                ex_class = getattr(ccxt, "binance")
+                try:
+                    # ensure defaultType is future in params.options
+                    opts = params.setdefault("options", {})
+                    opts["defaultType"] = "future"
+                except Exception:
+                    pass
+            else:
+                raise
         self.ex = ex_class(params)
+
+        # Load markets early for precision/limits access
+        try:
+            self.ex.load_markets()
+        except Exception:
+            # Will attempt lazily later
+            pass
 
         # Testnet (sandbox) mode
         try:
@@ -100,11 +120,14 @@ class CCXTBinanceAdapter:
             self.ex.apiKey = key
             self.ex.secret = sec
 
-        # Symbol and dry-run
+    # Symbol and dry-run
         self.symbol = exch.get("symbol", cfg.get("symbol", "BTC/USDT"))
         self.dry = bool(cfg.get("dry_run", True))
         if os.getenv("DRY_RUN") is not None:
             self.dry = str(os.getenv("DRY_RUN")).lower() in {"1", "true", "yes"}
+        # Early validation: LIVE mode requires keys
+        if self.dry is False and (not getattr(self.ex, 'apiKey', None) or not getattr(self.ex, 'secret', None)):
+            raise RuntimeError("Missing BINANCE_API_KEY/SECRET for LIVE run (DRY_RUN=false)")
 
         # Optional: set leverage if provided (best-effort; ignore failures)
         lev = exch.get("leverage", cfg.get("leverage"))
@@ -143,12 +166,96 @@ class CCXTBinanceAdapter:
         spread = to_float(asks[0][0]) - to_float(bids[0][0])
         return mid, spread, bids, asks, trades
 
+    def _ensure_markets(self):
+        try:
+            if not getattr(self.ex, "markets", None):
+                self.ex.load_markets()
+        except Exception:
+            pass
+
+    def _quantize_amount(self, amount: float) -> float:
+        try:
+            return float(self.ex.amount_to_precision(self.symbol, amount))
+        except Exception:
+            # fallback: round to 1e-6
+            return float(f"{amount:.6f}")
+
+    def _quantize_price(self, price: float) -> float:
+        try:
+            return float(self.ex.price_to_precision(self.symbol, price))
+        except Exception:
+            # fallback: round to 1e-2
+            return float(f"{price:.2f}")
+
+    def _get_limits(self) -> dict:
+        self._ensure_markets()
+        try:
+            m = self.ex.markets.get(self.symbol) or self.ex.market(self.symbol)
+            return (m.get("limits") or {}) if m else {}
+        except Exception:
+            return {}
+
+    def _estimate_price(self) -> float:
+        # Try ticker last/close; fallback to mid from order book
+        try:
+            ticker = self.ex.fetch_ticker(self.symbol) or {}
+            p = ticker.get("last") or ticker.get("close")
+            if p:
+                return float(p)
+        except Exception:
+            pass
+        try:
+            ob = self.ex.fetch_order_book(self.symbol, limit=5) or {}
+            bids = ob.get("bids") or []
+            asks = ob.get("asks") or []
+            if bids and asks:
+                return (float(bids[0][0]) + float(asks[0][0])) / 2.0
+        except Exception:
+            pass
+        return 0.0
+
     def place_order(self, side: Literal["buy", "sell"], qty: float, price: float | None = None):
+        """Place order with exchange precision and limit checks.
+
+        - Quantizes amount/price via ccxt helpers
+        - Validates minQty and minCost when available
+        """
         if self.dry:
             return {"info": "dry_run", "side": side, "qty": qty, "price": price}
+
         order_type = "limit" if price is not None else "market"
         params = {"timeInForce": "GTC"} if order_type == "limit" else {}
-        return self.ex.create_order(self.symbol, order_type, side, qty, price, params)
+
+        # Quantize amount/price to exchange precision
+        qty_q = self._quantize_amount(float(qty))
+        price_q = None
+        if price is not None:
+            price_q = self._quantize_price(float(price))
+
+        # Enforce limits where possible
+        limits = self._get_limits()
+        min_amt = None
+        min_cost = None
+        try:
+            min_amt = (limits.get("amount") or {}).get("min")
+        except Exception:
+            pass
+        try:
+            min_cost = (limits.get("cost") or {}).get("min")
+        except Exception:
+            pass
+
+        if min_amt is not None and qty_q < float(min_amt):
+            raise ValueError(f"Order amount {qty_q} below minQty {min_amt} for {self.symbol}")
+
+        # Estimate cost for market orders (or when price not provided)
+        est_price = price_q if price_q is not None else self._estimate_price()
+        if min_cost is not None and est_price and (qty_q * est_price) < float(min_cost):
+            raise ValueError(
+                f"Order cost {qty_q * est_price:.8f} below minCost {min_cost} for {self.symbol}"
+            )
+
+        return self.ex.create_order(self.symbol, order_type, side, qty_q, price_q, params)
 
     def cancel_all(self):
         if self.dry:

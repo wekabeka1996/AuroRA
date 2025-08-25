@@ -3,17 +3,27 @@ import sys
 import yaml
 import asyncio
 import uvicorn
+import json
+import time
 from fastapi import FastAPI, HTTPException, Request
 from contextlib import asynccontextmanager
 from fastapi.responses import RedirectResponse
 from pathlib import Path
 from pydantic import BaseModel
 from prometheus_client import make_asgi_app, Histogram, Gauge, Counter
+from dotenv import load_dotenv, find_dotenv
 
 # Ensure project root is on sys.path when running directly (python api/service.py)
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
+
+# Ensure environment variables from .env are loaded for all entrypoints (uvicorn or direct)
+try:
+    load_dotenv(find_dotenv())
+except Exception:
+    # Non-fatal if dotenv is unavailable; uvicorn --env-file may still be used
+    pass
 
 # Lazy import TradingSystem to avoid heavy deps (e.g., torch) at module import time.
 # We'll attempt to import it during app lifespan and fall back gracefully if unavailable.
@@ -23,6 +33,7 @@ from core.scalper.sprt import SPRT, SprtConfig
 from core.scalper.trap import TrapWindow
 from common.config import load_sprt_cfg
 from common.events import EventEmitter
+from core.order_logger import OrderLoggers
 from risk.manager import RiskManager
 from aurora.health import HealthGuard
 from tools.build_version import build_version_record
@@ -73,6 +84,12 @@ async def lifespan(app: FastAPI):
     except Exception:
         emitter_path = 'logs/events.jsonl'
     app.state.events_emitter = EventEmitter(path=Path(emitter_path))
+
+    # Order loggers (success/failed/denied)
+    try:
+        app.state.order_loggers = OrderLoggers()
+    except Exception:
+        app.state.order_loggers = None
 
     # Trap window
     trap_cfg = (cfg or {}).get('trap') or {}
@@ -222,14 +239,31 @@ async def root():
 async def health():
     ts = getattr(app.state, 'trading_system', None)
     model_loaded = ts is not None and ts.student is not None and ts.router is not None
+    # Always return 200 for liveness-style health with details; readiness is a separate endpoint
+    cfg_all = getattr(app.state, 'cfg', {}) or {}
+    order_profile = (cfg_all.get('pretrade', {}) or {}).get('order_profile', 'er_before_slip')
+    order_profile = os.getenv('PRETRADE_ORDER_PROFILE', order_profile)
+    return {
+        "status": "healthy" if model_loaded else "starting",
+        "models_loaded": bool(model_loaded),
+        "version": build_version_record(order_profile),
+    }
+
+
+@app.get("/liveness")
+async def liveness():
+    """Fast liveness probe: returns 200 if process is up."""
+    return {"status": "alive"}
+
+
+@app.get("/readiness")
+async def readiness():
+    """Readiness probe: 200 only when core models/services are initialized; else 503."""
+    ts = getattr(app.state, 'trading_system', None)
+    model_loaded = ts is not None and ts.student is not None and ts.router is not None
     if model_loaded:
-        # include version info and order_profile
-        cfg_all = getattr(app.state, 'cfg', {}) or {}
-        order_profile = (cfg_all.get('pretrade', {}) or {}).get('order_profile', 'er_before_slip')
-        order_profile = os.getenv('PRETRADE_ORDER_PROFILE', order_profile)
-        return {"status": "healthy", "models_loaded": True, "version": build_version_record(order_profile)}
-    else:
-        raise HTTPException(status_code=503, detail={"status": "unhealthy", "models_loaded": False})
+        return {"status": "ready", "models_loaded": True}
+    raise HTTPException(status_code=503, detail={"status": "not_ready", "models_loaded": False})
 
 
 @app.post("/pretrade/check", response_model=PretradeCheckResponse)
@@ -263,10 +297,14 @@ async def pretrade_check(request: Request, req: PretradeCheckRequest):
 
         allow = True
         reason = 'ok'
+        # If prod mode and trading system is not ready, mark as unhealthy but still allow
+        # advisory evaluations of ER/slippage for observability.
+        prod_unhealthy = False
         if mode == 'prod':
             ts = getattr(request.app.state, 'trading_system', None)
             if ts is None or ts.student is None or ts.router is None:
                 allow, reason = False, 'service_unhealthy'
+                prod_unhealthy = True
 
         reasons: list[str] = []
 
@@ -426,7 +464,8 @@ async def pretrade_check(request: Request, req: PretradeCheckRequest):
 
         def _run_expected_return():
             nonlocal allow, reason
-            if allow:
+            # Evaluate ER gate when allowed OR in prod_unhealthy advisory mode (for observability).
+            if allow or prod_unhealthy:
                 fees_bps_local = float(req.fees_bps or 0.0)
                 cal = IsotonicCalibrator()
                 ci = CalibInput(score=score, a_bps=a_bps, b_bps=b_bps, fees_bps=fees_bps_local, slip_bps=slip_bps_est, regime=regime)
@@ -435,17 +474,9 @@ async def pretrade_check(request: Request, req: PretradeCheckRequest):
                     pi_min_local = float(os.getenv('AURORA_PI_MIN_BPS', '2.0'))
                 except Exception:
                     pi_min_local = 2.0
-                if not gate_expected_return(e_pi_bps=out_local.e_pi_bps, pi_min_bps=pi_min_local, reasons=reasons):
-                    allow, reason = False, 'expected_return_gate'
-                    if emitter:
-                        emitter.emit(
-                            type="AURORA.RISK_WARN",
-                            severity="warning",
-                            code="AURORA.EXPECTED_RETURN_LOW",
-                            payload={"e_pi_bps": out_local.e_pi_bps, "pi_min_bps": pi_min_local},
-                        )
-                else:
-                    # Positive ER decision (advisory even in shadow). Record explicit acceptance for observability.
+                er_ok = gate_expected_return(e_pi_bps=out_local.e_pi_bps, pi_min_bps=pi_min_local, reasons=reasons)
+                if er_ok:
+                    # Positive ER decision (advisory even in shadow or prod_unhealthy). Record acceptance.
                     reasons.append("expected_return_accept")
                     if emitter:
                         emitter.emit(
@@ -461,6 +492,21 @@ async def pretrade_check(request: Request, req: PretradeCheckRequest):
                                 "regime": regime,
                             },
                         )
+                    # Only modify allow if we weren't already blocked due to prod_unhealthy
+                    if allow:
+                        # keep allow as is (still True), ER passed
+                        pass
+                else:
+                    # ER below threshold: emit warning and block only if currently allowed (not prod_unhealthy advisory)
+                    if emitter:
+                        emitter.emit(
+                            type="AURORA.RISK_WARN",
+                            severity="warning",
+                            code="AURORA.EXPECTED_RETURN_LOW",
+                            payload={"e_pi_bps": out_local.e_pi_bps, "pi_min_bps": pi_min_local},
+                        )
+                    if allow:
+                        allow, reason = False, 'expected_return_gate'
 
         def _run_slippage():
             nonlocal allow, reason
@@ -564,6 +610,25 @@ async def pretrade_check(request: Request, req: PretradeCheckRequest):
 
         quotas = {'trades_pm_left': 999, 'symbol_exposure_left_usdt': 1e12}
 
+        # If gate denies, log into denied orders stream
+        try:
+            if not allow:
+                ol: OrderLoggers | None = getattr(request.app.state, 'order_loggers', None)
+                if ol is not None:
+                    o = req.order or {}
+                    ol.log_denied(
+                        ts=int(time.time() * 1000),
+                        symbol=o.get('symbol'),
+                        side=o.get('side'),
+                        qty=o.get('qty'),
+                        price=o.get('price'),
+                        deny_reason=reason,
+                        reasons=reasons,
+                        observability=obs,
+                    )
+        except Exception:
+            pass
+
         if emitter:
             emitter.emit(
                 type="POLICY.DECISION",
@@ -583,8 +648,62 @@ async def pretrade_check(request: Request, req: PretradeCheckRequest):
 
 
 @app.post("/posttrade/log")
-async def posttrade_log(payload: dict):
+async def posttrade_log(request: Request, payload: dict):
     try:
+        # Emit as event for consolidated observability
+        emitter: EventEmitter | None = getattr(request.app.state, 'events_emitter', None)
+        if emitter:
+            try:
+                emitter.emit(type="POSTTRADE.LOG", severity=None, code=None, payload=payload)
+            except Exception:
+                pass
+
+        # Persist raw payload line-by-line into logs/orders.jsonl (path configurable via configs.logging.orders_path)
+        try:
+            cfg_all = getattr(request.app.state, 'cfg', {}) or {}
+            orders_path = ((cfg_all.get('logging') or {}).get('orders_path')) or 'logs/orders.jsonl'
+        except Exception:
+            orders_path = 'logs/orders.jsonl'
+        try:
+            p = Path(orders_path)
+            p.parent.mkdir(parents=True, exist_ok=True)
+            rec = dict(payload)
+            rec.setdefault('ts_server', int(time.time() * 1000))
+            with p.open('a', encoding='utf-8') as f:
+                f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+        except Exception:
+            # do not fail the API if file-write has issues
+            pass
+
+        # Also route into per-stream order logs
+        try:
+            ol: OrderLoggers | None = getattr(request.app.state, 'order_loggers', None)
+            if ol is not None:
+                rec = dict(payload)
+                status = str(rec.get('status', '')).lower()
+                is_failed = bool(rec.get('error') or rec.get('error_code') or rec.get('error_msg'))
+                is_success = status in {"filled", "partially_filled", "partial", "closed"} or (rec.get('filled') or 0) > 0
+                base = {
+                    'ts': rec.get('ts') or rec.get('ts_server') or int(time.time() * 1000),
+                    'symbol': rec.get('symbol'),
+                    'side': rec.get('side'),
+                    'qty': rec.get('qty') or rec.get('amount'),
+                    'price': rec.get('price'),
+                    'order_id': rec.get('order_id') or rec.get('id'),
+                    'status': rec.get('status'),
+                }
+                if is_failed:
+                    base.update({'error_code': rec.get('error_code'), 'error_msg': rec.get('error_msg'), 'retry': rec.get('retry')})
+                    ol.log_failed(**base)
+                elif is_success:
+                    base.update({'fill_qty': rec.get('filled'), 'avg_price': rec.get('average') or rec.get('avg_price'), 'fees': rec.get('fee') or rec.get('fees')})
+                    ol.log_success(**base)
+                else:
+                    # if uncertain status, conservatively log as failed
+                    ol.log_failed(**base)
+        except Exception:
+            pass
+
         return {"status": "ok"}
     except Exception as e:
         raise HTTPException(status_code=422, detail=str(e))

@@ -1,14 +1,14 @@
 {
   "result": "OK",
   "violations": [],
-  "summary_path": "artifacts\\canary_60min_summary.md",
-  "events_path": "logs\\events.jsonl",
   "params": {
-    "strict": true,
-    "slip_threshold": 0.3,
-    "risk_threshold": 2,
-    "latency_threshold": 2,
-    "window_sec": 300
+    "window_sec": 120
   },
-  "timestamp": "2025-08-24T19:52:34.200831Z"
+  "computed": {
+    "expected_return_accepts": 590,
+    "latency_p95_alerts": 0,
+    "spread_trips": 0,
+    "risk_denies": 0
+  },
+  "timestamp": 1756152470
 }

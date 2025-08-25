@@ -39,3 +39,8 @@ Format per entry:
   - files: core/scalper/trap.py, core/aurora/pretrade.py, api/service.py, configs/v4_min.yaml, tests/integration/test_trap_zscore_gate.py
   - summary: Implemented TRAP rolling z-score + conflict rule guard with observability; fixed API wiring and relaxed test to allow block on first or second call; verified POLICY.TRAP_BLOCK emission
   - tests: unit=PASS, integration=PASS (trap_zscore_gate, latency_slippage, expected_return)
+
+- [2025-08-25 09:30] R1/CLI-UNIFY / auroractl wallet_check + metrics p95
+  - files: tools/auroractl.py, README.md, Makefile
+  - summary: Extended wallet_check (withdrawals status/limits on live), added metrics latency_p95 CSV + optional Pushgateway; documented CLI and added Makefile helpers
+  - tests: unit/integration=PASS (wallet_check, metrics p95, expected_return, latency)

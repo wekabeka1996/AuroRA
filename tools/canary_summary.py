@@ -159,6 +159,13 @@ def fallback_slip_ratio(events: list[dict]) -> float | None:
                 # fallback to bps
                 mb = sl.get("model_bps") or payload.get("slip_bps")
                 qb = payload.get("b_bps") or payload.get("quoted_bps")
+                # Also check nested observability for POLICY.DECISION events
+                if (mb is None or qb is None) and isinstance(payload.get("observability"), dict):
+                    obs = payload["observability"]
+                    if mb is None:
+                        mb = obs.get("slip_bps_est") or obs.get("slip_bps")
+                    if qb is None:
+                        qb = obs.get("b_bps") or obs.get("quoted_bps")
                 if mb is None or qb is None:
                     continue
                 num.append(abs(float(mb)))

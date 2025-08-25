@@ -1,5 +1,7 @@
 
 import os, time, yaml, math, statistics, numpy as np
+from pathlib import Path
+from common.events import EventEmitter
 from skalp_bot.exch.ccxt_binance import CCXTBinanceAdapter
 from skalp_bot.core.signals import (
     micro_price, obi_from_l5, tfi_from_trades,
@@ -36,6 +38,18 @@ def main(cfg_path: str | None = None):
         # keep relative path as-is if explicitly provided but not absolute
         cfg_path = cfg_path
     cfg = load_cfg(cfg_path)
+    # Env-over-YAML precedence (minimal): DRY_RUN and AURORA_MODE
+    def _env_bool(name: str, default: bool) -> bool:
+        v = os.getenv(name)
+        if v is None:
+            return default
+        return v.strip().lower() in ("1", "true", "yes", "on")
+    cfg['dry_run'] = _env_bool('DRY_RUN', bool(cfg.get('dry_run', True)))
+    aurora_cfg = cfg.get('aurora') or {}
+    env_mode = os.getenv('AURORA_MODE')
+    if env_mode:
+        aurora_cfg['mode'] = env_mode
+    cfg['aurora'] = aurora_cfg
     ex = CCXTBinanceAdapter(cfg)
     risk = RiskManager(cfg)
 
@@ -44,7 +58,31 @@ def main(cfg_path: str | None = None):
     aur  = cfg.get('aurora', {'enabled': True, 'base_url': 'http://127.0.0.1:8000', 'mode': os.getenv('AURORA_MODE', 'shadow')})
     clk  = cfg.get('clock_gate', { 'enabled': True, 'windows_sec': [[20,90],[420,510],[840,870]] })
 
-    gate = AuroraGate(base_url=aur.get('base_url', 'http://127.0.0.1:8000'), mode=aur.get('mode', 'shadow'))
+    # Observability emitter
+    emitter = EventEmitter(path=Path('logs') / 'events.jsonl')
+
+    # Env overrides
+    def _as_bool(x: str | None) -> bool:
+        if x is None:
+            return False
+        v = x.strip().lower()
+        return v in ("1", "true", "yes", "on")
+
+    is_testnet = _as_bool(os.getenv('EXCHANGE_TESTNET', 'false'))
+    clock_env = os.getenv('CLOCK_GUARD') or os.getenv('AURORA_CLOCK_GUARD')
+    if clock_env is not None and clock_env.strip().lower() in ("off", "0", "false", "no"):
+        clk['enabled'] = False
+
+    # Configure HTTP timeout for Aurora gate (default 100ms)
+    try:
+        _http_to_ms = int(os.getenv('AURORA_HTTP_TIMEOUT_MS', '100'))
+    except Exception:
+        _http_to_ms = 100
+    gate = AuroraGate(
+        base_url=aur.get('base_url', 'http://127.0.0.1:8000'),
+        mode=aur.get('mode', 'shadow'),
+        timeout_s=max(0.01, float(_http_to_ms) / 1000.0),
+    )
     order_size = float(exe.get('order_size', 0.001))
     fees_bps   = float(exe.get('fees_bps', 1.0))
 
@@ -119,6 +157,9 @@ def main(cfg_path: str | None = None):
 
     tick_id = 0
     last_scores = []
+    # rolling window of chosen spread (for adaptive limit on testnet)
+    spread_window: list[float] = []
+
     while True:
         # Fetch market snapshot
         mid, spread, bids, asks, trades = ex.fetch_top_of_book()
@@ -227,9 +268,71 @@ def main(cfg_path: str | None = None):
         last_scores.append(score)
         if len(last_scores) > 10:
             last_scores = last_scores[-10:]
+        # Compute raw top-of-book spread and effective spread (testnet only)
+        spread_bps_raw = float(spread / mid * 1e4 if mid else 0.0)
+
+        def _vwap_for_base_qty(base_qty: float, side: str) -> float:
+            # Walk top-3 levels to get average execution price for base quantity
+            if base_qty <= 0:
+                return float('nan')
+            book = asks if side == 'buy' else bids
+            remaining = base_qty
+            paid_quote = 0.0
+            filled_base = 0.0
+            for p, q in book[:3]:
+                p = float(p); q = float(q)
+                if p <= 0 or q <= 0:
+                    continue
+                take_base = min(q, remaining)
+                paid_quote += take_base * p
+                filled_base += take_base
+                remaining -= take_base
+                if remaining <= 1e-12:
+                    break
+            if filled_base <= 0:
+                return float('nan')
+            return paid_quote / filled_base
+
+        order_size = float(exe.get('order_size', 0.001))
+        px_buy = _vwap_for_base_qty(order_size, 'buy')
+        px_sell = _vwap_for_base_qty(order_size, 'sell')
+        eff_spread_bps = float(((px_buy - px_sell) / mid) * 1e4) if (mid and not math.isnan(px_buy) and not math.isnan(px_sell)) else spread_bps_raw
+        chosen_spread_bps = eff_spread_bps if is_testnet else spread_bps_raw
+
+        # Approximate ATR in bps to serve as symmetric a/b impact for expected-return gate
+        if atr_val is not None and mid:
+            try:
+                atr_bps = float(atr_val / float(mid) * 1e4)
+            except Exception:
+                atr_bps = float(vol_bps)
+        else:
+            atr_bps = float(vol_bps)
+        a_bps_est = max(2.0, min(150.0, float(atr_bps)))
+        b_bps_est = a_bps_est
+        # Slippage estimate as a fraction of effective (or raw) spread
+        # Make the fraction configurable via env (use a safer lower default on testnet)
+        try:
+            _slip_frac_default = 0.25 if is_testnet else 0.50
+            slip_frac = float(os.getenv('AURORA_SLIP_FRACTION', str(_slip_frac_default)))
+        except Exception:
+            slip_frac = 0.25 if is_testnet else 0.50
+        slip_frac = max(0.0, min(1.0, float(slip_frac)))
+        slip_bps_est = float(max(0.0, slip_frac * chosen_spread_bps))
+        # Simple regime proxy from trend alignment
+        mode_regime = ('trend_pos' if trend_align > 0 else ('trend_neg' if trend_align < 0 else 'normal'))
+
         market = {
             'mid': mid,
-            'spread_bps': float(spread / mid * 1e4 if mid else 0.0),
+            'spread_bps': float(chosen_spread_bps),
+            'spread_bps_raw': float(spread_bps_raw),
+            'effective_spread_bps': float(eff_spread_bps),
+            # expected-return inputs
+            'score': float(score),
+            'a_bps': float(a_bps_est),
+            'b_bps': float(b_bps_est),
+            'slip_bps_est': float(slip_bps_est),
+            'mode_regime': mode_regime,
+            'latency_ms': 5.0,  # local proxy; real inference latency is measured server-side
             'obi_l5': float(obi) if obi is not None else 0.0,
             'tfi_5s': float(tfi) if tfi is not None else 0.0,
             'vol_1m_bps': vol_bps,
@@ -263,10 +366,37 @@ def main(cfg_path: str | None = None):
         entry_thr = 0.35
         exit_thr = 0.05
         if pos_side is None:
-            # hard spread guard
-            spread_limit = float(exe.get('spread_guard_bps_max', 8))
-            if market['spread_bps'] > spread_limit:
-                print(f"[SKIP] reason=spread_guard spread_bps={market['spread_bps']:.1f} limit={spread_limit}")
+            # hard spread guard with env override and adaptive limit on testnet
+            env_limit = os.getenv('AURORA_SPREAD_MAX_BPS')
+            base_limit = float(env_limit) if (env_limit is not None and env_limit.strip()) else float(exe.get('spread_guard_bps_max', 8))
+            # update rolling window
+            spread_window.append(float(chosen_spread_bps))
+            if len(spread_window) > 60:
+                spread_window = spread_window[-60:]
+            adapt_limit = base_limit
+            if is_testnet and spread_window:
+                try:
+                    med = statistics.median(spread_window)
+                    adapt_limit = max(base_limit, float(med * 2.0))
+                except Exception:
+                    adapt_limit = base_limit
+            if market['spread_bps'] > adapt_limit:
+                print(f"[SKIP] reason=spread_guard spread_bps={market['spread_bps']:.1f} limit={adapt_limit}")
+                try:
+                    emitter.emit(
+                        type="AURORA.SPREAD_GUARD_TRIP",
+                        payload={
+                            "spread_bps_raw": float(spread_bps_raw),
+                            "eff_spread_bps": float(eff_spread_bps),
+                            "limit_bps": float(adapt_limit),
+                            "top_of_book_spread_bps": float(spread_bps_raw),
+                            "qty_base": float(order_size),
+                            "testnet": bool(is_testnet),
+                        },
+                        severity="info",
+                    )
+                except Exception:
+                    pass
             else:
                 if score >= entry_thr:
                     side = 'LONG'
@@ -421,28 +551,33 @@ def main(cfg_path: str | None = None):
                     pos_side, pos_qty, entry_mid, entry_ts = None, 0.0, None, None
                     tp_price, sl_price = None, None
 
-        # entry gating by time, trap, and OBI persistence
-        skip_reason = None
+        # entry pre-checks (hard) and post-checks (soft):
+        # - Hard: clock/trap only — block before calling Aurora gate to avoid noise.
+        # - Soft: obi_persist/consensus/reconfirm — applied AFTER gate, to decide order placement (but gate still gets called for observability).
+        pre_skip_reason = None
+        post_local_reason = None
         if side is not None:
             if not clock_ok:
-                skip_reason = 'clock_no'
+                pre_skip_reason = 'clock_no'
             elif trap_flag:
-                skip_reason = 'trap'
-            elif (side == 'LONG' and obi_persist < 0.66) or (side == 'SHORT' and obi_persist_neg < 0.66):
-                skip_reason = 'obi_persist'
-            # OBI/TFI consensus mandatory
-            elif side == 'LONG' and not consensus_ok_long:
-                skip_reason = 'consensus_long_fail'
-            elif side == 'SHORT' and not consensus_ok_short:
-                skip_reason = 'consensus_short_fail'
-            # reconfirm on tick of open: use 2-s avg
+                pre_skip_reason = 'trap'
             else:
-                score_now = score
-                score_avg_2s = float(sum(last_scores[-2:]) / max(1, len(last_scores[-2:])))
-                if not ((score_now >= entry_thr if side=='LONG' else score_now <= -entry_thr) and (score_avg_2s >= entry_thr if side=='LONG' else score_avg_2s <= -entry_thr)):
-                    skip_reason = 'reconfirm_fail'
-        if skip_reason is not None:
-            print(f"[SKIP] reason={skip_reason} side={side} score={score:+.3f} obi={obi} tfi={tfi} spread_bps={market['spread_bps']:.1f}")
+                # collect soft reasons (do not prevent gate call)
+                if (side == 'LONG' and obi_persist < 0.66) or (side == 'SHORT' and obi_persist_neg < 0.66):
+                    post_local_reason = 'obi_persist'
+                elif side == 'LONG' and not consensus_ok_long:
+                    post_local_reason = 'consensus_long_fail'
+                elif side == 'SHORT' and not consensus_ok_short:
+                    post_local_reason = 'consensus_short_fail'
+                else:
+                    score_now = score
+                    score_avg_2s = float(sum(last_scores[-2:]) / max(1, len(last_scores[-2:])))
+                    ok_now = (score_now >= entry_thr) if side == 'LONG' else (score_now <= -entry_thr)
+                    ok_avg = (score_avg_2s >= entry_thr) if side == 'LONG' else (score_avg_2s <= -entry_thr)
+                    if not (ok_now and ok_avg):
+                        post_local_reason = 'reconfirm_fail'
+        if pre_skip_reason is not None:
+            print(f"[SKIP] reason={pre_skip_reason} side={side} score={score:+.3f} obi={obi} tfi={tfi} spread_bps={market['spread_bps']:.1f}")
             side = None
 
         # defaults for diagnostics
@@ -482,6 +617,11 @@ def main(cfg_path: str | None = None):
                 else:
                     # Pre-trade check
                     if aur.get('enabled', True):
+                        # enrich order with base_notional for risk
+                        try:
+                            order['base_notional'] = float(order['qty']) * float(price_val)
+                        except Exception:
+                            pass
                         resp = gate.check(account=account, order=order, market=market, risk_tags=("scalping", "auto"), fees_bps=fees_bps)
                         gate_state = resp.get('observability', {}).get('gate_state')
                         gate_allow = bool(resp.get('allow', True))
@@ -496,26 +636,46 @@ def main(cfg_path: str | None = None):
                             if cd > 0:
                                 time.sleep(cd)
 
-                            # Place order (dry_run friendly in adapter)
-                            # ATR guard: don't open if ATR unavailable
-                            atr_used = atr_val if atr_val is not None else (mid * (vol_bps / 1e4) if mid else None)
-                            if atr_used is None:
-                                print("[GUARD] ATR unavailable, skip open")
+                            # Post local filters: only place order if they pass; gate still executed for observability
+                            if post_local_reason is not None:
+                                print(f"[SKIP] reason={post_local_reason} side={side} score={score:+.3f} obi={obi} tfi={tfi} spread_bps={market['spread_bps']:.1f}")
                             else:
-                                r = ex.place_order(side=('buy' if side == 'LONG' else 'sell'), qty=order['qty'], price=order.get('price'))
-                                pos_side, pos_qty, entry_mid = side, order['qty'], mid
-                                entry_ts = now_ts
-                                # Compute ATR-based OCO
-                                if side == 'LONG':
-                                    tp_price = entry_mid + 1.2 * atr_used
-                                    sl_price = entry_mid - 0.8 * atr_used
+                                # Place order (dry_run friendly in adapter)
+                                # ATR guard: don't open if ATR unavailable
+                                atr_used = atr_val if atr_val is not None else (mid * (vol_bps / 1e4) if mid else None)
+                                if atr_used is None:
+                                    print("[GUARD] ATR unavailable, skip open")
                                 else:
-                                    tp_price = entry_mid - 1.2 * atr_used
-                                    sl_price = entry_mid + 0.8 * atr_used
-                                print(f"[OCO] tp={tp_price:.2f} sl={sl_price:.2f} atr={atr_used:.2f}")
-                                print(f"[TRADE] {side} qty={order['qty']} price={order.get('price')} resp={r}")
-                                print(f"[ENTRY] side={side} score_now={score:+.3f} avg2s={float(sum(last_scores[-2:]) / max(1, len(last_scores[-2:]))):+.3f} obi={obi} tfi={tfi} spread={market['spread_bps']:.1f} reason=clock_open_reconfirm")
-                                recent_trades_ts.append(now_ts)
+                                    r = ex.place_order(side=('buy' if side == 'LONG' else 'sell'), qty=order['qty'], price=order.get('price'))
+                                    pos_side, pos_qty, entry_mid = side, order['qty'], mid
+                                    entry_ts = now_ts
+                                    # Compute ATR-based OCO
+                                    if side == 'LONG':
+                                        tp_price = entry_mid + 1.2 * atr_used
+                                        sl_price = entry_mid - 0.8 * atr_used
+                                    else:
+                                        tp_price = entry_mid - 1.2 * atr_used
+                                        sl_price = entry_mid + 0.8 * atr_used
+                                    print(f"[OCO] tp={tp_price:.2f} sl={sl_price:.2f} atr={atr_used:.2f}")
+                                    print(f"[TRADE] {side} qty={order['qty']} price={order.get('price')} resp={r}")
+                                    print(f"[ENTRY] side={side} score_now={score:+.3f} avg2s={float(sum(last_scores[-2:]) / max(1, len(last_scores[-2:]))):+.3f} obi={obi} tfi={tfi} spread={market['spread_bps']:.1f} reason=clock_open_reconfirm")
+                                    # Log order open to posttrade endpoint for consolidated orders.jsonl
+                                    try:
+                                        po = order.get('price')
+                                        po_val = float(po) if po is not None else (float(mid) if mid is not None else 0.0)
+                                        gate.posttrade(
+                                            ts_open=int(time.time() * 1000),
+                                            req_id=f"rq-{int(time.time()*1e6)}",
+                                            symbol=ex.symbol.replace('/', ''),
+                                            side=side,
+                                            qty=float(order['qty']),
+                                            price_open=po_val,
+                                            reason="open",
+                                            response=r,
+                                        )
+                                    except Exception:
+                                        pass
+                                    recent_trades_ts.append(now_ts)
                     else:
                         # Aurora disabled: keep defaults
                         pass
@@ -528,7 +688,7 @@ def main(cfg_path: str | None = None):
                 f"ATR:{(f'{atr_used_dbg:.2f}' if atr_used_dbg else 'None')} "
                 f"TRAP:{int(trap_flag)} LM:{int(len(recent_trades_ts) >= trades_pm_limit)} "
                 f"GATE:{gate_state} allow={gate_allow} max_qty={(gate_max_qty if gate_max_qty!=float('inf') else 'inf')} reason={gate_reason} "
-                f"OBI_p3s={obi_persist:.2f} MBias={micro_bias:.2f} spread_bps={market['spread_bps']:.1f}"
+                f"OBI_p3s={obi_persist:.2f} MBias={micro_bias:.2f} spread_bps={market['spread_bps']:.1f} raw_spread_bps={spread_bps_raw:.1f} eff_spread_bps={eff_spread_bps:.1f}"
             )
         except Exception:
             pass
