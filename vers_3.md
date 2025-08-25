@@ -341,44 +341,7 @@ DoD: Slash‑команди, події, T‑01..T‑06, sticky‑critical ал�
 * **Коміти:** Conventional Commits (`feat:`, `fix:`, `test:`…)
 * **CI (опц.):** GitHub Actions: `python -m pip install -e .[dev] && pytest`
 
-## 20.2 Структура репо (додати/уточнити)
 
-```
-core/
-  aurora/                # watchdog + gates + escalations
-    __init__.py
-    policy.py            # ескалації, cooloff/halt/kill
-    pretrade.py          # pre-trade contract & checks
-  scalper/
-    __init__.py
-    features.py          # OBI/TFI/OFI/MicroPrice/Absorb/TrendAlign
-    score.py             # alpha score + adaptive weights
-    calibrator.py        # isotonic/platt + E[Pi]
-    sprt.py              # sequential test (Wald/Bayes)
-    trap.py              # cancel/replenish metrics
-    sizing.py            # Kelly-cap & risk_scale integration
-    exits.py             # OCO/Time/Trailing/Reversal
-  runner/
-    __init__.py
-    execution.py         # place/cancel orders, allow-list
-  chat/
-    __init__.py
-    commands.py          # /aurora, /risk, /ops, /logs
-common/
-  __init__.py
-  config.py              # pydantic v4-min
-  events.py              # event schemas & emitters
-  utils.py
-configs/
-  v4_min.yaml
-docs/
-  aurora_chat_spec_v1.1.md
-tests/
-  unit/
-  integration/
-  fixtures/
-logs/
-```
 
 ---
 

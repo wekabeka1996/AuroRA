@@ -32,11 +32,33 @@ class OrderLoggers:
         self._lg_success = _make_rotating_logger("orders.success", self.success_path, self.max_mb, self.backups)
         self._lg_failed = _make_rotating_logger("orders.failed", self.failed_path, self.max_mb, self.backups)
         self._lg_denied = _make_rotating_logger("orders.denied", self.denied_path, self.max_mb, self.backups)
+        # Ensure files exist immediately (Windows locks/buffering can delay file creation by handlers)
+        try:
+            for p in (self.success_path, self.failed_path, self.denied_path):
+                p.parent.mkdir(parents=True, exist_ok=True)
+                if not p.exists():
+                    # create an empty file
+                    p.open('a', encoding='utf-8').close()
+        except Exception:
+            # best-effort; do not fail on logger init
+            pass
 
     def _write(self, logger: logging.Logger, rec: Dict[str, Any]) -> None:
         try:
             line = json.dumps(rec, ensure_ascii=False)
             logger.info(line)
+            # RotatingFileHandler may buffer; ensure file exists by appending as fallback
+            try:
+                p = None
+                for h in logger.handlers:
+                    if isinstance(h, RotatingFileHandler):
+                        p = Path(h.baseFilename)
+                        break
+                if p and not p.exists():
+                    p.parent.mkdir(parents=True, exist_ok=True)
+                    p.open('a', encoding='utf-8').write(line + "\n")
+            except Exception:
+                pass
         except Exception:
             # best-effort logging only
             pass

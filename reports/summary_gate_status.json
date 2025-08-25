@@ -1,14 +1,16 @@
 {
-  "result": "OK",
-  "violations": [],
+  "result": "ATTN",
+  "violations": [
+    "latency_p95_high"
+  ],
   "params": {
-    "window_sec": 120
+    "window_sec": 3600
   },
   "computed": {
-    "expected_return_accepts": 590,
-    "latency_p95_alerts": 0,
+    "expected_return_accepts": 0,
+    "latency_p95_alerts": 1,
     "spread_trips": 0,
     "risk_denies": 0
   },
-  "timestamp": 1756152470
+  "timestamp": 1756160226
 }

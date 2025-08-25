@@ -38,7 +38,10 @@ def load_report(path: Path) -> Dict[str, Any]:
 def parse_args(argv):
     ap = argparse.ArgumentParser(description='Ratcheting tool for CI thresholds.')
     ap.add_argument('--current', required=True, help='Current ci_thresholds.yaml file.')
-    ap.add_argument('--proposal', required=True, help='Proposal report JSON from derive script.')
+    # Accept both --proposal and legacy/test alias --proposed for compatibility
+    ap.add_argument('--proposal', required=False, help='Proposal report JSON from derive script.')
+    ap.add_argument('--proposed', required=False, help='Alias for --proposal (compat)', dest='proposal')
+    ap.add_argument('--report', required=False, help='Optional JSON report path to write summary')
     ap.add_argument('--out', required=True, help='Output YAML (ratcheted).')
     ap.add_argument('--max-step', type=float, default=0.05, help='Maximum relative change per metric (fraction).')
     ap.add_argument('--dryrun', action='store_true', help='Dryrun mode (still writes --out for inspection).')
@@ -120,9 +123,70 @@ def write_yaml(path: Path, data: Dict[str, Any]):
 def main(argv):
     args = parse_args(argv)
     current = load_yaml(Path(args.current))
-    proposal = load_report(Path(args.proposal))
-    new_data = ratchet(current, proposal, args.max_step)
-    write_yaml(Path(args.out), new_data)
+    if not args.proposal:
+        raise SystemExit(2)
+    proposal = None
+    # proposal file may be JSON or YAML; try JSON then YAML
+    ppath = Path(args.proposal)
+    if not ppath.exists():
+        raise FileNotFoundError(f"Proposal file not found: {ppath}")
+    try:
+        proposal = load_report(ppath)
+    except Exception:
+        import yaml as _yaml
+        with ppath.open('r', encoding='utf-8') as f:
+            proposal = _yaml.safe_load(f) or {}
+
+    # Normalize inputs: if user provided plain thresholds dict, wrap under expected keys
+    def _flatten(d, parent_key='', sep='.'):
+        items = {}
+        for k, v in (d or {}).items():
+            new_key = parent_key + sep + k if parent_key else k
+            if isinstance(v, dict):
+                items.update(_flatten(v, new_key, sep=sep))
+            else:
+                items[new_key] = v
+        return items
+
+    def _unflatten(d, sep='.'):
+        out = {}
+        for k, v in (d or {}).items():
+            parts = k.split(sep)
+            cur = out
+            for p in parts[:-1]:
+                cur = cur.setdefault(p, {})
+            cur[parts[-1]] = v
+        return out
+
+    # Determine thresholds dicts
+    cur_thresholds = current.get('thresholds') if isinstance(current, dict) and 'thresholds' in current else current
+    prop_thresholds = None
+    if isinstance(proposal, dict) and 'new' in proposal and isinstance(proposal['new'], dict) and 'thresholds' in proposal['new']:
+        prop_thresholds = proposal['new']['thresholds']
+    else:
+        prop_thresholds = proposal
+
+    flat_cur = _flatten(cur_thresholds)
+    flat_prop = _flatten(prop_thresholds)
+
+    norm_current = {'thresholds': flat_cur}
+    norm_proposal = {'new': {'thresholds': flat_prop}}
+    new_data = ratchet(norm_current, norm_proposal, args.max_step)
+    # new_data['thresholds'] is flat mapping; unflatten for output YAML
+    # Write thresholds as flat top-level keys for compatibility with callers/tests
+    flat_out = new_data.get('thresholds', {})
+    out_doc = dict(flat_out)
+    # include meta if present
+    if new_data.get('meta'):
+        out_doc['meta'] = new_data.get('meta')
+    write_yaml(Path(args.out), out_doc)
+    # optional report
+    if args.report:
+        changes = new_data.get('meta', {}).get('ratchet', {}).get('changes', {})
+        clamped = [k for k, v in (changes or {}).items() if v.get('clamped')]
+        report = {'clamped_total': len(clamped), 'clamped': clamped}
+        with open(args.report, 'w', encoding='utf-8') as rf:
+            json.dump(report, rf)
     print(f"[ci-ratchet] wrote {args.out}")
     if args.dryrun:
         print(f'[ci-ratchet] dryrun mode (exit={args.exitcode_dryrun})')

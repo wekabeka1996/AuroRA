@@ -326,7 +326,8 @@ def wallet_check():
 
 
 @app.command()
-def metrics(window: str = typer.Option("3600", "--window-sec", help="Window in seconds or arithmetic expression, e.g. 720*60")):
+def metrics(window: str = typer.Option("3600", "--window-sec", help="Window in seconds or arithmetic expression, e.g. 720*60"),
+            window_sec: Optional[str] = typer.Option(None, help="compat alias for --window-sec")):
     """Aggregate events.jsonl into summary JSON and artifacts."""
     # parse window as int or arithmetic expression (digits + +-*/())
     def _parse_sec(expr: str) -> int:
@@ -345,14 +346,19 @@ def metrics(window: str = typer.Option("3600", "--window-sec", help="Window in s
             # satisfies type checker; unreachable due to _exit above
             return 0
 
-    window_sec = _parse_sec(window)
+    # Prefer explicit window_sec if provided (tests call metrics(window_sec=...))
+    if window_sec is not None:
+        window_val = window_sec
+    else:
+        window_val = window
+    parsed_window_sec = _parse_sec(window_val)
     events = ROOT / "logs" / "events.jsonl"
     if not events.exists():
         _exit(1, "logs/events.jsonl not found")
     # lightweight inline parser to avoid new deps
     import time
     now = time.time()
-    cutoff = now - window_sec
+    cutoff = now - parsed_window_sec
     recs = []
     latency_points = []  # (ts_ms, p95_ms)
     for line in events.read_text(encoding="utf-8").splitlines():
@@ -395,7 +401,7 @@ def metrics(window: str = typer.Option("3600", "--window-sec", help="Window in s
             *( ["latency_p95_high"] if latency_high else [] ),
             *( ["risk_denies"] if risk_denies else [] ),
         ],
-        "params": {"window_sec": window_sec},
+    "params": {"window_sec": parsed_window_sec},
         "computed": {
             "expected_return_accepts": expected_accepts,
             "latency_p95_alerts": latency_high,
@@ -411,7 +417,7 @@ def metrics(window: str = typer.Option("3600", "--window-sec", help="Window in s
 
     artifacts = ROOT / "artifacts"
     artifacts.mkdir(parents=True, exist_ok=True)
-    (artifacts / "canary_summary.md").write_text(f"# Canary summary\n\nWindow: {window_sec}s\n\n" + json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
+    (artifacts / "canary_summary.md").write_text(f"# Canary summary\n\nWindow: {parsed_window_sec}s\n\n" + json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
     # write timeseries CSV (epoch_ms,p95_ms)
     csv_lines = ["ts,value"]
     # Sort by timestamp ascending
