@@ -71,7 +71,10 @@ def call_cooloff(base_url: str, token: str, sec: int) -> bool:
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument('--events', default='logs/events.jsonl')
+    import os
+    from pathlib import Path as _P
+    default_events = str(_P(os.getenv('AURORA_SESSION_DIR', 'logs')) / 'aurora_events.jsonl')
+    p.add_argument('--events', default=default_events)
     p.add_argument('--base-url', default='http://127.0.0.1:8000')
     p.add_argument('--ops-token', default=None)
     p.add_argument('--window-sec', type=int, default=300)

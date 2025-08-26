@@ -1,0 +1,48 @@
+env: prod
+symbols: ["BTCUSDT", "ETHUSDT"]
+reward:
+  tp_pct: 0.7
+  trail_bps: 15
+  trail_activate_at_R: 0.7
+  breakeven_after_R: 0.9
+  max_position_age_sec: 5400
+  atr_mult_sl: 1.0
+  target_R: 1.2
+  max_R: 4.0
+gates:
+  spread_bps_limit: 60
+  latency_ms_limit: 300
+  vol_guard_std_bps: 250
+  daily_dd_limit_pct: 8.0
+  cvar_alpha: 0.1
+  no_trap_mode: false
+dq:
+  enabled: true
+  cyclic_k: 6
+  cooldown_steps: 400
+alpha:
+  obi_levels: 5
+  tfi_window: 50
+  micro_weight: 1.0
+  obi_weight: 1.0
+  tfi_weight: 1.0
+  entry_threshold: 0.35
+  exit_threshold: 0.05
+
+execution:
+  maker_mode: true
+  post_only: true
+  order_size: 0.001
+  cancel_after_s: 5
+  fees_bps: 1.0
+  trades_per_minute_limit: 10
+  max_symbol_exposure_usdt: 1000
+  spread_guard_bps_max: 8
+# --- Aurora runtime env (documented for ops; set via .env, not YAML) ---
+# AURORA_ACK_TTL_S: 300
+# AURORA_ACK_SCAN_PERIOD_S: 1
+# AURORA_CANCEL_STUB: false
+# AURORA_CANCEL_STUB_EVERY_TICKS: 120
+# OPS_TOKEN: "change-me"
+# AURORA_LOG_RETENTION_DAYS: 7
+# AURORA_LOG_ROTATE_MAX_MB: 200

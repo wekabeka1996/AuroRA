@@ -1,206 +1,144 @@
-# AURORA v1.2 (Production-Ready Skeleton)
+# Aurora — Unified Trading System
 
-[![canary](https://github.com/${GITHUB_REPOSITORY}/actions/workflows/canary.yml/badge.svg)](https://github.com/${GITHUB_REPOSITORY}/actions/workflows/canary.yml)
+This repository contains the Aurora core API and WiseScalp integration.
 
-This repository implements the AURORA concept (teacher–student, certification, regime-aware) with a working API and training/inference pipelines.
+## Repo layout (high level)
+- `api/` — FastAPI service, health/ops endpoints, pretrade checks
+- `aurora/` — health guards, utilities
+- `common/` — configs, events
+- `core/` — env, loggers, scalper components
+- `risk/` — risk manager
+- `skalp_bot/` — WiseScalp integration & runners
+- `tools/` — operational CLIs, harnesses
+- `docs/` — specs, runbooks
+- `logs/`, `artifacts/` — runtime outputs (ignored), kept with `.keep`
+- `archive/YYYYMMDD/` — archived R&D with `ARCHIVE_INDEX.md`
 
-## Quick start
-## Aurora CLI (auroractl)
+See `Copilot_Master_Roadmap.md` for the SSOT roadmap.
 
-Unified cross‑platform CLI lives in `tools/auroractl.py` (Typer). Examples:
+## Tools
 
-- Start API: `python tools/auroractl.py start-api --host 127.0.0.1 --port 8000`
-- Stop API: `python tools/auroractl.py stop-api`
-- Health probe: `python tools/auroractl.py health --port 8000`
-- Canary: `python tools/auroractl.py canary --minutes 60`
-- Smoke: `python tools/auroractl.py smoke [--public-only]`
-- Testnet cycle: `python tools/auroractl.py testnet --minutes 5 [--preflight/--no-preflight]`
-- Wallet audit: `python tools/auroractl.py wallet-check`
-- Metrics: `python tools/auroractl.py metrics --window-sec 3600` (поддерживает выражения: `--window-sec 720*60`)
-- Disarm: `python tools/auroractl.py disarm` (requires `AURORA_OPS_TOKEN`)
-- Cooloff: `python tools/auroractl.py cooloff --sec 120` (requires `AURORA_OPS_TOKEN`)
-- One‑click orchestrator:
-	- Testnet: `python tools/auroractl.py one-click --mode testnet --minutes 15 --preflight`
-	- Live: `python tools/auroractl.py one-click --mode live --minutes 15 --preflight`
-	- Makefile shortcuts: `make one-click-testnet` / `make one-click-live`
-	- Пайплайн: wallet‑check → (опционально docker compose up) → start‑api → health wait → canary → metrics → stop‑api
-
-Environment is loaded from `.env` by default (see `.env.example`). Key variables:
-
-- `AURORA_MODE` (prod|shadow|dev), `DRY_RUN` (0/1),
-- `EXCHANGE_TESTNET` (0/1), `EXCHANGE_USE_FUTURES` (0/1), `EXCHANGE_ID` (default `binanceusdm`),
-- `BINANCE_API_KEY`, `BINANCE_API_SECRET`, `BINANCE_RECV_WINDOW`.
-
-Wallet audit behavior (exit codes):
-
-- 0: OK (report saved to `artifacts/wallet_check.json`)
-- 2: Missing required keys for live check
-- 3: Insufficient or zero balance (live only)
-- 4: Withdrawals disabled for USDT (live only)
-- 1: Unexpected error
-
-Metrics aggregates `logs/events.jsonl` and writes:
-
-- `reports/summary_gate_status.json`
-- `artifacts/canary_summary.md`
-- `artifacts/latency_p95_timeseries.csv` (columns: `ts,value`)
-
-If `PUSHGATEWAY_URL` is set, a minimal exposition is POSTed for quick dashboards.
-
-Makefile is provided for convenience (Linux/macOS). On Windows, call `python tools/auroractl.py ...` directly.
+- `tools/auroractl.py` — unified CLI for config and ops.
+- `tools/metrics_summary.py` — summarize logs into reports.
+- `tools/lifecycle_audit.py` — build order lifecycle graphs and anomalies; run: `python tools/lifecycle_audit.py`.
 
 
-- Build and run API with Prometheus and Grafana:
+## Ops & Tokens + Event Codes
+
+### Ops & Security (X-OPS-TOKEN)
+
+- Canonical env var: `OPS_TOKEN` (alias `AURORA_OPS_TOKEN` is supported but emits WARN event `OPS.TOKEN.ALIAS_USED`).
+- Protected endpoints: `/liveness`, `/readiness`, `/ops/rotate_token` (metrics exposed at `/metrics`).
+- Examples:
 
 ```bash
-# Build API image and start stack
-docker compose up --build -d
+# Metrics (header optional for local dev)
+curl -s -H "X-OPS-TOKEN: $OPS_TOKEN" http://localhost:8000/metrics
 
-# API: http://localhost:8000/docs
-# Prometheus: http://localhost:9090
-# Grafana: http://localhost:3000 (create a dashboard and add Prometheus datasource)
+# Token rotation (old token stops working)
+curl -s -X POST -H "X-OPS-TOKEN: $OPS_TOKEN" \
+	http://localhost:8000/ops/rotate_token -d '{"new_token":"REDACTED_32+"}' -H 'content-type: application/json'
 ```
 
-- Run tests locally:
-```bash
-pip install -r requirements.txt
-pip install -r requirements-dev.txt
-pytest -q
+### Logs and retention
+
+- Orders: `logs/orders_success.jsonl`, `logs/orders_failed.jsonl`, `logs/orders_denied.jsonl`
+- Events: `logs/aurora_events.jsonl`
+- Rotation: daily + size, gzip, retention 7 days (configurable via `AURORA_LOG_RETENTION_DAYS`, `AURORA_LOG_ROTATE_MAX_MB`).
+
+### Event codes (dot-canon)
+
+- ORDER.*: `SUBMIT`, `ACK`, `PARTIAL`, `FILL`, `REJECT`, `CANCEL.REQUEST`, `CANCEL.ACK`, `EXPIRE`
+- GOVERNANCE.*: `ALLOW`, `DENY`
+- HEALTH.*: `LATENCY_HIGH`, `LATENCY_P95_HIGH`
+- OPS.*: `TOKEN.ALIAS_USED`, `TOKEN_ROTATE`, `RESET`
+- AURORA.*: `EXPECTED_RETURN_*`, `SLIPPAGE_GUARD`, `COOL_OFF`, `ARM_STATE`, `ESCALATION`
+- RISK.*: `DENY`, `UPDATE`
+- Normalization: only `ORDER_* → ORDER.*`; other codes are unchanged.
+
+### Metrics (Prometheus)
+
+- Events: `aurora_events_emitted_total{code}`
+- Orders: `aurora_orders_success_total`, `aurora_orders_rejected_total`, `aurora_orders_denied_total`
+- OPS: `aurora_ops_auth_fail_total`, `aurora_ops_token_rotations_total`
+- Handy queries:
+
+```promql
+# Conversion (10m)
+rate(aurora_orders_success_total[10m])
+/
+rate(aurora_orders_success_total[10m] + aurora_orders_rejected_total[10m] + aurora_orders_denied_total[10m])
+
+# Reject spike (5m)
+increase(aurora_events_emitted_total{code="ORDER.REJECT"}[5m])
 ```
 
-## Data: build a local dataset (Binance)
+### Lifecycle & Latency
 
-Requires: ccxt, pyarrow (already in requirements.txt). On Windows PowerShell:
+- FSM: `PREPARED→SUBMITTED→ACK→PARTIAL/FILL|CANCEL|REJECT|EXPIRE`
+- Latency report (p50/p95/p99) from correlator: `submit→ack`, `ack→done`.
 
-```powershell
-# Install dependencies
-pip install -r requirements.txt
+### Kill‑switch (recommended thresholds)
 
-# Build dataset from Binance (UTC times)
-python scripts/build_dataset.py --symbol BTC/USDT --timeframe 1h --start 2023-01-01 --end 2024-01-01 --outdir data/processed
-
-# Check saved files
-Get-ChildItem data/processed
+```yaml
+gates:
+	spread_bps_max: 8.0
+	vol_std_bps_max: 60.0
+	latency_ms_max: 150
+	dd_day_pct_max: 5.0
+	cvar_day_pct_max: 10.0
+killswitch:
+	window_trades: 50
+	max_reject_rate_pct: 35
+	max_denied_rate_pct: 50
+	action: HALT_AND_ALERT
 ```
 
-Notes:
-- Public market data for spot candles usually doesn't require API keys, but if you set BINANCE keys in the environment, ccxt will use them.
-- Output Parquet files: data/processed/train.parquet, val.parquet, test.parquet.
+### Testnet vs Prod
 
-## Training (baseline)
+- Testnet: you may enable cancel stub (emits `ORDER.CANCEL.REQUEST/ACK`).
+	- `AURORA_CANCEL_STUB=true`, `AURORA_CANCEL_STUB_EVERY_TICKS=120`
+- Prod: `AURORA_CANCEL_STUB=false` (default).
 
-- Teacher (NFSDE):
-```bash
-python train_teacher.py --config configs/nfsde.yaml
-```
-
-- Student (DSSM) with distillation:
-```bash
-python train_student.py --config configs/dssm.yaml
-```
-
-### Train router on built dataset
-
-```powershell
-# Build dataset first (see section above), then
-python scripts/train_router_from_parquet.py --train data/processed/train.parquet --val data/processed/val.parquet --epochs 10 --checkpoint checkpoints/router_best.pt
-```
-
-## Notes
-
-- Data connectors are placeholders; connect real sources for Phase 4.
-- Router training script and TVF/ICP refinements are pending; see issues.
-- CI builds and runs smoke tests; extend with stricter checks for production.
-
----
-
-## pre-commit hooks
-
-Чтобы ловить ошибки до пуша, установите pre-commit и активируйте хуки:
-
-```bash
-pip install pre-commit
-pre-commit install
-```
-
-Проверить всё дерево:
+### Quickstart
 
 ```bash
-pre-commit run --all-files
+# Config validator
+python tools/auroractl.py config-validate --name master_config_v2
+
+# API (includes background AckTracker)
+python tools/auroractl.py start-api
+
+# Runner (WiseScalp)
+python -m skalp_bot.runner.run_live_aurora
+
+# Metrics summary
+python tools/metrics_summary.py --window-sec 3600 --out reports/summary_gate_status.json
 ```
 
-Включённые проверки:
-- Validate configs (python tools/validate_config.py --strict)
-- yamllint для configs/
-- ruff (c автофиксом), black
+### Troubleshooting
 
-## Environment (.env)
+- Orders success counter not increasing → ensure order loggers are initialized inside endpoints (`/pretrade/check`, `/posttrade/log`) — counters increment only after successful writes into `orders_*.jsonl`.
+- Events not written → check `logs/` permissions and path; verify `aurora_events.jsonl` is created.
+- Metrics look empty → include `X-OPS-TOKEN` header; alias usage will emit `OPS.TOKEN.ALIAS_USED`.
 
-В корне репозитория добавьте файл `.env` (можно скопировать из `.env.example`) и задайте переменные:
 
-```
-BINANCE_API_KEY=...your_key...
-BINANCE_API_SECRET=...your_secret...
-AURORA_MODE=shadow
-```
-
-Ключи не коммитьте. Адаптер Binance автоматически подхватит `.env` при инициализации.
-
-## Unified CLI (auroractl)
-
-Мы мигрируем PowerShell-скрипты на кроссплатформенный Python-CLI `tools/auroractl.py`, который автоматически читает `.env`.
-
-Сопоставление команд:
-
-- scripts/start_api.ps1 → `python tools/auroractl.py start-api [--port 8000 --host 127.0.0.1]`
-- scripts/stop_api.ps1 → `python tools/auroractl.py stop-api [--port 8000]`
-- scripts/health_check.ps1 → `python tools/auroractl.py health [--port 8000]`
-- scripts/run_canary_60.ps1 → `python tools/auroractl.py canary --minutes 60`
-- testnet smoke (run_live_testnet + smoke) → `python tools/auroractl.py testnet --minutes 5`
-- аудит кошелька → `python tools/auroractl.py wallet-check`
-- агрегация метрик → `python tools/auroractl.py metrics --window-sec 3600`
-- OPS cooloff/disarm → `python tools/auroractl.py cooloff --sec 120` / `python tools/auroractl.py disarm`
-
-Переключатели среды (только .env): AURORA_MODE, EXCHANGE_TESTNET, DRY_RUN.
-
-Логи ордеров теперь ведутся в три потока JSONL с ротацией:
-
-- logs/orders_success.jsonl
-- logs/orders_failed.jsonl
-- logs/orders_denied.jsonl
-
-Быстрый старт:
-
-1) Создайте `.env` из `.env.example` и задайте ключи при необходимости. 2) Запустите API: `python tools/auroractl.py start-api`. 3) Прогон канарейки: `python tools/auroractl.py canary --minutes 5`. 4) Сводка: `python tools/auroractl.py metrics --window-sec 600`.
-
-## Repo layout after archive
-
-After running `tools/archive_nonprod.py` the repository will move non-production materials into `archive/YYYYMMDD/` while preserving relative paths. The working repo will keep production-critical code and CLI tools.
-
-Typical post-archive layout:
-
-- `api/`, `core/`, `skalp_bot/`, `configs/`, `tests/`, `tools/` (including `auroractl.py`)
-- `archive/YYYYMMDD/` (contains `notebooks/`, `experiments/`, `prototypes/`, `scripts/legacy/`, `docs/drafts/`, `tmp/`, `*.ps1`, etc.)
-
-How to restore files from archive
-
-1. Find the archive folder for the date you ran the script, e.g. `archive/20250826/`.
-2. You can manually move files back using file explorer or a command-line move. Example (PowerShell):
-
-```powershell
-# Restore a notebook
-Move-Item archive\20250826\notebooks\analysis.ipynb notebooks\analysis.ipynb
-
-# Restore an entire folder
-Move-Item archive\20250826\experiments\* experiments\
-```
-
-3. Alternatively, use Python to programmatically restore entries listed in `archive/YYYYMMDD/ARCHIVE_INDEX.md`.
-
-Usage examples
+## Post-merge quick actions
 
 ```bash
-python tools/archive_nonprod.py --dry-run
-python tools/archive_nonprod.py
-```
+# Tag and release
+git tag -a v0.4-beta -m "Aurora+WiseScalp: ORDER.*, AckTracker, Metrics v1, OPS security"
+git push origin v0.4-beta
 
+# Targeted tests
+pytest -q tests/events/test_events_emission.py \
+					tests/events/test_events_rotation.py \
+					tests/metrics/test_metrics_summary.py \
+					tests/test_order_counters.py \
+					tests/events/test_late_ack_and_partial_cancel.py
+
+# Smoke
+curl -s -H "X-OPS-TOKEN: $OPS_TOKEN" http://localhost:8000/metrics | \
+	grep -E "aurora_events_emitted_total|aurora_orders_.*_total"
+python tools/metrics_summary.py --window-sec 600 --out reports/summary_gate_status.json
+```

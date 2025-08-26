@@ -58,7 +58,9 @@ def last_latency_p95_ms(latency_csv: Path) -> float | None:
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--events", default="logs/events.jsonl")
+    from os import getenv
+    default_events = str(Path(getenv('AURORA_SESSION_DIR', 'logs')) / 'aurora_events.jsonl')
+    p.add_argument("--events", default=default_events)
     p.add_argument("--summary", default="artifacts/canary_60min_summary.md")
     p.add_argument("--latency-ts", default="reports/latency_p95_timeseries.csv")
     args = p.parse_args()

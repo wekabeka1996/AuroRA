@@ -18,6 +18,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from core.env import load_env
+from core.config_loader import load_config as load_cfg_model
 
 
 app = typer.Typer(add_completion=False, help="Aurora unified CLI")
@@ -87,17 +88,56 @@ def start_api(port: int = typer.Option(8000), host: str = typer.Option("127.0.0.
 
     # quick health probe loop (liveness is 200 even while models load)
     import requests
+    ops_token = os.getenv("AURORA_OPS_TOKEN") or os.getenv("OPS_TOKEN")
+    headers = {"X-OPS-TOKEN": ops_token} if ops_token else {}
     for i in range(20):
         try:
-            r = requests.get(f"http://{host}:{port}/liveness", timeout=2)
+            r = requests.get(f"http://{host}:{port}/liveness", headers=headers, timeout=2)
             if r.status_code == 200:
                 typer.echo(f"API started at http://{host}:{port}")
                 raise typer.Exit(0)
+            # Fallback: if liveness is protected and no token, check public /health
+            if r.status_code in (401, 403) and not headers:
+                r2 = requests.get(f"http://{host}:{port}/health", timeout=2)
+                if r2.status_code == 200:
+                    typer.echo(f"API started (health) at http://{host}:{port}")
+                    raise typer.Exit(0)
         except Exception:
             pass
         time.sleep(0.75)
     typer.echo("API start attempted; liveness not responding yet")
     raise typer.Exit(1)
+
+
+@app.command()
+def config_use(name: str = typer.Option(..., "--name", help="Config name without .yaml, e.g. master_config_v2")):
+    """Set AURORA_CONFIG_NAME in .env to the given config name (idempotent)."""
+    env_path = ROOT / ".env"
+    env_lines = []
+    if env_path.exists():
+        env_lines = env_path.read_text(encoding="utf-8").splitlines()
+    found = False
+    for i, line in enumerate(env_lines):
+        if line.startswith("AURORA_CONFIG_NAME="):
+            env_lines[i] = f"AURORA_CONFIG_NAME={name}"
+            found = True
+            break
+    if not found:
+        env_lines.append(f"AURORA_CONFIG_NAME={name}")
+    env_path.write_text("\n".join(env_lines) + "\n", encoding="utf-8")
+    typer.echo(f"AURORA_CONFIG_NAME set to '{name}' in .env")
+
+
+@app.command()
+def config_validate(name: Optional[str] = typer.Option(None, "--name", help="Override name; defaults to .env:AURORA_CONFIG_NAME")):
+    """Validate YAML config against schema and print normalized JSON."""
+    try:
+        cfg = load_cfg_model(name)
+        typer.echo(json.dumps(cfg.model_dump(), ensure_ascii=False, indent=2))
+        return
+    except Exception as e:
+        typer.echo(f"validation failed: {e}")
+        raise typer.Exit(2)
 
 
 @app.command()
@@ -151,12 +191,16 @@ def stop_api(port: int = typer.Option(8000)):
 
 
 @app.command()
-def health(port: int = 8000, endpoint: str = typer.Option("health", help="health|liveness|readiness")):
+def health(port: int = 8000, endpoint: str = typer.Option("health", help="health|liveness|readiness"), ops_token: Optional[str] = typer.Option(None, help="OPS token for protected endpoints")):
     """HTTP GET health-like probe."""
     import requests
     ep = endpoint.strip("/")
+    headers = {}
+    token = ops_token or os.getenv("AURORA_OPS_TOKEN") or os.getenv("OPS_TOKEN")
+    if ep in {"liveness", "readiness"} and token:
+        headers["X-OPS-TOKEN"] = token
     try:
-        r = requests.get(f"http://127.0.0.1:{port}/{ep}", timeout=3)
+        r = requests.get(f"http://127.0.0.1:{port}/{ep}", headers=headers, timeout=3)
         if r.status_code == 200:
             typer.echo(f"API {ep} OK on port {port}")
             raise typer.Exit(0)
@@ -352,9 +396,18 @@ def metrics(window: str = typer.Option("3600", "--window-sec", help="Window in s
     else:
         window_val = window
     parsed_window_sec = _parse_sec(window_val)
-    events = ROOT / "logs" / "events.jsonl"
+    # Prefer session dir aurora_events.jsonl, then logs/aurora_events.jsonl, then legacy logs/events.jsonl
+    sess = os.getenv("AURORA_SESSION_DIR")
+    if sess:
+        events = Path(sess) / "aurora_events.jsonl"
+    else:
+        events = ROOT / "logs" / "aurora_events.jsonl"
     if not events.exists():
-        _exit(1, "logs/events.jsonl not found")
+        legacy = ROOT / "logs" / "events.jsonl"
+        if legacy.exists():
+            events = legacy
+        else:
+            _exit(1, f"events file not found in session or logs: {events} / {legacy}")
     # lightweight inline parser to avoid new deps
     import time
     now = time.time()

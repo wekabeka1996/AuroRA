@@ -19,7 +19,9 @@ def tail_lines(path: Path, n: int) -> list[str]:
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--file", default="logs/events.jsonl")
+    import os
+    default_file = str(Path(os.getenv('AURORA_SESSION_DIR', 'logs')) / 'aurora_events.jsonl')
+    parser.add_argument("--file", default=default_file)
     parser.add_argument("--schema", default="observability/schema.json")
     parser.add_argument("--last", type=int, default=200)
     args = parser.parse_args()

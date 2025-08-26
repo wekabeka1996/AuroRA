@@ -1,7 +1,8 @@
 
-import os, time, yaml, math, statistics, numpy as np
+import os, time, yaml, math, statistics, numpy as np, re, sys
 from pathlib import Path
-from common.events import EventEmitter
+from core.aurora_event_logger import AuroraEventLogger
+from core.ack_tracker import AckTracker
 from skalp_bot.exch.ccxt_binance import CCXTBinanceAdapter
 from skalp_bot.core.signals import (
     micro_price, obi_from_l5, tfi_from_trades,
@@ -12,7 +13,44 @@ from skalp_bot.core.ta import atr_wilder
 from skalp_bot.risk.manager import RiskManager
 from skalp_bot.integrations.aurora_gate import AuroraGate
 
-def load_cfg(path='configs/default.yaml'):
+ROOT = Path(__file__).resolve().parents[2]
+
+def _load_dotenv_if_present(env_path: Path) -> None:
+    """Load simple KEY=VALUE pairs from .env if present; ignore comments and do not override existing env."""
+    try:
+        if not env_path.exists():
+            return
+        for line in env_path.read_text(encoding="utf-8").splitlines():
+            m = re.match(r"^\s*([^#=]+)\s*=\s*(.*)\s*$", line)
+            if not m:
+                continue
+            k, v = m.group(1).strip(), m.group(2).strip().strip('"').strip("'")
+            # strip inline comments
+            v = re.split(r"\s+#", v, maxsplit=1)[0].strip()
+            if k and (k not in os.environ or not os.environ.get(k)):
+                os.environ[k] = v
+        # sanitize EXCHANGE_ID if it had quotes or inline comments
+        ex = os.getenv("EXCHANGE_ID")
+        if ex is not None:
+            ex2 = re.split(r"\s+#", ex.strip().strip('"').strip("'"), maxsplit=1)[0].strip()
+            os.environ["EXCHANGE_ID"] = ex2
+    except Exception:
+        # best-effort; never crash on dotenv issues
+        pass
+
+def _print_masked_keys() -> None:
+    ak = os.getenv('BINANCE_API_KEY')
+    sk = os.getenv('BINANCE_API_SECRET')
+    try:
+        if ak and sk:
+            print(f"✅ Keys present (masked): BINANCE_API_KEY=****{ak[-4:]} BINANCE_API_SECRET=****{sk[-4:]}")
+        else:
+            print("❌ BINANCE_API_KEY / BINANCE_API_SECRET missing — add to .env or environment for live orders (DRY_RUN=false)")
+    except Exception:
+        pass
+
+def load_cfg(path: str | os.PathLike):
+    """Load YAML config from a resolved path."""
     with open(path, 'r', encoding='utf-8') as f:
         return yaml.safe_load(f)
 
@@ -30,14 +68,71 @@ def rolling_vol_bps(series, window=60):
         return 0.0
 
 def main(cfg_path: str | None = None):
-    # Resolve default config relative to this file to avoid CWD issues
-    if not cfg_path:
-        base_dir = os.path.dirname(os.path.dirname(__file__))
-        cfg_path = os.path.join(base_dir, 'configs', 'default.yaml')
-    elif not os.path.isabs(cfg_path):
-        # keep relative path as-is if explicitly provided but not absolute
-        cfg_path = cfg_path
-    cfg = load_cfg(cfg_path)
+    # Best-effort load .env from repo root to populate EXCHANGE_*, DRY_RUN, AURORA_* switches
+    _load_dotenv_if_present(ROOT / '.env')
+    # Safe defaults for testnet unless explicitly overridden
+    os.environ.setdefault('EXCHANGE_TESTNET', 'true')
+    os.environ.setdefault('EXCHANGE_USE_FUTURES', 'true')
+    os.environ.setdefault('DRY_RUN', 'false')
+    # Keep user-selected mode if provided; otherwise default to 'shadow' for safe startup
+    os.environ.setdefault('AURORA_MODE', os.environ.get('AURORA_MODE', 'shadow'))
+    _print_masked_keys()
+    # Create per-session log directory if not provided
+    sess_dir_env = os.getenv('AURORA_SESSION_DIR')
+    if not sess_dir_env:
+        stamp = time.strftime('%Y%m%d-%H%M%S', time.gmtime())
+        sess_dir = Path('logs') / stamp
+        try:
+            sess_dir.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            pass
+        os.environ['AURORA_SESSION_DIR'] = str(sess_dir.resolve())
+        print(f"[SESSION] logs dir = {os.environ['AURORA_SESSION_DIR']}")
+    else:
+        try:
+            Path(sess_dir_env).mkdir(parents=True, exist_ok=True)
+        except Exception:
+            pass
+        print(f"[SESSION] logs dir = {sess_dir_env}")
+    # Resolve config path robustly
+    def _resolve_cfg(user_path: str | None) -> Path:
+        # Candidate locations ordered by preference
+        cfg_dir = Path(__file__).resolve().parent.parent / 'configs'
+        candidates: list[Path] = []
+        if user_path:
+            p = Path(user_path)
+            if p.is_absolute():
+                candidates.append(p)
+            else:
+                # Try as given relative to CWD
+                candidates.append(Path.cwd() / p)
+                # Try relative to configs directory (full subpath support)
+                candidates.append(cfg_dir / p)
+        else:
+            # No user path — try defaults inside configs
+            candidates.append(cfg_dir / 'default.aurora.yaml')
+            candidates.append(cfg_dir / 'default.yaml')
+        for c in candidates:
+            if c.exists():
+                return c
+        # Return first candidate; caller will raise with a clear error listing tried locations
+        return candidates[0] if candidates else (cfg_dir / 'default.yaml')
+
+    resolved_cfg = _resolve_cfg(cfg_path)
+    if not resolved_cfg.exists():
+        cfg_dir = Path(__file__).resolve().parent.parent / 'configs'
+        if cfg_path:
+            p = Path(cfg_path)
+            if p.is_absolute():
+                tried = [p]
+            else:
+                tried = [Path.cwd() / p, cfg_dir / p]
+            raise FileNotFoundError(f"Config file not found. Tried: {', '.join(str(t) for t in tried)}")
+        else:
+            tried = [cfg_dir / 'default.aurora.yaml', cfg_dir / 'default.yaml']
+            raise FileNotFoundError(f"No default config found. Tried: {', '.join(str(t) for t in tried)}")
+    print(f"[CFG] using {resolved_cfg}")
+    cfg = load_cfg(str(resolved_cfg))
     # Env-over-YAML precedence (minimal): DRY_RUN and AURORA_MODE
     def _env_bool(name: str, default: bool) -> bool:
         v = os.getenv(name)
@@ -58,8 +153,11 @@ def main(cfg_path: str | None = None):
     aur  = cfg.get('aurora', {'enabled': True, 'base_url': 'http://127.0.0.1:8000', 'mode': os.getenv('AURORA_MODE', 'shadow')})
     clk  = cfg.get('clock_gate', { 'enabled': True, 'windows_sec': [[20,90],[420,510],[840,870]] })
 
-    # Observability emitter
-    emitter = EventEmitter(path=Path('logs') / 'events.jsonl')
+    # Observability emitter (canonical path inside session directory)
+    sess_base = Path(os.getenv('AURORA_SESSION_DIR', 'logs'))
+    emitter = AuroraEventLogger(path=sess_base / 'aurora_events.jsonl')
+    # Ack/Expire tracker wired to emitter
+    ack_tracker = AckTracker(events_emit=lambda code, d: emitter.emit(code, d), ttl_s=int(os.getenv('AURORA_ACK_TTL_S', '300')), scan_period_s=1)
 
     # Env overrides
     def _as_bool(x: str | None) -> bool:
@@ -384,8 +482,8 @@ def main(cfg_path: str | None = None):
                 print(f"[SKIP] reason=spread_guard spread_bps={market['spread_bps']:.1f} limit={adapt_limit}")
                 try:
                     emitter.emit(
-                        type="AURORA.SPREAD_GUARD_TRIP",
-                        payload={
+                        "SPREAD_GUARD_TRIP",
+                        {
                             "spread_bps_raw": float(spread_bps_raw),
                             "eff_spread_bps": float(eff_spread_bps),
                             "limit_bps": float(adapt_limit),
@@ -393,7 +491,7 @@ def main(cfg_path: str | None = None):
                             "qty_base": float(order_size),
                             "testnet": bool(is_testnet),
                         },
-                        severity="info",
+                        src="runner",
                     )
                 except Exception:
                     pass
@@ -646,7 +744,62 @@ def main(cfg_path: str | None = None):
                                 if atr_used is None:
                                     print("[GUARD] ATR unavailable, skip open")
                                 else:
-                                    r = ex.place_order(side=('buy' if side == 'LONG' else 'sell'), qty=order['qty'], price=order.get('price'))
+                                    # Generate client id and emit ORDER.SUBMIT
+                                    cid = f"cid-{int(time.time()*1e6)}"
+                                    order['cid'] = cid
+                                    try:
+                                        _pr = order.get('price')
+                                        _pr_val = float(_pr) if _pr is not None else None
+                                        emitter.emit(
+                                            "ORDER.SUBMIT",
+                                            {
+                                                "symbol": ex.symbol.replace('/', ''),
+                                                "cid": cid,
+                                                "side": side,
+                                                "order_type": ('LIMIT' if order.get('price') is not None else 'MARKET'),
+                                                "price": _pr_val,
+                                                "qty": float(order['qty']),
+                                            },
+                                            src="runner",
+                                        )
+                                        # Track submit for potential EXPIRE if ACK doesn't arrive in time
+                                        try:
+                                            emitter_ns = int(time.time() * 1_000_000_000)
+                                        except Exception:
+                                            emitter_ns = None
+                                        try:
+                                            ack_tracker.add_submit(symbol=ex.symbol.replace('/', ''), cid=cid, side=side, qty=float(order['qty']), t_submit_ns=emitter_ns)
+                                        except Exception:
+                                            pass
+                                    except Exception:
+                                        pass
+                                    try:
+                                        r = ex.place_order(
+                                            side=('buy' if side == 'LONG' else 'sell'),
+                                            qty=order['qty'],
+                                            price=order.get('price'),
+                                        )
+                                    except Exception as e:
+                                        # Emit ORDER.REJECT on error
+                                        try:
+                                            _pr = order.get('price')
+                                            _pr_val = float(_pr) if _pr is not None else None
+                                            emitter.emit(
+                                                "ORDER.REJECT",
+                                                {
+                                                    "symbol": ex.symbol.replace('/', ''),
+                                                    "cid": cid,
+                                                    "side": side,
+                                                    "order_type": ('LIMIT' if order.get('price') is not None else 'MARKET'),
+                                                    "price": _pr_val,
+                                                    "qty": float(order['qty']),
+                                                    "error": str(e),
+                                                },
+                                                src="runner",
+                                            )
+                                        except Exception:
+                                            pass
+                                        raise
                                     pos_side, pos_qty, entry_mid = side, order['qty'], mid
                                     entry_ts = now_ts
                                     # Compute ATR-based OCO
@@ -659,6 +812,34 @@ def main(cfg_path: str | None = None):
                                     print(f"[OCO] tp={tp_price:.2f} sl={sl_price:.2f} atr={atr_used:.2f}")
                                     print(f"[TRADE] {side} qty={order['qty']} price={order.get('price')} resp={r}")
                                     print(f"[ENTRY] side={side} score_now={score:+.3f} avg2s={float(sum(last_scores[-2:]) / max(1, len(last_scores[-2:]))):+.3f} obi={obi} tfi={tfi} spread={market['spread_bps']:.1f} reason=clock_open_reconfirm")
+                                    # Emit ORDER.ACK after successful placement
+                                    try:
+                                        oid = None
+                                        if isinstance(r, dict):
+                                            info = r.get('info') or {}
+                                            oid = r.get('id') or r.get('order_id') or info.get('orderId')
+                                        _pr = order.get('price')
+                                        _pr_val = float(_pr) if _pr is not None else None
+                                        emitter.emit(
+                                            "ORDER.ACK",
+                                            {
+                                                "symbol": ex.symbol.replace('/', ''),
+                                                "cid": cid,
+                                                "oid": oid,
+                                                "side": side,
+                                                "order_type": ('LIMIT' if order.get('price') is not None else 'MARKET'),
+                                                "price": _pr_val,
+                                                "qty": float(order['qty']),
+                                            },
+                                            src="runner",
+                                        )
+                                        # Clear from pending on ACK
+                                        try:
+                                            ack_tracker.ack(cid)
+                                        except Exception:
+                                            pass
+                                    except Exception:
+                                        pass
                                     # Log order open to posttrade endpoint for consolidated orders.jsonl
                                     try:
                                         po = order.get('price')
@@ -709,5 +890,73 @@ def main(cfg_path: str | None = None):
         # Update previous quotes for OFI at end of tick
         prev_best_bid = best_bid
         prev_best_ask = best_ask
+        # Periodic scan for expired submits without ACK
+        try:
+            if (tick_id % int(max(1, int(os.getenv('AURORA_ACK_SCAN_TICKS', '5'))))) == 0:
+                ack_tracker.scan_once()
+        except Exception:
+            pass
+        # Optional cancel stub for observability: emits ORDER.CANCEL.REQUEST and ORDER.CANCEL.ACK
+        try:
+            cancel_stub = os.getenv('AURORA_CANCEL_STUB', 'off').strip().lower() in ('1','true','yes','on')
+        except Exception:
+            cancel_stub = False
+        if cancel_stub and (tick_id % int(os.getenv('AURORA_CANCEL_STUB_EVERY_TICKS', '120')) == 0):
+            try:
+                cid_c = f"canc-{int(time.time()*1e6)}"
+                # Emit cancel request
+                try:
+                    emitter.emit(
+                        "ORDER.CANCEL.REQUEST",
+                        {
+                            "symbol": ex.symbol.replace('/', ''),
+                            "cid": cid_c,
+                            "side": (pos_side or ("LONG" if (last_scores[-1] if last_scores else 0.0) >= 0 else "SHORT")),
+                            "qty": float(pos_qty or 0.0),
+                        },
+                        src="runner",
+                    )
+                except Exception:
+                    pass
+                # Best-effort cancel on adapter (noop in dry_run)
+                try:
+                    ex.cancel_all()
+                except Exception:
+                    pass
+                # Emit cancel ack
+                try:
+                    emitter.emit(
+                        "ORDER.CANCEL.ACK",
+                        {
+                            "symbol": ex.symbol.replace('/', ''),
+                            "cid": cid_c,
+                            # Unknown oid in stub; real path should include order id
+                        },
+                        src="runner",
+                    )
+                except Exception:
+                    pass
+            except Exception:
+                pass
         tick_id += 1
         time.sleep(1.0)
+
+
+if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(
+        prog="skalp_bot.runner.run_live_aurora",
+        description="WiseScalp × Aurora — live scalper runner (testnet-friendly)",
+    )
+    parser.add_argument(
+        "-c",
+        "--config",
+        dest="config",
+        default=None,
+    help="Path to YAML config (searches: ./<path>, skalp_bot/configs/<path|name>; if omitted, uses default.aurora.yaml or default.yaml)",
+    )
+    args = parser.parse_args()
+    try:
+        main(args.config)
+    except KeyboardInterrupt:
+        print("\n[WiseScalp x Aurora] interrupted by user — shutting down...")

@@ -33,10 +33,13 @@ from core.scalper.sprt import SPRT, SprtConfig
 from core.scalper.trap import TrapWindow
 from common.config import load_sprt_cfg
 from common.events import EventEmitter
+from core.aurora_event_logger import AuroraEventLogger
 from core.order_logger import OrderLoggers
+from core.ack_tracker import AckTracker
 from risk.manager import RiskManager
 from aurora.health import HealthGuard
 from tools.build_version import build_version_record
+from aurora.governance import Governance
 
 # Read version from VERSION file
 def get_version():
@@ -70,6 +73,27 @@ async def lifespan(app: FastAPI):
         cfg = yaml.safe_load(open(CONFIG_PATH, 'r', encoding='utf-8'))
     except Exception:
         cfg = {}
+    # Session log directory
+    try:
+        sess_dir_env = os.getenv('AURORA_SESSION_DIR')
+        if not sess_dir_env:
+            stamp = time.strftime('%Y%m%d-%H%M%S', time.gmtime())
+            sess_dir = Path('logs') / stamp
+            try:
+                sess_dir.mkdir(parents=True, exist_ok=True)
+            except Exception:
+                pass
+            os.environ['AURORA_SESSION_DIR'] = str(sess_dir.resolve())
+            app.state.session_dir = sess_dir
+        else:
+            p = Path(sess_dir_env)
+            try:
+                p.mkdir(parents=True, exist_ok=True)
+            except Exception:
+                pass
+            app.state.session_dir = p
+    except Exception:
+        app.state.session_dir = Path('logs')
     # Derived SPRT config
     try:
         sprt_cfg = load_sprt_cfg(cfg)
@@ -83,11 +107,67 @@ async def lifespan(app: FastAPI):
         emitter_path = ((cfg or {}).get('logging') or {}).get('path', 'logs/events.jsonl')
     except Exception:
         emitter_path = 'logs/events.jsonl'
-    app.state.events_emitter = EventEmitter(path=Path(emitter_path))
+    # Canonical path is aurora_events.jsonl; maintain backward compat if configured
+    if 'aurora_events' not in emitter_path:
+        # default legacy filename was logs/events.jsonl; stick to new canonical file
+        emitter_path = 'logs/aurora_events.jsonl'
+    # Route events into session directory
+    try:
+        sess_dir: Path = getattr(app.state, 'session_dir', Path('logs'))
+    except Exception:
+        sess_dir = Path('logs')
+    em_logger = AuroraEventLogger(path=sess_dir / Path(emitter_path).name)
+    try:
+        print(f"[SESSION] logs dir = {sess_dir}")
+    except Exception:
+        pass
+    try:
+        # Attach prometheus counter so emits increment aurora_events_emitted_total{code}
+        em_logger.set_counter(EVENTS_EMITTED)
+    except Exception:
+        pass
+    app.state.events_emitter = em_logger
+
+    # AckTracker: background scanner for ORDER.EXPIRE (no-op unless add_submit() is used by producers)
+    try:
+        try:
+            ack_ttl = int(os.getenv('AURORA_ACK_TTL_S', '300'))
+        except Exception:
+            ack_ttl = 300
+        ack_tracker = AckTracker(events_emit=lambda code, d: em_logger.emit(code, d), ttl_s=ack_ttl)
+        app.state.ack_tracker = ack_tracker
+        import asyncio as _aio
+        app.state._ack_scan_stop = _aio.Event()
+
+        async def _ack_scan_loop():
+            try:
+                period = float(os.getenv('AURORA_ACK_SCAN_PERIOD_S', '1'))
+            except Exception:
+                period = 1.0
+            # Periodically run scan_once until stopped
+            while not app.state._ack_scan_stop.is_set():
+                try:
+                    ack_tracker.scan_once()
+                except Exception:
+                    pass
+                try:
+                    await _aio.wait_for(app.state._ack_scan_stop.wait(), timeout=period)
+                except _aio.TimeoutError:
+                    continue
+
+        # start scan task
+        app.state._ack_scan_task = _aio.create_task(_ack_scan_loop())
+    except Exception:
+        app.state.ack_tracker = None
 
     # Order loggers (success/failed/denied)
     try:
-        app.state.order_loggers = OrderLoggers()
+        # Order logs into session directory
+        app.state.order_loggers = OrderLoggers(
+            success_path=(getattr(app.state, 'session_dir', Path('logs')) / 'orders_success.jsonl'),
+            failed_path=(getattr(app.state, 'session_dir', Path('logs')) / 'orders_failed.jsonl'),
+            denied_path=(getattr(app.state, 'session_dir', Path('logs')) / 'orders_denied.jsonl'),
+        )
     except Exception:
         app.state.order_loggers = None
 
@@ -143,6 +223,12 @@ async def lifespan(app: FastAPI):
     except Exception:
         app.state.risk_manager = RiskManager({})
 
+        # Governance
+        try:
+            app.state.governance = Governance(cfg)
+        except Exception:
+            app.state.governance = Governance({})
+
     yield
 
     # shutdown
@@ -152,6 +238,20 @@ async def lifespan(app: FastAPI):
             emitter.close()
         except Exception:
             pass
+    # Stop ack scanner task
+    try:
+        stp = getattr(app.state, '_ack_scan_stop', None)
+        tsk = getattr(app.state, '_ack_scan_task', None)
+        if stp is not None:
+            stp.set()
+        if tsk is not None:
+            try:
+                import asyncio as _aio
+                await _aio.wait_for(tsk, timeout=1.5)
+            except Exception:
+                pass
+    except Exception:
+        pass
 
 
 app = FastAPI(
@@ -170,6 +270,11 @@ KAPPA_PLUS = Gauge('aurora_kappa_plus', 'Current kappa plus uncertainty metric')
 REGIME = Gauge('aurora_regime', 'Current detected market regime')
 REQUESTS = Counter('aurora_prediction_requests_total', 'Total prediction requests')
 OPS_TOKEN_ROTATIONS = Counter('aurora_ops_token_rotations_total', 'Total OPS token rotations')
+EVENTS_EMITTED = Counter('aurora_events_emitted_total', 'Total Aurora events emitted', ['code'])
+ORDERS_SUCCESS = Counter('aurora_orders_success_total', 'Total successful orders recorded')
+ORDERS_DENIED = Counter('aurora_orders_denied_total', 'Total denied orders recorded')
+ORDERS_REJECTED = Counter('aurora_orders_rejected_total', 'Total rejected orders recorded')
+OPS_AUTH_FAIL = Counter('aurora_ops_auth_fail_total', 'Total failed OPS auth attempts')
 
 
 # --- Security middleware for OPS ---
@@ -182,13 +287,28 @@ def _ops_auth(x_ops_token: str | None = Header(default=None, alias="X-OPS-TOKEN"
     sec = (cfg.get('security') or {})
     # runtime token may be rotated and stored in app.state
     token_runtime = getattr(app.state, 'ops_token', None)
-    token = token_runtime or sec.get('ops_token') or os.getenv('AURORA_OPS_TOKEN')
+    env_token = os.getenv('OPS_TOKEN')
+    alias_token = os.getenv('AURORA_OPS_TOKEN')
+    token = token_runtime or sec.get('ops_token') or env_token or alias_token
+    # Emit WARN if alias is used
+    if env_token is None and alias_token is not None:
+        try:
+            em: AuroraEventLogger | None = getattr(app.state, 'events_emitter', None)
+            if em:
+                em.emit('OPS.TOKEN.ALIAS_USED', {"alias": "AURORA_OPS_TOKEN"})
+        except Exception:
+            pass
     allowlist = sec.get('allowlist', ['127.0.0.1', '::1'])
     # Note: IP allowlist can be enforced at reverse-proxy; here we only check token.
     if not token:
         # If no token configured, deny by default (fail-closed)
+        OPS_AUTH_FAIL.inc()
         raise HTTPException(status_code=401, detail="OPS token not configured")
+    if x_ops_token is None:
+        OPS_AUTH_FAIL.inc()
+        raise HTTPException(status_code=401, detail="Missing X-OPS-TOKEN")
     if x_ops_token != token:
+        OPS_AUTH_FAIL.inc()
         raise HTTPException(status_code=403, detail="Forbidden")
     return True
 
@@ -251,19 +371,29 @@ async def health():
 
 
 @app.get("/liveness")
-async def liveness():
+async def liveness(_: bool = Depends(_ops_auth)):
     """Fast liveness probe: returns 200 if process is up."""
-    return {"status": "alive"}
+    return {"ok": True}
 
 
 @app.get("/readiness")
-async def readiness():
-    """Readiness probe: 200 only when core models/services are initialized; else 503."""
+async def readiness(_: bool = Depends(_ops_auth)):
+    """Readiness probe: include config and halt state."""
     ts = getattr(app.state, 'trading_system', None)
     model_loaded = ts is not None and ts.student is not None and ts.router is not None
+    cfg_loaded = bool(getattr(app.state, 'cfg', {}) or {})
+    gov: Governance | None = getattr(app.state, 'governance', None)
+    halt = False
+    if gov is not None:
+        try:
+            halt = gov._is_halted()  # internal state is okay for readiness
+        except Exception:
+            halt = False
+    last_event_ts = getattr(app.state, 'last_event_ts', None)
+    body = {"config_loaded": cfg_loaded, "last_event_ts": last_event_ts, "halt": halt, "models_loaded": model_loaded}
     if model_loaded:
-        return {"status": "ready", "models_loaded": True}
-    raise HTTPException(status_code=503, detail={"status": "not_ready", "models_loaded": False})
+        return body
+    raise HTTPException(status_code=503, detail=body)
 
 
 @app.post("/pretrade/check", response_model=PretradeCheckResponse)
@@ -464,49 +594,46 @@ async def pretrade_check(request: Request, req: PretradeCheckRequest):
 
         def _run_expected_return():
             nonlocal allow, reason
-            # Evaluate ER gate when allowed OR in prod_unhealthy advisory mode (for observability).
-            if allow or prod_unhealthy:
-                fees_bps_local = float(req.fees_bps or 0.0)
-                cal = IsotonicCalibrator()
-                ci = CalibInput(score=score, a_bps=a_bps, b_bps=b_bps, fees_bps=fees_bps_local, slip_bps=slip_bps_est, regime=regime)
-                out_local = cal.e_pi_bps(ci)
-                try:
-                    pi_min_local = float(os.getenv('AURORA_PI_MIN_BPS', '2.0'))
-                except Exception:
-                    pi_min_local = 2.0
-                er_ok = gate_expected_return(e_pi_bps=out_local.e_pi_bps, pi_min_bps=pi_min_local, reasons=reasons)
-                if er_ok:
-                    # Positive ER decision (advisory even in shadow or prod_unhealthy). Record acceptance.
-                    reasons.append("expected_return_accept")
-                    if emitter:
-                        emitter.emit(
-                            type="POLICY.DECISION",
-                            severity=None,
-                            code="AURORA.EXPECTED_RETURN_ACCEPT",
-                            payload={
-                                "e_pi_bps": out_local.e_pi_bps,
-                                "pi_min_bps": pi_min_local,
-                                "fees_bps": fees_bps_local,
-                                "slip_bps": slip_bps_est,
-                                "score": score,
-                                "regime": regime,
-                            },
-                        )
-                    # Only modify allow if we weren't already blocked due to prod_unhealthy
-                    if allow:
-                        # keep allow as is (still True), ER passed
-                        pass
-                else:
-                    # ER below threshold: emit warning and block only if currently allowed (not prod_unhealthy advisory)
-                    if emitter:
-                        emitter.emit(
-                            type="AURORA.RISK_WARN",
-                            severity="warning",
-                            code="AURORA.EXPECTED_RETURN_LOW",
-                            payload={"e_pi_bps": out_local.e_pi_bps, "pi_min_bps": pi_min_local},
-                        )
-                    if allow:
-                        allow, reason = False, 'expected_return_gate'
+            # Always evaluate ER for observability (shadow/prod_unhealthy even if earlier guard blocked).
+            # Only change the decision (allow) if ER is below threshold AND gate wasn't blocked yet.
+            fees_bps_local = float(req.fees_bps or 0.0)
+            cal = IsotonicCalibrator()
+            ci = CalibInput(score=score, a_bps=a_bps, b_bps=b_bps, fees_bps=fees_bps_local, slip_bps=slip_bps_est, regime=regime)
+            out_local = cal.e_pi_bps(ci)
+            try:
+                pi_min_local = float(os.getenv('AURORA_PI_MIN_BPS', '2.0'))
+            except Exception:
+                pi_min_local = 2.0
+            er_ok = gate_expected_return(e_pi_bps=out_local.e_pi_bps, pi_min_bps=pi_min_local, reasons=reasons)
+            if er_ok:
+                # Positive ER decision (advisory): record acceptance even if other guards block.
+                reasons.append("expected_return_accept")
+                if emitter:
+                    emitter.emit(
+                        type="POLICY.DECISION",
+                        severity=None,
+                        code="AURORA.EXPECTED_RETURN_ACCEPT",
+                        payload={
+                            "e_pi_bps": out_local.e_pi_bps,
+                            "pi_min_bps": pi_min_local,
+                            "fees_bps": fees_bps_local,
+                            "slip_bps": slip_bps_est,
+                            "score": score,
+                            "regime": regime,
+                        },
+                    )
+                # Do not change allow here; other guards may have blocked already.
+            else:
+                # ER below threshold: emit warning and block only if currently allowed (not already blocked)
+                if emitter:
+                    emitter.emit(
+                        type="AURORA.RISK_WARN",
+                        severity="warning",
+                        code="AURORA.EXPECTED_RETURN_LOW",
+                        payload={"e_pi_bps": out_local.e_pi_bps, "pi_min_bps": pi_min_local},
+                    )
+                if allow:
+                    allow, reason = False, 'expected_return_gate'
 
         def _run_slippage():
             nonlocal allow, reason
@@ -614,6 +741,13 @@ async def pretrade_check(request: Request, req: PretradeCheckRequest):
         try:
             if not allow:
                 ol: OrderLoggers | None = getattr(request.app.state, 'order_loggers', None)
+                if ol is None:
+                    # Lazy init to keep counters tied to actual writes even if lifespan didn't run
+                    try:
+                        ol = OrderLoggers()
+                        setattr(request.app.state, 'order_loggers', ol)
+                    except Exception:
+                        ol = None
                 if ol is not None:
                     o = req.order or {}
                     ol.log_denied(
@@ -626,6 +760,10 @@ async def pretrade_check(request: Request, req: PretradeCheckRequest):
                         reasons=reasons,
                         observability=obs,
                     )
+                    try:
+                        ORDERS_DENIED.inc()
+                    except Exception:
+                        pass
         except Exception:
             pass
 
@@ -661,9 +799,12 @@ async def posttrade_log(request: Request, payload: dict):
         # Persist raw payload line-by-line into logs/orders.jsonl (path configurable via configs.logging.orders_path)
         try:
             cfg_all = getattr(request.app.state, 'cfg', {}) or {}
-            orders_path = ((cfg_all.get('logging') or {}).get('orders_path')) or 'logs/orders.jsonl'
+            default_orders = (getattr(request.app.state, 'session_dir', Path('logs')) / 'orders.jsonl')
+            cfg_orders = ((cfg_all.get('logging') or {}).get('orders_path'))
+            # Always place consolidated orders file under session dir, keep only basename
+            orders_path = str((getattr(request.app.state, 'session_dir', Path('logs')) / (Path(cfg_orders).name if cfg_orders else default_orders.name)))
         except Exception:
-            orders_path = 'logs/orders.jsonl'
+            orders_path = str(getattr(request.app.state, 'session_dir', Path('logs')) / 'orders.jsonl')
         try:
             p = Path(orders_path)
             p.parent.mkdir(parents=True, exist_ok=True)
@@ -675,9 +816,17 @@ async def posttrade_log(request: Request, payload: dict):
             # do not fail the API if file-write has issues
             pass
 
-        # Also route into per-stream order logs
+        # Also route into per-stream order logs and emit canonical ORDER.* events
         try:
             ol: OrderLoggers | None = getattr(request.app.state, 'order_loggers', None)
+            em_ev: AuroraEventLogger | None = getattr(request.app.state, 'events_emitter', None)
+            if ol is None:
+                # Lazy init to ensure per-stream writes happen in tests without lifespan
+                try:
+                    ol = OrderLoggers()
+                    setattr(request.app.state, 'order_loggers', ol)
+                except Exception:
+                    ol = None
             if ol is not None:
                 rec = dict(payload)
                 status = str(rec.get('status', '')).lower()
@@ -695,12 +844,83 @@ async def posttrade_log(request: Request, payload: dict):
                 if is_failed:
                     base.update({'error_code': rec.get('error_code'), 'error_msg': rec.get('error_msg'), 'retry': rec.get('retry')})
                     ol.log_failed(**base)
+                    # Emit ORDER.REJECT event
+                    try:
+                        if em_ev:
+                            em_ev.emit(
+                                'ORDER.REJECT',
+                                {
+                                    'symbol': base.get('symbol'),
+                                    'oid': base.get('order_id'),
+                                    'side': base.get('side'),
+                                    'qty': base.get('qty'),
+                                    'price': base.get('price'),
+                                    'reason_code': base.get('error_code'),
+                                    'reason_detail': base.get('error_msg'),
+                                },
+                                src='api',
+                            )
+                    except Exception:
+                        pass
+                    try:
+                        ORDERS_REJECTED.inc()
+                    except Exception:
+                        pass
                 elif is_success:
                     base.update({'fill_qty': rec.get('filled'), 'avg_price': rec.get('average') or rec.get('avg_price'), 'fees': rec.get('fee') or rec.get('fees')})
                     ol.log_success(**base)
+                    # Emit ORDER.PARTIAL or ORDER.FILL based on filled quantity vs qty if available
+                    try:
+                        if em_ev:
+                            fill_qty = rec.get('filled')
+                            qty = rec.get('qty') or rec.get('amount')
+                            code = 'ORDER.FILL'
+                            try:
+                                if fill_qty is not None and qty is not None and float(fill_qty) < float(qty):
+                                    code = 'ORDER.PARTIAL'
+                            except Exception:
+                                code = 'ORDER.FILL'
+                            em_ev.emit(
+                                code,
+                                {
+                                    'symbol': base.get('symbol'),
+                                    'oid': base.get('order_id'),
+                                    'side': base.get('side'),
+                                    'qty': qty,
+                                    'price': base.get('price') or base.get('avg_price'),
+                                    'fill_qty': fill_qty,
+                                },
+                                src='api',
+                            )
+                    except Exception:
+                        pass
+                    try:
+                        ORDERS_SUCCESS.inc()
+                    except Exception:
+                        pass
                 else:
                     # if uncertain status, conservatively log as failed
                     ol.log_failed(**base)
+                    try:
+                        if em_ev:
+                            em_ev.emit(
+                                'ORDER.REJECT',
+                                {
+                                    'symbol': base.get('symbol'),
+                                    'oid': base.get('order_id'),
+                                    'side': base.get('side'),
+                                    'qty': base.get('qty'),
+                                    'price': base.get('price'),
+                                    'reason_detail': 'uncertain_status',
+                                },
+                                src='api',
+                            )
+                    except Exception:
+                        pass
+                    try:
+                        ORDERS_REJECTED.inc()
+                    except Exception:
+                        pass
         except Exception:
             pass
 

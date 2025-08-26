@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+import os
 from pathlib import Path
 from typing import Any, Mapping, Optional
 
@@ -15,10 +16,11 @@ _logger = structlog.get_logger(__name__)
 class EventEmitter:
     """Append-only JSONL event emitter.
 
-    Writes events into logs/events.jsonl. Single-writer recommended.
+    Writes events into AURORA_SESSION_DIR/aurora_events.jsonl if env is set,
+    otherwise into logs/aurora_events.jsonl. Single-writer recommended.
     """
 
-    path: Path = Path("logs/events.jsonl")
+    path: Path = Path(os.getenv("AURORA_SESSION_DIR", "logs")) / "aurora_events.jsonl"
 
     def emit(
         self,

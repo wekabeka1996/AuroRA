@@ -1,0 +1,22 @@
+env: testnet
+symbols: ["BTCUSDT"]
+reward:
+  tp_pct: 0.5
+  trail_bps: 20
+  trail_activate_at_R: 0.5
+  breakeven_after_R: 0.8
+  max_position_age_sec: 3600
+  atr_mult_sl: 1.2
+  target_R: 1.0
+  max_R: 3.0
+gates:
+  spread_bps_limit: 80
+  latency_ms_limit: 500
+  vol_guard_std_bps: 300
+  daily_dd_limit_pct: 10.0
+  cvar_alpha: 0.1
+  no_trap_mode: true
+dq:
+  enabled: true
+  cyclic_k: 5
+  cooldown_steps: 300

@@ -1,16 +1,19 @@
 {
-  "result": "ATTN",
-  "violations": [
-    "latency_p95_high"
-  ],
+  "result": "OK",
+  "violations": [],
+  "summary_path": "reports\\canary_60min_summary.md",
+  "events_path": "logs\\events.jsonl",
   "params": {
-    "window_sec": 3600
+    "strict": true,
+    "slip_threshold": 0.3,
+    "risk_threshold": 2,
+    "latency_threshold": 2,
+    "window_sec": 600
   },
   "computed": {
-    "expected_return_accepts": 0,
-    "latency_p95_alerts": 1,
-    "spread_trips": 0,
-    "risk_denies": 0
+    "latency_p95_ms": "N/A",
+    "slip_ratio": "N/A",
+    "expected_return_accepts": 3964
   },
-  "timestamp": 1756160226
+  "timestamp": "2025-08-26T15:38:40.298408Z"
 }

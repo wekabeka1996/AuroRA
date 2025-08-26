@@ -134,9 +134,13 @@ Thumbs.db
 *.key
 *.secret
 logs/
+logs/*
+!logs/.keep
 *.log
 shadow_logs/
 artifacts/
+artifacts/*
+!artifacts/.keep
 checkpoints/
 data/raw/
 data/tmp/

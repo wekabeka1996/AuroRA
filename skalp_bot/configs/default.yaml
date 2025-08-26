@@ -10,7 +10,7 @@ exchange:
   use_futures: true        # true -> futures (USDM), false -> spot
   testnet: true            # true -> sandbox/testnet
   symbol: "BTC/USDT"       # trading symbol
-  leverage: 10             # optional, best-effort for futures
+  leverage: 50             # optional, best-effort for futures
   # Credentials come from environment variables (do not hardcode keys!)
   api_key_env: BINANCE_API_KEY
   api_secret_env: BINANCE_API_SECRET
@@ -46,7 +46,7 @@ execution:
   max_symbol_exposure_usdt: 1000
   spread_guard_bps_max: 8
 
-leverage: 10
+leverage: 50
 
 aurora:
   enabled: true
@@ -55,7 +55,7 @@ aurora:
 
 # 15m clock-gate windows (seconds within 15m bar)
 clock_gate:
-  enabled: true
+  enabled: false
   windows_sec:
     - [20, 90]    # ORB 0:20–1:30
     - [420, 510]  # Mid-bar 7:00–8:30

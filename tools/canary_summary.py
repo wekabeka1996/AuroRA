@@ -218,7 +218,8 @@ def write_summary_md(events: list[dict], out_md: Path) -> None:
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--events", default="logs/events.jsonl")
+    default_events = str(Path(os.getenv('AURORA_SESSION_DIR', 'logs')) / 'aurora_events.jsonl')
+    p.add_argument("--events", default=default_events)
     p.add_argument("--out-ts", default="reports/latency_p95_timeseries.csv")
     p.add_argument("--out-flow", default="reports/escalations_flow.md")
     p.add_argument("--out-md", default="reports/canary_60min_summary.md")

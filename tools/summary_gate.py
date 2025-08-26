@@ -78,15 +78,18 @@ def parse_events(path: Path):
 def count_expected_return_accepts(events) -> int:
     cnt = 0
     for ev in events[-5000:]:
+        # Support both legacy (type/code/payload) and new schema (event_code/details)
         t = str(ev.get('type') or '')
         code = str(ev.get('code') or '')
+        event_code = str(ev.get('event_code') or '')
         payload = ev.get('payload') or {}
-        if code == 'AURORA.EXPECTED_RETURN_ACCEPT':
+        details = ev.get('details') or {}
+        if code == 'AURORA.EXPECTED_RETURN_ACCEPT' or event_code == 'AURORA.EXPECTED_RETURN_ACCEPT':
             cnt += 1
             continue
         # Fallback: POLICY.DECISION with reasons contains expected_return_accept
-        if t == 'POLICY.DECISION':
-            reasons = payload.get('reasons') or []
+        if t == 'POLICY.DECISION' or event_code == 'POLICY.DECISION':
+            reasons = (payload.get('reasons') if isinstance(payload, dict) else None) or (details.get('reasons') if isinstance(details, dict) else None) or []
             if isinstance(reasons, list) and any(r == 'expected_return_accept' for r in reasons):
                 cnt += 1
     return cnt
@@ -101,17 +104,24 @@ def window_counts(events, predicate, window_sec: int):
     for ev in events[-2000:]:
         if not predicate(ev):
             continue
-        ts = ev.get('ts')
-        try:
-            tdt = datetime.fromisoformat(ts.replace('Z','+00:00')) if isinstance(ts, str) else now
-            # Ensure timezone-aware
-            if tdt.tzinfo is None:
-                tdt = tdt.replace(tzinfo=timezone.utc)
-        except Exception:
-            tdt = now
+        # Prefer ts_ns (nanoseconds) from AuroraEventLogger; fallback to ISO 'ts' if present.
+        ts_ns = ev.get('ts_ns')
+        if isinstance(ts_ns, (int, float)):
+            try:
+                tdt = datetime.fromtimestamp(float(ts_ns) / 1_000_000_000.0, tz=timezone.utc)
+            except Exception:
+                tdt = now
+        else:
+            ts = ev.get('ts')
+            try:
+                tdt = datetime.fromisoformat(ts.replace('Z','+00:00')) if isinstance(ts, str) else now
+                if tdt.tzinfo is None:
+                    tdt = tdt.replace(tzinfo=timezone.utc)
+            except Exception:
+                tdt = now
         if tdt < start:
             continue
-        key = ev.get('code') or ev.get('type')
+        key = ev.get('code') or ev.get('type') or ev.get('event_code')
         buckets[key] = buckets.get(key, 0) + 1
         cnt += 1
     return cnt, buckets
@@ -120,7 +130,9 @@ def window_counts(events, predicate, window_sec: int):
 def main():
     p = argparse.ArgumentParser()
     p.add_argument('--summary', default='reports/canary_60min_summary.md')
-    p.add_argument('--events', default='logs/events.jsonl')
+    # Prefer session directory if set
+    default_events = str(Path(os.getenv('AURORA_SESSION_DIR', 'logs')) / 'aurora_events.jsonl')
+    p.add_argument('--events', default=default_events)
     p.add_argument('--strict', action='store_true')
     p.add_argument('--status-out', default=None, help='Optional path to write JSON status {result, violations}.')
     p.add_argument('--slip-threshold', type=float, default=0.30)
@@ -145,6 +157,11 @@ def main():
     events_path = Path(args.events)
     summary = load_summary_md(summary_path)
     events = parse_events(events_path)
+    # Backward/canonical fallback: try aurora_events.jsonl when default events.jsonl is not present
+    if not events and events_path.name == 'events.jsonl':
+        alt = events_path.with_name('aurora_events.jsonl')
+        if alt.exists():
+            events = parse_events(alt)
 
     violations = []
     # Rule: slip_mae_ratio > threshold
@@ -157,7 +174,7 @@ def main():
 
     # Rule: >=2 same RISK.DENY in window
     def is_risk_deny(ev):
-        return str(ev.get('type') or '').upper() == RISK_DENY
+        return str(ev.get('type') or ev.get('event_code') or '').upper() == RISK_DENY
     win = int(args.time_window_last) if args.time_window_last is not None else int(args.window_sec)
     _, risk_bucket = window_counts(events, is_risk_deny, win)
     if any(c >= args.risk_threshold for c in risk_bucket.values()):
@@ -166,7 +183,7 @@ def main():
 
     # Rule: >=2 HEALTH.LATENCY_* in window
     def is_latency_ev(ev):
-        return is_latency(ev.get('type') or ev.get('code') or '')
+        return is_latency(ev.get('type') or ev.get('code') or ev.get('event_code') or '')
     lat_cnt, _ = window_counts(events, is_latency_ev, win)
     if lat_cnt >= args.latency_threshold:
         violations.append(f'latency_events>={args.latency_threshold} (got {lat_cnt})')
