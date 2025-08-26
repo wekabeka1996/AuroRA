@@ -1,0 +1,86 @@
+# Aurora unified config (YAML-first)
+#
+# How it’s loaded (precedence):
+# 1) Env AURORA_CONFIG = absolute path or file name without extension
+# 2) Env AURORA_CONFIG_NAME = file name without extension
+# 3) Fallback to configs/v4_min.yaml (current default)
+#
+# Search locations when a name (without path) is provided:
+# - configs/<name>.yaml
+# - skalp_bot/configs/<name>.yaml
+#
+# You can override individual toggles via env without editing YAML.
+# Example env keys used by the service: AURORA_LMAX_MS, AURORA_PI_MIN_BPS, AURORA_SLIP_ETA,
+# TRAP_GUARD, AURORA_SPRT_ENABLED, AURORA_TRAP_THRESHOLD, AURORA_TRAP_Z_THRESHOLD, OPS_TOKEN.
+
+api:
+  host: 0.0.0.0
+  port: 8000
+
+security:
+  # Prefer OPS_TOKEN env var for secrets in production. This key is for local/dev only.
+  ops_token: "please-change-me-min-24-chars-012345"
+  allowlist: ["127.0.0.1", "::1"]
+
+logging:
+  # Base file is always placed inside session dir (AURORA_SESSION_DIR). Only basename matters here.
+  path: logs/aurora_events.jsonl
+  orders_path: logs/orders.jsonl
+  level: INFO
+
+aurora:
+  # Health guard (p95 latency) + cooloff
+  latency_guard_ms: 30
+  latency_window_sec: 60
+  cooloff_base_sec: 120
+  halt_threshold_repeats: 2
+
+pretrade:
+  # Order profile controls evaluation order of gates
+  # er_before_slip: expected return first, then slippage
+  # slip_before_er: slippage first, then expected return
+  order_profile: er_before_slip
+
+guards:
+  # Spread/latency/volatility guards. Some also have env overrides.
+  spread_bps_limit: 80
+  latency_ms_limit: 500
+  vol_guard_std_bps: 300
+  trap_guard_enabled: true
+
+risk:
+  # Day drawdown, caps and live size scaling; API exposes /risk/* ops to update at runtime
+  dd_day_pct: 10.0
+  max_concurrent: 3
+  size_scale: 1.0
+
+slippage:
+  # eta_fraction_of_b defines acceptable slippage as a fraction of b_bps
+  eta_fraction_of_b: 0.3
+
+sprt:
+  # Sequential Probability Ratio Test for fast reconfirmation (optional)
+  enabled: true
+  # One of:
+  # - Provide alpha/beta (type-I/II) and thresholds will be derived
+  # - Provide A/B directly
+  alpha: 0.2
+  beta: 0.2
+  sigma: 1.0
+  A: 2.0
+  B: -2.0
+  max_obs: 10
+
+trap:
+  # TRAP metrics window; thresholds also have env overrides
+  enabled: true
+  window_s: 2.0
+  levels: 5
+  z_threshold: 1.64
+  cancel_pctl: 90
+
+trading:
+  # SLA for /predict call (if TradingSystem is present)
+  max_latency_ms: 1000
+  # Default trading mode for runner integrations (api does not enforce this)
+  mode: shadow

@@ -31,7 +31,7 @@ from core.aurora.pretrade import gate_latency, gate_slippage, gate_expected_retu
 from core.scalper.calibrator import IsotonicCalibrator, CalibInput
 from core.scalper.sprt import SPRT, SprtConfig
 from core.scalper.trap import TrapWindow
-from common.config import load_sprt_cfg
+from common.config import load_sprt_cfg, load_config_any
 from common.events import EventEmitter
 from core.aurora_event_logger import AuroraEventLogger
 from core.order_logger import OrderLoggers
@@ -69,8 +69,15 @@ VERSION = get_version()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # startup
+    # Load YAML-first config with env overrides. Precedence:
+    # AURORA_CONFIG (path or name) → AURORA_CONFIG_NAME → default CONFIG_PATH
+    cfg: dict = {}
     try:
-        cfg = yaml.safe_load(open(CONFIG_PATH, 'r', encoding='utf-8'))
+        name_or_path = os.getenv('AURORA_CONFIG') or os.getenv('AURORA_CONFIG_NAME')
+        if name_or_path:
+            cfg = load_config_any(name_or_path) or {}
+        if not cfg:
+            cfg = yaml.safe_load(open(CONFIG_PATH, 'r', encoding='utf-8')) or {}
     except Exception:
         cfg = {}
     # Session log directory
@@ -127,6 +134,12 @@ async def lifespan(app: FastAPI):
     except Exception:
         pass
     app.state.events_emitter = em_logger
+    # Emit config switched for observability
+    try:
+        cfg_name = os.getenv('AURORA_CONFIG') or os.getenv('AURORA_CONFIG_NAME') or 'default(v4_min.yaml)'
+        em_logger.emit('CONFIG.SWITCHED', {'name': cfg_name})
+    except Exception:
+        pass
 
     # AckTracker: background scanner for ORDER.EXPIRE (no-op unless add_submit() is used by producers)
     try:

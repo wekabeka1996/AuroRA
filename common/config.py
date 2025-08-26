@@ -68,6 +68,51 @@ class SprtConfigModel(BaseModel):
     max_obs: int = Field(default=10)
 
 
+# --- YAML helpers ---
+
+def resolve_config_path(name_or_path: str | None) -> Path | None:
+    """Resolve a config path from env/name.
+
+    Accepts absolute/relative path to .yaml, or a bare name without extension.
+    Search order for names: configs/<name>.yaml, skalp_bot/configs/<name>.yaml.
+    Returns None when no input provided or not found.
+    """
+    if not name_or_path:
+        return None
+    p = Path(name_or_path)
+    if p.suffix.lower() != ".yaml" and p.suffix.lower() != ".yml":
+        # treat as name
+        root = Path(__file__).resolve().parents[1]
+        candidates = [
+            root / "configs" / f"{name_or_path}.yaml",
+            root / "skalp_bot" / "configs" / f"{name_or_path}.yaml",
+        ]
+    else:
+        candidates = [p if p.is_absolute() else Path.cwd() / p]
+    for c in candidates:
+        try:
+            if c.exists():
+                return c
+        except Exception:
+            continue
+    return None
+
+
+def load_config_any(name_or_path: str | None) -> dict:
+    """Load YAML config from resolved path. Returns {} if not found or invalid."""
+    p = resolve_config_path(name_or_path)
+    if p is None:
+        return {}
+    try:
+        with p.open('r', encoding='utf-8') as f:
+            data = yaml.safe_load(f) or {}
+            if not isinstance(data, dict):
+                return {}
+            return data
+    except Exception:
+        return {}
+
+
 def load_config(path: str | os.PathLike) -> dict:
     p = Path(path)
     with p.open('r', encoding='utf-8') as f:
