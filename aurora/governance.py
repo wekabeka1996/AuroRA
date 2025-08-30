@@ -3,6 +3,10 @@ from __future__ import annotations
 import time
 from typing import Dict, Any, Optional
 
+from observability.codes import (
+    AURORA_HALT, DQ_EVENT_STALE_BOOK, DQ_EVENT_CROSSED_BOOK, DQ_EVENT_ABNORMAL_SPREAD
+)
+
 
 class Governance:
     def __init__(self, cfg: Optional[Dict[str, Any]] = None):
@@ -37,15 +41,15 @@ class Governance:
         is_critical_dq = bool(dq_flags.get('stale_book') or dq_flags.get('crossed_book'))
         self._maybe_halt(reject_rate, is_critical_dq)
         if self._is_halted():
-            return {"allow": False, "code": "AURORA.HALT", "reasons": ["killswitch_active"], "intent": intent}
+            return {"allow": False, "code": AURORA_HALT, "reasons": ["killswitch_active"], "intent": intent}
 
         # Data-quality gates
         if dq_flags.get('stale_book'):
-            return {"allow": False, "code": "DQ_EVENT.STALE_BOOK", "reasons": ["stale_book"], "intent": intent}
+            return {"allow": False, "code": DQ_EVENT_STALE_BOOK, "reasons": ["stale_book"], "intent": intent}
         if dq_flags.get('crossed_book'):
-            return {"allow": False, "code": "DQ_EVENT.CROSSED_BOOK", "reasons": ["crossed_book"], "intent": intent}
+            return {"allow": False, "code": DQ_EVENT_CROSSED_BOOK, "reasons": ["crossed_book"], "intent": intent}
         if dq_flags.get('abnormal_spread'):
-            return {"allow": False, "code": "DQ_EVENT.ABNORMAL_SPREAD", "reasons": ["abnormal_spread"], "intent": intent}
+            return {"allow": False, "code": DQ_EVENT_ABNORMAL_SPREAD, "reasons": ["abnormal_spread"], "intent": intent}
 
         # Risk limits: daily DD and CVaR
         dd_lim = float(gates.get('daily_dd_limit_pct', 10.0))

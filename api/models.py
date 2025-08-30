@@ -18,12 +18,51 @@ class PredictionResponse(BaseModel):
     latency_ms: float
 
 
+class AccountInfo(BaseModel):
+    # Розширювано при потребі; зараз використовуємо тільки режим роботи раннера
+    mode: Optional[str] = None  # 'shadow' | 'paper' | 'prod'
+    account_id: Optional[str] = None
+    subaccount: Optional[str] = None
+
+
+class OrderInfo(BaseModel):
+    symbol: Optional[str] = None
+    side: Optional[str] = None  # 'buy' | 'sell'
+    qty: Optional[float] = None
+    price: Optional[float] = None
+    base_notional: Optional[float] = None
+    notional: Optional[float] = None
+
+
+class MarketInfo(BaseModel):
+    # Латентність/ринкові метрики
+    latency_ms: Optional[float] = None
+    slip_bps_est: Optional[float] = None
+    a_bps: Optional[float] = None
+    b_bps: Optional[float] = None
+    spread_bps: Optional[float] = None
+    # Альфа/режим
+    score: Optional[float] = None
+    mode_regime: Optional[str] = None
+    # TRAP
+    trap_cancel_deltas: Optional[List[float]] = None
+    trap_add_deltas: Optional[List[float]] = None
+    trap_trades_cnt: Optional[int] = None
+    obi_sign: Optional[int] = None
+    tfi_sign: Optional[int] = None
+    # SPRT
+    sprt_samples: Optional[List[float]] = None
+    # Risk context
+    pnl_today_pct: Optional[float] = None
+    open_positions: Optional[int] = None
+
+
 class PretradeCheckRequest(BaseModel):
     ts: Optional[int] = None
     req_id: Optional[str] = None
-    account: Dict[str, Any]
-    order: Dict[str, Any]
-    market: Dict[str, Any]
+    account: AccountInfo | Dict[str, Any]
+    order: OrderInfo | Dict[str, Any]
+    market: MarketInfo | Dict[str, Any]
     risk_tags: Optional[List[str]] = None
     fees_bps: Optional[float] = None
 

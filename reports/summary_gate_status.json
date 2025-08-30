@@ -1,19 +1,14 @@
 {
   "result": "OK",
   "violations": [],
-  "summary_path": "reports\\canary_60min_summary.md",
-  "events_path": "logs\\events.jsonl",
   "params": {
-    "strict": true,
-    "slip_threshold": 0.3,
-    "risk_threshold": 2,
-    "latency_threshold": 2,
-    "window_sec": 600
+    "window_sec": 3600
   },
   "computed": {
-    "latency_p95_ms": "N/A",
-    "slip_ratio": "N/A",
-    "expected_return_accepts": 3964
+    "expected_return_accepts": 0,
+    "latency_p95_alerts": 0,
+    "spread_trips": 0,
+    "risk_denies": 0
   },
-  "timestamp": "2025-08-26T15:38:40.298408Z"
+  "timestamp": 1756408982
 }

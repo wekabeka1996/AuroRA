@@ -82,6 +82,7 @@ def main():
     ap.add_argument('--minutes', type=int, default=5)
     ap.add_argument('--load-dotenv', action='store_true')
     ap.add_argument('--preflight', action='store_true')
+    ap.add_argument('--runner-config', type=str, default=None, help='Path or name of runner YAML to pass to canary/runner')
     args = ap.parse_args()
 
     if args.load_dotenv:
@@ -105,8 +106,10 @@ def main():
             sys.exit(1)
         print('✅ binance_smoke OK (public + private)')
 
-    # hand over to run_canary with minimal args
+    # hand over to run_canary with minimal args (+ optional runner-config)
     sys.argv = ['run_canary.py', '--minutes', str(args.minutes)]
+    if args.runner_config:
+        sys.argv += ['--runner-config', args.runner_config]
     from tools.run_canary import main as canary_main
     canary_main()
 

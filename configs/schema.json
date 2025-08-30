@@ -1,0 +1,363 @@
+{
+  "$id": "aurora.schema/v1",
+  "version": "1.0.0",
+  "hotReloadWhitelist": [
+    "risk.cvar.limit",
+    "risk.cvar.alpha",
+    "execution.sla.max_latency_ms",
+    "features.scaling"
+  ],
+  "schema": {
+    "type": "object",
+    "additionalProperties": true,
+    "required": ["risk", "execution"],
+    "properties": {
+      "risk": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["cvar"],
+        "properties": {
+          "limits": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "dd_day_bps": { "type": "number", "minimum": 0, "default": 300.0 },
+              "position_usd": { "type": "number", "minimum": 0, "default": 25000.0 },
+              "order_min_usd": { "type": "number", "minimum": 0, "default": 10.0 },
+              "order_max_usd": { "type": "number", "minimum": 0, "default": 5000.0 },
+              "cvar_usd": { "type": "number", "minimum": 0, "default": 150.0 },
+              "evt_quantile": { "type": "number", "minimum": 0.9, "maximum": 0.9999, "default": 0.999 },
+              "evt_max_loss_usd": { "type": "number", "minimum": 0, "default": 400.0 }
+            }
+          },
+          "cvar": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "limit": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.02 },
+              "alpha": { "type": "number", "minimum": 0.8, "maximum": 0.999, "default": 0.95 },
+              "method": { "type": "string", "enum": ["historical", "gaussian", "cornish-fisher", "student-t", "pot-gpd"], "default": "pot-gpd" },
+              "confidence": { "type": "number", "minimum": 0.5, "maximum": 0.9999, "default": 0.975 },
+              "lookback": { "type": "integer", "minimum": 30, "maximum": 100000, "default": 5000 }
+            },
+            "required": ["limit"]
+          },
+          "evt_pot": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "u_percentile": { "type": "number", "minimum": 0.8, "maximum": 0.99, "default": 0.95 },
+              "bootstrap": { "type": "integer", "minimum": 100, "maximum": 10000, "default": 500 }
+            }
+          }
+        }
+      },
+      "execution": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["sla"],
+        "properties": {
+          "sla": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "max_latency_ms": { "type": "integer", "minimum": 0, "default": 25 },
+              "kappa_bps_per_ms": { "type": "number", "minimum": 0, "default": 0.05 },
+              "target_fill_prob": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.6 },
+              "edge_floor_bps": { "type": "number", "minimum": 0, "default": 0.0 }
+            },
+            "required": ["max_latency_ms"]
+          },
+          "router": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "mode_default": { "type": "string", "enum": ["maker", "taker", "hybrid"], "default": "hybrid" },
+              "maker_offset_bps": { "type": "number", "minimum": 0, "maximum": 100, "default": 1.0 },
+              "taker_escalation_ttl_ms": { "type": "number", "minimum": 100, "maximum": 10000, "default": 1000 },
+              "t_min_requote_ms": { "type": "number", "minimum": 50, "maximum": 1000, "default": 150 },
+              "max_requotes_per_min": { "type": "number", "minimum": 1, "maximum": 100, "default": 20 },
+              "child_split": {
+                "type": "object",
+                "additionalProperties": true,
+                "properties": {
+                  "min_lot": { "type": "number", "minimum": 0, "default": 0.001 },
+                  "max_children": { "type": "number", "minimum": 1, "maximum": 20, "default": 5 }
+                }
+              },
+              "post_only": { "type": "boolean", "default": true },
+              "ioc_cleanup": { "type": "boolean", "default": true },
+              "spread_limit_bps": { "type": "number", "minimum": 0, "maximum": 1000, "default": 80 },
+              "vol_spike_guard": {
+                "type": "object",
+                "additionalProperties": true,
+                "properties": {
+                  "atr_mult": { "type": "number", "minimum": 1, "maximum": 10, "default": 2.0 },
+                  "window_s": { "type": "number", "minimum": 10, "maximum": 3600, "default": 300 }
+                }
+              }
+            }
+          },
+          "exchange": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "binance": {
+                "type": "object",
+                "additionalProperties": true,
+                "properties": {
+                  "enabled": { "type": "boolean", "default": false },
+                  "api_key": { "type": "string", "minLength": 0, "default": "" },
+                  "mode": { "type": "string", "enum": ["paper", "live"], "default": "paper" },
+                  "recv_window_ms": { "type": "integer", "minimum": 1000, "maximum": 60000, "default": 5000 },
+                  "time_sync_sec": { "type": "integer", "minimum": 10, "maximum": 3600, "default": 60 },
+                  "filters_ttl_sec": { "type": "integer", "minimum": 60, "maximum": 86400, "default": 3600 },
+                  "rps": { "type": "integer", "minimum": 1, "maximum": 100, "default": 8 },
+                  "burst": { "type": "integer", "minimum": 1, "maximum": 100, "default": 16 }
+                }
+              },
+              "gate": {
+                "type": "object",
+                "additionalProperties": true,
+                "properties": {
+                  "enabled": { "type": "boolean", "default": false },
+                  "mode": { "type": "string", "enum": ["paper", "live"], "default": "paper" },
+                  "time_sync_sec": { "type": "integer", "minimum": 10, "maximum": 3600, "default": 60 },
+                  "filters_ttl_sec": { "type": "integer", "minimum": 60, "maximum": 86400, "default": 3600 },
+                  "rps": { "type": "integer", "minimum": 1, "maximum": 100, "default": 8 },
+                  "burst": { "type": "integer", "minimum": 1, "maximum": 100, "default": 16 }
+                }
+              }
+            }
+          },
+          "fees": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "default_maker_bps": { "type": "number", "default": 1.0 },
+              "default_taker_bps": { "type": "number", "default": 7.5 },
+              "default_rebate_bps": { "type": "number", "default": 0.0 }
+            }
+          }
+        }
+      },
+      "features": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "scaling": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "method": { "type": "string", "enum": ["standard", "robust", "minmax", "none"], "default": "robust" }
+            }
+          }
+        }
+      },
+      "signal": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "score": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "gamma": { "type": "number", "default": 0.0 },
+              "use_cross_asset": { "type": "boolean", "default": true }
+            }
+          }
+        }
+      },
+      "calibration": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "method": { "type": "string", "enum": ["platt", "isotonic", "none"], "default": "isotonic" },
+          "prequential_window": { "type": "integer", "minimum": 100, "default": 5000 }
+        }
+      },
+      "regime": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "manager": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "trend_quantile": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.6 },
+              "grind_quantile": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.4 }
+            }
+          }
+        }
+      },
+      "tca": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "edge_budget": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "enabled": { "type": "boolean", "default": true }
+            }
+          },
+          "adverse_window_s": { "type": "number", "minimum": 1, "maximum": 60, "default": 1 },
+          "mark_ref": { "type": "string", "enum": ["mid", "micro"], "default": "micro" },
+          "aggregate_interval_s": { "type": "number", "minimum": 1, "maximum": 3600, "default": 300 }
+        }
+      },
+      "sizing": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "kelly": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "risk_aversion": { "type": "number", "minimum": 0, "default": 0.2 },
+              "clip_min": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.0 },
+              "clip_max": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.2 },
+              "rr_default": { "type": "number", "minimum": 0, "default": 1.0 },
+              "fraction_cap": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.2 }
+            }
+          },
+          "portfolio": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "method": { "type": "string", "enum": ["lw_shrinkage", "mean_variance"], "default": "lw_shrinkage" },
+              "gross_cap": { "type": "number", "minimum": 0, "default": 2.0 },
+              "max_weight": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.2 },
+              "cvar_alpha": { "type": "number", "minimum": 0.8, "maximum": 0.999, "default": 0.975 },
+              "cvar_limit": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.08 }
+            }
+          },
+          "dd_haircut": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "dd_max_bps": { "type": "number", "minimum": 0, "default": 300.0 },
+              "beta": { "type": "number", "minimum": 0, "default": 2.0 },
+              "enabled": { "type": "boolean", "default": true }
+            }
+          },
+          "stability": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "hysteresis_threshold": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.1 },
+              "hysteresis_flip_threshold": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.2 },
+              "min_resize_interval_sec": { "type": "number", "minimum": 0, "default": 10.0 },
+              "bucket_sizes": { "type": "array", "items": { "type": "number", "minimum": 0 }, "default": [0.0, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0] }
+            }
+          },
+          "limits": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "min_notional_usd": { "type": "number", "minimum": 0, "default": 10.0 },
+              "max_notional_usd": { "type": "number", "minimum": 0, "default": 5000.0 },
+              "leverage_max": { "type": "number", "minimum": 1, "default": 5.0 },
+              "initial_margin_pct": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.1 },
+              "maintenance_margin_pct": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.05 }
+            }
+          }
+        }
+      },
+      "universe": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "ranking": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "wL": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.35 },
+              "wS": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.25 },
+              "wP": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.25 },
+              "wR": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.15 },
+              "add_thresh": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.6 },
+              "drop_thresh": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.4 },
+              "min_dwell": { "type": "integer", "minimum": 1, "default": 200 },
+              "ema_alpha": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.2 }
+            }
+          }
+        }
+      },
+      "governance": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "alpha_ledger": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "enabled": { "type": "boolean", "default": true }
+            }
+          }
+        }
+      },
+      "xai": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "decision_log": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "enabled": { "type": "boolean", "default": true }
+            }
+          }
+        }
+      },
+      "hotreload": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "whitelist": { "type": "array", "items": { "type": "string" } }
+        }
+      },
+      "shadow": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "threshold": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.55 },
+          "topk": { "type": "integer", "minimum": 1, "default": 16 }
+        }
+      },
+      "reward": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "tp_levels_bps": {
+            "type": "array",
+            "items": { "type": "number", "minimum": 0 },
+            "default": [20, 40, 70]
+          },
+          "tp_sizes": {
+            "type": "array",
+            "items": { "type": "number", "minimum": 0, "maximum": 1 },
+            "default": [0.25, 0.35, 0.40]
+          },
+          "trail_atr_k": { "type": "number", "minimum": 0, "maximum": 5, "default": 0.8 },
+          "be_rr": { "type": "number", "minimum": 0, "maximum": 5, "default": 1.0 },
+          "be_buffer_bps": { "type": "number", "minimum": 0, "maximum": 50, "default": 2.0 },
+          "ttl_minutes": { "type": "number", "minimum": 1, "maximum": 1440, "default": 120 },
+          "stuck_dt_s": { "type": "number", "minimum": 10, "maximum": 3600, "default": 300 },
+          "no_progress_eps_bps": { "type": "number", "minimum": 0, "maximum": 100, "default": 5.0 },
+          "scale_in": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "enabled": { "type": "boolean", "default": true },
+              "hysteresis": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.1 },
+              "rho": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.5 },
+              "max_add_per_step": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.2 },
+              "cooldown_s": { "type": "number", "minimum": 0, "maximum": 3600, "default": 60 }
+            }
+          }
+        }
+      }
+    }
+  }
+}

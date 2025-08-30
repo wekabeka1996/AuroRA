@@ -16,7 +16,19 @@ except Exception:
     requests = None  # health-checks will be skipped if requests missing
 
 ROOT = Path(__file__).resolve().parent.parent
-EVENTS_PATH = ROOT / 'logs' / 'events.jsonl'
+def _resolve_events_path() -> Path:
+    """Prefer session aurora_events.jsonl → logs/aurora_events.jsonl → legacy logs/events.jsonl."""
+    sess = os.getenv('AURORA_SESSION_DIR')
+    if sess:
+        p = Path(sess) / 'aurora_events.jsonl'
+        if p.exists() or p.parent.exists():
+            return p
+    p1 = ROOT / 'logs' / 'aurora_events.jsonl'
+    if p1.exists() or p1.parent.exists():
+        return p1
+    return ROOT / 'logs' / 'events.jsonl'
+
+EVENTS_PATH = _resolve_events_path()
 ARTIFACTS_DIR = ROOT / 'artifacts'
 REPORTS_DIR = ROOT / 'reports'
 TOOLS_DIR = ROOT / 'tools'
@@ -119,10 +131,47 @@ def run_shadow_traffic(base_url: str, minutes: int, rps: float) -> int:
 
 
 def start_live_runner(config_path: str) -> subprocess.Popen:
-    # python -m skalp_bot.scripts.run_live_aurora <config>
-    args = [sys.executable, '-m', 'skalp_bot.scripts.run_live_aurora', config_path]
+    # python -m skalp_bot.runner.run_live_aurora <config>
+    args = [sys.executable, '-m', 'skalp_bot.runner.run_live_aurora']
+    if config_path:
+        # runner supports --config path
+        args += ['--config', config_path]
     proc = subprocess.Popen(args, cwd=str(ROOT))
     return proc
+
+
+def resolve_runner_config(spec: Optional[str]) -> str:
+    """Resolve runner config path from a spec that can be:
+    - absolute/relative path to a YAML file
+    - bare name without extension; searched in `configs/runner/<name>.yaml` then `skalp_bot/configs/<name>.yaml`
+    - keep backward-compatible default if None
+    Returns normalized string path (may be unchanged if not found; runner handles its own defaults too).
+    """
+    if not spec:
+        return 'skalp_bot\\configs\\default.yaml'
+    # If spec looks like an existing path, return as-is
+    p = Path(spec)
+    if p.suffix.lower() in {'.yml', '.yaml'}:
+        # relative to ROOT if not absolute
+        if not p.is_absolute():
+            p = (ROOT / p).resolve()
+        return str(p)
+    # Treat as bare name: try configs/runner then skalp_bot/configs
+    name = spec.strip().rstrip('.yaml').rstrip('.yml')
+    candidates = [
+        ROOT / 'configs' / 'runner' / f'{name}.yaml',
+        ROOT / 'configs' / 'runner' / f'{name}.yml',
+        ROOT / 'skalp_bot' / 'configs' / f'{name}.yaml',
+        ROOT / 'skalp_bot' / 'configs' / f'{name}.yml',
+    ]
+    for c in candidates:
+        try:
+            if c.exists():
+                return str(c.resolve())
+        except Exception:
+            continue
+    # Fallback to original value (so caller can still pass the same spec to runner)
+    return spec
 
 
 def build_summary(minutes: int) -> Path:
@@ -183,12 +232,13 @@ def tail_risk_health(n: int = 10) -> None:
         for ln in lines:
             try:
                 ev = json.loads(ln)
-                t = str(ev.get('type') or '')
-                if t.startswith('RISK.') or t.startswith('HEALTH.') or t.startswith('AURORA.HEALTH') or t.startswith('AURORA.RISK'):
+                # Prefer new schema event_code, fallback to code/type
+                code = str(ev.get('event_code') or ev.get('code') or ev.get('type') or '')
+                if code.startswith('RISK.') or code.startswith('HEALTH.') or code.startswith('AURORA.HEALTH') or code.startswith('AURORA.RISK'):
                     selected.append(ln)
             except Exception:
                 # fallback substring match
-                if '"type"' in ln and ('RISK.' in ln or 'HEALTH.' in ln):
+                if ('"event_code"' in ln or '"code"' in ln or '"type"' in ln) and ('RISK.' in ln or 'HEALTH.' in ln):
                     selected.append(ln)
         for ln in selected[-n:]:
             print(ln)
@@ -228,7 +278,7 @@ def main():
     ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     EVENTS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    # Clear previous events
+    # Clear previous events (best-effort)
     try:
         if EVENTS_PATH.exists():
             EVENTS_PATH.unlink()
@@ -252,9 +302,10 @@ def main():
             print('Harness signaled stop (risk breach). Continuing to build summary and run gate for artifacts.')
 
         if is_live_mode():
-            # LIVE
-            print(f'[runner] LIVE mode detected for {args.minutes} min')
-            runner_proc = start_live_runner(args.runner_config)
+            # LIVE (includes testnet+prod mode)
+            resolved_cfg = resolve_runner_config(args.runner_config)
+            print(f"[runner] starting live runner for {args.minutes} min; config={resolved_cfg}")
+            runner_proc = start_live_runner(resolved_cfg)
             time.sleep(max(0, int(args.minutes * 60)))
         else:
             # Shadow traffic

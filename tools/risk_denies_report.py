@@ -9,15 +9,17 @@ from typing import Any
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Extract RISK.DENY events to CSV")
-    p.add_argument("--in", dest="inp", required=True, help="Path to events.jsonl")
+    from os import getenv
+    default_events = str(Path(getenv('AURORA_SESSION_DIR', 'logs')) / 'aurora_events.jsonl')
+    p.add_argument("--in", dest="inp", default=default_events, help="Path to aurora_events.jsonl (or legacy events.jsonl)")
     p.add_argument("--out", dest="out", required=True, help="Output CSV path")
     return p.parse_args()
 
 
 def extract_fields(evt: dict[str, Any]) -> dict[str, Any]:
     ts = evt.get("ts") or evt.get("timestamp") or "N/A"
-    code = evt.get("code") or evt.get("type") or "N/A"
-    pl = evt.get("payload") or {}
+    code = evt.get("event_code") or evt.get("code") or evt.get("type") or "N/A"
+    pl = evt.get("payload") or evt.get("details") or {}
     ctx = pl.get("ctx") or {}
     return {
         "ts": ts,
@@ -49,7 +51,7 @@ def main():
                 evt = json.loads(line)
             except Exception:
                 continue
-            if (evt.get("type") or evt.get("code")) not in ("RISK.DENY",):
+            if (evt.get("event_code") or evt.get("type") or evt.get("code")) not in ("RISK.DENY",):
                 continue
             rows.append(extract_fields(evt))
 

@@ -13,7 +13,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from observability.codes import RISK_DENY, is_latency
+from observability.codes import RISK_DENY, is_latency, AURORA_EXPECTED_RETURN_ACCEPT
 
 
 def load_summary_md(path: Path) -> dict:
@@ -84,7 +84,7 @@ def count_expected_return_accepts(events) -> int:
         event_code = str(ev.get('event_code') or '')
         payload = ev.get('payload') or {}
         details = ev.get('details') or {}
-        if code == 'AURORA.EXPECTED_RETURN_ACCEPT' or event_code == 'AURORA.EXPECTED_RETURN_ACCEPT':
+        if code == AURORA_EXPECTED_RETURN_ACCEPT or event_code == AURORA_EXPECTED_RETURN_ACCEPT:
             cnt += 1
             continue
         # Fallback: POLICY.DECISION with reasons contains expected_return_accept

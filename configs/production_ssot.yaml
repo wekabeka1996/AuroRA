@@ -1,0 +1,229 @@
+# Production Configuration for Aurora Step 4
+# SSOT (Single Source of Truth) - Safe Production Settings
+# Last updated: 2025-08-30
+
+# ==========================================
+# REWARD CONFIGURATION
+# ==========================================
+
+reward:
+  # Breakeven and trailing settings
+  breakeven_after_R: 5.0
+  trail_activate_at_R: 2.0
+  trail_atr_k: 1.0
+
+  # Take profit levels (cumulative)
+  tp_bps: [20, 40, 70]  # 20bps, 40bps, 70bps profit targets
+  tp_sizes: [0.25, 0.35, 0.40]  # Size of each TP level
+
+  # Time-based exits
+  ttl_minutes: 60
+  no_progress_timeout_minutes: 10
+  no_progress_min_bps_change: 3.0
+
+# ==========================================
+# SIZING CONFIGURATION
+# ==========================================
+
+sizing:
+  # Risk parameters
+  rho: 0.2  # Kelly fraction
+  gross_cap_equity_multiplier: 2.0  # Max 2x equity exposure
+
+  # CVaR constraints
+  cvar_alpha: 0.975
+  cvar_limit_equity_fraction: 0.8  # CVaR ≤ 80% of daily DD limit
+
+  # Size bucketing for scale-in
+  bucket_bps: [0, 5, 10, 20, 50, 100]  # Size buckets in bps
+
+  # Scale-in parameters
+  tau: 0.1  # Base scale-in fraction
+  tau_flip: 0.2  # Scale-in fraction after position flip
+
+# ==========================================
+# EXECUTION CONFIGURATION
+# ==========================================
+
+execution:
+  # Maker preferences
+  post_only: true
+  maker_offset_bps: 0.75  # 0.75bps offset from micro-price
+
+  # Child order management
+  max_children: 5
+  min_lot: 0.001
+
+  # Escalation parameters
+  ttl_child_ms: 1500  # 1.5 seconds
+  edge_decay_bps: 2.0  # Edge decay for escalation
+
+  # Re-peg guards
+  t_min_requote_ms: 200
+  max_requotes_per_min: 30
+
+  # Market condition guards
+  spread_limit_bps: 8
+  vol_spike_guard:
+    enabled: true
+    atr_mult: 2.5
+    window_s: 60
+
+  # STP (Self-Trade Prevention)
+  stp:
+    enabled: true
+    policy: "cancel_both"
+
+# ==========================================
+# RISK GUARDS CONFIGURATION
+# ==========================================
+
+risk_guards:
+  # Daily drawdown limits
+  daily_dd_limit_pct: 10.0  # 10% daily DD limit
+  intraday_dd_limit_pct: 7.0  # 7% intraday DD for kill switch
+
+  # Per-symbol position limits
+  per_symbol_max_notional: 25000  # $25k max per symbol
+  per_symbol_min_notional: 10  # $10 min per symbol
+
+  # Inventory management
+  inventory_cap_usd: 25000  # $25k total inventory cap
+
+  # API and connectivity guards
+  api_timeout_ms: 3000
+  max_consecutive_timeouts: 3
+  backoff_base_ms: 400
+  backoff_max_ms: 6400
+
+# ==========================================
+# TCA (Transaction Cost Analysis) CONFIGURATION
+# ==========================================
+
+tca:
+  # Analysis windows
+  analysis_window_minutes: 60
+  adverse_selection_window_s: 30
+
+  # Performance targets
+  target_median_is_bps: 1.5
+  target_p90_is_bps: 5.0
+  target_fill_ratio: 0.55
+  target_positive_adv_ratio: 0.55
+
+  # Cost decomposition
+  enable_spread_cost_analysis: true
+  enable_latency_slippage_analysis: true
+  enable_adverse_selection_detection: true
+
+# ==========================================
+# MONITORING & ALERTS CONFIGURATION
+# ==========================================
+
+monitoring:
+  # Performance SLOs
+  slo_decision_latency_p95_ms: 5.0
+  slo_decision_latency_p99_ms: 8.0
+
+  # Alert thresholds
+  alert_decision_latency_p95_warning_ms: 8.0
+  alert_decision_latency_p95_critical_ms: 12.0
+
+  alert_cancel_ratio_threshold: 0.75
+  alert_cancel_ratio_window_minutes: 5
+
+  alert_maker_fill_ratio_threshold: 0.35
+
+  alert_tca_is_p90_threshold_bps: 8.0
+
+  # Metrics collection
+  metrics_collection_interval_s: 10
+  metrics_retention_days: 30
+
+# ==========================================
+# LOGGING & OBSERVABILITY CONFIGURATION
+# ==========================================
+
+logging:
+  # XAI event logging
+  xai_events_enabled: true
+  xai_events_path: "logs/aurora_events.jsonl"
+
+  # Order event logging
+  order_events_path: "logs/orders_{success,failed,denied}.jsonl"
+
+  # TCA reporting
+  tca_report_enabled: true
+  tca_report_interval_minutes: 60
+  tca_report_path: "reports/tca_session_report.json"
+
+  # Log levels
+  console_level: "INFO"
+  file_level: "DEBUG"
+  xai_level: "INFO"
+
+# ==========================================
+# EXCHANGE-SPECIFIC CONFIGURATION
+# ==========================================
+
+exchange:
+  # Binance-specific settings
+  binance:
+    # Rate limits
+    rate_limit_orders_per_second: 10
+    rate_limit_requests_per_minute: 1200
+
+    # Filters compliance
+    enforce_lot_size_filter: true
+    enforce_min_notional_filter: true
+    enforce_price_filter: true
+
+    # Connectivity
+    recv_window_ms: 5000
+    request_timeout_ms: 3000
+
+  # Symbol universe
+  symbols:
+    - "BTCUSDT"
+    - "ETHUSDT"
+    - "SOLUSDT"
+    - "ADAUSDT"
+
+# ==========================================
+# GOVERNANCE CONFIGURATION
+# ==========================================
+
+governance:
+  # Kill switches
+  kill_switches:
+    vol_spike_kill: true
+    api_timeout_kill: true
+    spread_limit_kill: true
+    cvar_breach_kill: true
+    dd_intraday_kill: true
+
+  # Emergency stops
+  emergency_stop_enabled: true
+  emergency_stop_cooldown_minutes: 5
+
+  # Manual overrides
+  manual_position_limit_override: false
+  manual_risk_limit_override: false
+
+# ==========================================
+# DEVELOPMENT & TESTING CONFIGURATION
+# ==========================================
+
+development:
+  # Testnet settings
+  testnet_enabled: true
+  testnet_symbols: ["BTCUSDT", "ETHUSDT"]
+
+  # Simulation mode
+  simulation_enabled: false
+  simulation_speed_multiplier: 1.0
+
+  # Debug settings
+  debug_mode: false
+  debug_xai_events: false
+  debug_performance_metrics: true

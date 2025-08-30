@@ -43,14 +43,20 @@ def last_latency_p95_ms(latency_csv: Path) -> float | None:
     if not latency_csv.exists():
         return None
     try:
-        # Expect CSV with header: ts,p95_ms
+        # Accept headers variants: ts,p95_ms OR ts,value OR idx,latency_ms
         last_row = None
         with latency_csv.open("r", newline="", encoding="utf-8") as f:
             reader = csv.DictReader(f)
             for row in reader:
                 last_row = row
-        if last_row and "p95_ms" in last_row:
-            return float(last_row["p95_ms"])  # type: ignore[arg-type]
+        if not last_row:
+            return None
+        for k in ("p95_ms", "value", "latency_ms"):
+            if k in last_row and last_row[k] not in (None, ""):
+                try:
+                    return float(last_row[k])  # type: ignore[arg-type]
+                except Exception:
+                    continue
     except Exception:
         return None
     return None
@@ -74,13 +80,13 @@ def main():
     trap_warn = 0
     risk_denies = 0
     for ev in events[-2000:]:
+        code_full = str(ev.get("event_code") or ev.get("code") or ev.get("type") or "")
         t = str(ev.get("type") or "")
-        code = str(ev.get("code") or "")
-        if code in essential or t in essential:
+        if code_full in essential or t in essential:
             er += 1
-        if t.startswith("HEALTH.LATENCY_"):
+        if code_full.startswith("HEALTH.LATENCY_"):
             trap_warn += 1
-        if t == "RISK.DENY":
+        if code_full == "RISK.DENY":
             risk_denies += 1
 
     fields = [

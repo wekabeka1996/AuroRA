@@ -77,6 +77,8 @@ class CCXTBinanceAdapter:
             else:
                 raise
         self.ex = ex_class(params)
+        # Keep a flag for futures to enable reduceOnly on close orders
+        self.use_futures = use_futures
 
         # Load markets early for precision/limits access
         try:
@@ -120,7 +122,7 @@ class CCXTBinanceAdapter:
             self.ex.apiKey = key
             self.ex.secret = sec
 
-    # Symbol and dry-run
+        # Symbol and dry-run
         self.symbol = exch.get("symbol", cfg.get("symbol", "BTC/USDT"))
         self.dry = bool(cfg.get("dry_run", True))
         if os.getenv("DRY_RUN") is not None:
@@ -214,17 +216,30 @@ class CCXTBinanceAdapter:
             pass
         return 0.0
 
-    def place_order(self, side: Literal["buy", "sell"], qty: float, price: float | None = None):
+    def place_order(
+        self,
+        side: Literal["buy", "sell"],
+        qty: float,
+        price: float | None = None,
+        *,
+        reduce_only: bool = False,
+    ):
         """Place order with exchange precision and limit checks.
 
         - Quantizes amount/price via ccxt helpers
         - Validates minQty and minCost when available
         """
         if self.dry:
-            return {"info": "dry_run", "side": side, "qty": qty, "price": price}
+            return {"info": "dry_run", "side": side, "qty": qty, "price": price, "reduceOnly": bool(reduce_only)}
 
         order_type = "limit" if price is not None else "market"
-        params = {"timeInForce": "GTC"} if order_type == "limit" else {}
+        params: dict[str, Any] = {"timeInForce": "GTC"} if order_type == "limit" else {}
+        # For futures, allow reduceOnly on close orders
+        if self.use_futures and reduce_only:
+            try:
+                params["reduceOnly"] = True
+            except Exception:
+                pass
 
         # Quantize amount/price to exchange precision
         qty_q = self._quantize_amount(float(qty))
@@ -256,6 +271,14 @@ class CCXTBinanceAdapter:
             )
 
         return self.ex.create_order(self.symbol, order_type, side, qty_q, price_q, params)
+
+    def close_position(self, side_current: Literal["LONG", "SHORT"], qty: float):
+        """Place a market order to close an existing position amount.
+
+        For futures, uses reduceOnly=True to avoid unintentionally increasing exposure.
+        """
+        ex_side: Literal["buy", "sell"] = "sell" if side_current == "LONG" else "buy"
+        return self.place_order(ex_side, qty, price=None, reduce_only=True)
 
     def cancel_all(self):
         if self.dry:

@@ -4,7 +4,7 @@ import argparse
 import json
 import sys
 from collections import deque, Counter
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import time
@@ -28,22 +28,32 @@ def parse_events(path: Path):
 
 
 def risk_should_fail(events: list[dict], window_sec: int, threshold: int) -> tuple[bool, str]:
-    # track RISK.DENY reasons in a moving window
-    now = datetime.utcnow()
+    """Track RISK.DENY reasons in a moving window. Support new event_code and ts_ns."""
+    now = datetime.now(timezone.utc)
     window_start = now - timedelta(seconds=window_sec)
     reasons = []
     for ev in events[-1000:]:
-        t = str(ev.get('type') or '')
-        if t != 'RISK.DENY':
+        code = str(ev.get('event_code') or ev.get('type') or ev.get('code') or '').upper()
+        if code != 'RISK.DENY':
             continue
-        ts = ev.get('ts')
-        try:
-            tdt = datetime.fromisoformat(ts.replace('Z','+00:00')) if isinstance(ts, str) else now
-        except Exception:
-            tdt = now
+        # Timestamp handling: prefer ts_ns (nanoseconds), fallback to ISO ts string
+        tdt = now
+        if ev.get('ts_ns') is not None:
+            try:
+                tdt = datetime.fromtimestamp(float(ev['ts_ns']) / 1_000_000_000.0, tz=timezone.utc)
+            except Exception:
+                tdt = now
+        else:
+            ts = ev.get('ts')
+            try:
+                tdt = datetime.fromisoformat(ts.replace('Z','+00:00')) if isinstance(ts, str) else now
+                if tdt.tzinfo is None:
+                    tdt = tdt.replace(tzinfo=timezone.utc)
+            except Exception:
+                tdt = now
         if tdt < window_start:
             continue
-        payload = ev.get('payload') or {}
+        payload = ev.get('payload') or ev.get('details') or {}
         reason = (payload.get('reason') or ev.get('code') or 'RISK.DENY').strip()
         reasons.append(reason)
     if not reasons:
@@ -91,13 +101,25 @@ def main():
         fail, top_reason = risk_should_fail(events, args.window_sec, args.risk_threshold)
         # pre-emptive cooloff on first breach (if any risk events present but not yet exceeding threshold)
         if not args.no_autocooloff and args.ops_token:
-            # if there is at least one RISK.DENY in window but below threshold, try cooloff
-            _, buckets = risk_should_fail(events, args.window_sec, 1)
-            # risk_should_fail returns tuple(bool, str); reuse window_counts instead
-            # Simplify: if we already failed OR we have any risk events, call cooloff once
+            # If there is at least one recent RISK.DENY but below threshold, try a cooloff
             has_any = False
+            now = datetime.now(timezone.utc)
+            window_start = now - timedelta(seconds=args.window_sec)
             for ev in events[-1000:]:
-                if str(ev.get('type') or '') == 'RISK.DENY':
+                code = str(ev.get('event_code') or ev.get('type') or ev.get('code') or '').upper()
+                if code != 'RISK.DENY':
+                    continue
+                try:
+                    if ev.get('ts_ns') is not None:
+                        tdt = datetime.fromtimestamp(float(ev['ts_ns']) / 1_000_000_000.0, tz=timezone.utc)
+                    else:
+                        ts = ev.get('ts')
+                        tdt = datetime.fromisoformat(ts.replace('Z','+00:00')) if isinstance(ts, str) else now
+                        if tdt.tzinfo is None:
+                            tdt = tdt.replace(tzinfo=timezone.utc)
+                except Exception:
+                    tdt = now
+                if tdt >= window_start:
                     has_any = True
                     break
             if has_any and not fail:

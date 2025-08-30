@@ -5,6 +5,10 @@ from typing import List
 from typing import Optional
 
 from core.scalper.trap import TrapWindow, TrapMetrics
+try:
+    from core.calibration.icp import SplitConformalBinary
+except ImportError:
+    SplitConformalBinary = None
 
 
 @dataclass
@@ -92,3 +96,64 @@ def gate_trap(
         reasons.append(f"trap_guard:z={metrics.trap_z:.2f}")
         return False, metrics
     return True, metrics
+
+
+def gate_icp(
+    iw: IcpWindow,
+    price_deltas: List[float],
+    trades_cnt: int,
+    *,
+    z_threshold: float,
+    pctl: int,
+    reasons: List[str],
+) -> tuple[bool, IcpMetrics]:
+    """ICP gate using a rolling z-score.
+
+    Returns (allow, metrics). Appends reasons if blocked.
+    """
+    metrics = iw.update(
+        price_deltas=price_deltas,
+        trades_cnt=trades_cnt,
+        z_threshold=z_threshold,
+        pctl=pctl,
+    )
+    if metrics.flag:
+        reasons.append(f"icp_guard:z={metrics.icp_z:.2f}")
+        return False, metrics
+    return True, metrics
+
+
+def gate_icp_uncertainty(
+    icp_predictor,
+    features: List[float],
+    reasons: List[str],
+    alpha: float = 0.1
+) -> bool:
+    """ICP uncertainty gate: blocks if prediction set is empty (high uncertainty).
+    
+    Uses Inductive Conformal Prediction to assess prediction uncertainty.
+    If the prediction set is empty, it indicates high uncertainty and the trade
+    should be blocked.
+    
+    Args:
+        icp_predictor: Trained SplitConformalBinary predictor
+        features: Feature vector for prediction
+        reasons: List to append blocking reasons
+        alpha: Significance level (default 0.1 for 90% confidence)
+    
+    Returns:
+        True if prediction set is non-empty (low uncertainty), False otherwise
+    """
+    if SplitConformalBinary is None:
+        reasons.append("icp_guard_skipped_no_module")
+        return True
+    
+    try:
+        prediction_set = icp_predictor.predict_set(features[0])  # Use first feature as probability
+        if not prediction_set:  # Empty prediction set = high uncertainty
+            reasons.append(f"icp_guard_empty_prediction_set:alpha={alpha}")
+            return False
+        return True
+    except Exception as e:
+        reasons.append(f"icp_guard_error:{str(e)}")
+        return True  # Allow trade if ICP fails

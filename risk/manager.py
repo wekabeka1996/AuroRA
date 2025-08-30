@@ -24,7 +24,18 @@ class RiskManager:
     @staticmethod
     def load(cfg: dict, env: Mapping[str, str]) -> RiskConfig:
         rcfg = (cfg.get('risk') or {})
-        dd_day_pct = float(env.get('AURORA_DD_DAY_PCT', rcfg.get('dd_day_pct', 100.0)))
+        gates = (cfg.get('gates') or {})  # allow legacy location for dd cap
+        # Prefer explicit risk.dd_day_pct, else env alias, else gates.daily_dd_limit_pct, else default
+        dd_from_cfg = rcfg.get('dd_day_pct')
+        if dd_from_cfg is None and 'daily_dd_limit_pct' in gates:
+            dd_from_cfg = gates.get('daily_dd_limit_pct')
+        dd_env = env.get('AURORA_DD_DAY_PCT')
+        if dd_env is not None:
+            dd_day_pct = float(dd_env)
+        elif dd_from_cfg is not None:
+            dd_day_pct = float(dd_from_cfg)
+        else:
+            dd_day_pct = 100.0
         max_concurrent = int(env.get('AURORA_MAX_CONCURRENT', rcfg.get('max_concurrent', 10)))
         size_scale = float(env.get('AURORA_SIZE_SCALE', rcfg.get('size_scale', 1.0)))
         # clip size_scale into [0,1]

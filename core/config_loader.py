@@ -19,6 +19,20 @@ class RewardCfg(BaseModel):
     atr_mult_sl: Annotated[float, confloat(ge=0, le=10)] = 1.2
     target_R: Annotated[float, confloat(ge=0, le=10)] = 1.0
     max_R: Annotated[float, confloat(ge=0, le=20)] = 3.0
+    # New v1.0 parameters
+    tp_levels_bps: list[Annotated[float, confloat(ge=0)]] = [20.0, 40.0, 70.0]
+    tp_sizes: list[Annotated[float, confloat(ge=0, le=1)]] = [0.25, 0.35, 0.40]
+    trail_atr_k: Annotated[float, confloat(ge=0, le=5)] = 0.8
+    be_rr: Annotated[float, confloat(ge=0, le=5)] = 1.0
+    be_buffer_bps: Annotated[float, confloat(ge=0, le=50)] = 2.0
+    ttl_minutes: Annotated[int, conint(ge=1, le=1440)] = 120
+    stuck_dt_s: Annotated[int, conint(ge=10, le=3600)] = 300
+    no_progress_eps_bps: Annotated[float, confloat(ge=0, le=100)] = 5.0
+    scale_in_enabled: bool = True
+    scale_in_hysteresis: Annotated[float, confloat(ge=0, le=1)] = 0.1
+    scale_in_rho: Annotated[float, confloat(ge=0, le=1)] = 0.5
+    scale_in_max_add_per_step: Annotated[float, confloat(ge=0, le=1)] = 0.2
+    scale_in_cooldown_s: Annotated[int, conint(ge=0, le=3600)] = 60
 
 
 class GatesCfg(BaseModel):
@@ -64,8 +78,14 @@ def _load_yaml(path: Path) -> dict:
         raise RuntimeError(f"Failed to load YAML '{path}': {e}")
 
 
+class ConfigLoadError(RuntimeError):
+    pass
+
+
 def load_config(name: Optional[str]) -> Config:
-    """Reads .env:AURORA_CONFIG_NAME or provided name, loads YAML into Config. On error, emit HEALTH.ERROR and exit(2)."""
+    """Reads .env:AURORA_CONFIG_NAME or provided name, loads YAML into Config.
+    On error, emit HEALTH.ERROR and raise ConfigLoadError (замість exit).
+    """
     cfg_name = (name or os.getenv('AURORA_CONFIG_NAME') or '').strip()
     if not cfg_name:
         cfg_name = 'master_config_v1'
@@ -78,4 +98,4 @@ def load_config(name: Optional[str]) -> Config:
         return cfg
     except (ValidationError, RuntimeError, Exception) as e:
         _health_error(f"CONFIG.LOAD_FAIL name={cfg_name} path={yaml_path}: {e}")
-        sys.exit(2)
+        raise ConfigLoadError(str(e))

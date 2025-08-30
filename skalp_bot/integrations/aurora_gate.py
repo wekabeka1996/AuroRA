@@ -1,8 +1,10 @@
 
 import time
+import os
 import requests
 
-DEFAULT_TIMEOUT_S = 0.010
+# Більш реалістичний таймаут; можна перевизначити через ENV AURORA_GATE_TIMEOUT_S
+DEFAULT_TIMEOUT_S = float(os.getenv("AURORA_GATE_TIMEOUT_S", "0.20"))
 
 class AuroraGate:
     """Thin HTTP client for Aurora pre-trade gate (fail-open in shadow/paper)."""

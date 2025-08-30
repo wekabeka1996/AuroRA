@@ -1,0 +1,51 @@
+# Aurora prod profile (cautious defaults)
+# Designed for live runs; keep limits conservative and use env overrides for incident response.
+
+env: prod
+api:
+  host: 0.0.0.0
+  port: 8000
+
+security:
+  # Strong token required; consider managing via KeyVault or env only
+  ops_token: "change-me-prod-ops-token-XXXXXXXXXXXXXXXX"
+
+aurora:
+  latency_guard_ms: 30
+  latency_window_sec: 60
+  cooloff_base_sec: 180
+  halt_threshold_repeats: 2
+
+guards:
+  spread_bps_limit: 80
+  latency_ms_limit: 300
+  vol_guard_std_bps: 250
+  trap_guard_enabled: true
+
+risk:
+  pi_min_bps: 3.0
+  dd_day_pct: 8.0
+  max_concurrent: 3
+  size_scale: 0.2
+
+slippage:
+  eta_fraction_of_b: 0.30
+
+trap:
+  window_s: 2.0
+  levels: 5
+  z_threshold: 2.0
+  cancel_pctl: 90
+  score_threshold: 0.85
+
+sprt:
+  enabled: true
+  alpha: 0.05
+  beta: 0.10
+  sigma: 1.0
+  max_obs: 10
+
+observability:
+  ack:
+    ttl_s: 300
+    scan_period_s: 1.0

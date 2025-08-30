@@ -1,5 +1,15 @@
 from __future__ import annotations
 
+from observability.codes import (
+    POLICY_DECISION, POLICY_TRAP_GUARD, POLICY_TRAP_BLOCK,
+    POSTTRADE_LOG, DQ_EVENT_STALE_BOOK, DQ_EVENT_CROSSED_BOOK,
+    DQ_EVENT_ABNORMAL_SPREAD, DQ_EVENT_CYCLIC_SEQUENCE,
+    AURORA_HALT, AURORA_RESUME, AURORA_EXPECTED_RETURN_ACCEPT,
+    AURORA_EXPECTED_RETURN_LOW, AURORA_SLIPPAGE_GUARD,
+    # Step 3 events
+    EXEC_DECISION, ORDER_ACK, ORDER_CXL, ORDER_REPLACE, FILL_EVENT,
+    REWARD_UPDATE, POSITION_CLOSED, TCA_ANALYSIS
+)
 import json
 import time
 from collections import deque
@@ -22,7 +32,7 @@ class AuroraEventLogger:
     "AURORA.STARTUP.OK", "CONFIG.SWITCHED", "AURORA.ESCALATION",
     "OPS.TOKEN_ROTATE", "OPS.RESET", "AURORA.COOL_OFF", "AURORA.ARM_STATE",
     "OPS.TOKEN.ALIAS_USED",
-    # Order lifecycle
+        # Order lifecycle
         "ORDER.SUBMIT", "ORDER.ACK", "ORDER.PARTIAL", "ORDER.FILL",
         "ORDER.CANCEL", "ORDER.CANCEL.REQUEST", "ORDER.CANCEL.ACK",
         "ORDER.REJECT", "ORDER.EXPIRE",
@@ -31,16 +41,18 @@ class AuroraEventLogger:
     "RISK.UPDATE",
         # Guards
     "SPREAD_GUARD_TRIP", "LATENCY_GUARD_TRIP", "VOLATILITY_GUARD_TRIP",
-    # Policy
-    "POLICY.TRAP_GUARD", "POLICY.TRAP_BLOCK", "POLICY.DECISION",
-    # Post-trade
-    "POSTTRADE.LOG",
+        # Policy
+    POLICY_TRAP_GUARD, POLICY_TRAP_BLOCK, POLICY_DECISION,
+        # Post-trade
+    POSTTRADE_LOG,
         # Data quality
-        "DQ_EVENT.STALE_BOOK", "DQ_EVENT.CROSSED_BOOK", "DQ_EVENT.ABNORMAL_SPREAD", "DQ_EVENT.CYCLIC_SEQUENCE",
+        DQ_EVENT_STALE_BOOK, DQ_EVENT_CROSSED_BOOK, DQ_EVENT_ABNORMAL_SPREAD, DQ_EVENT_CYCLIC_SEQUENCE,
         # Halt
-        "AURORA.HALT", "AURORA.RESUME",
+        AURORA_HALT, AURORA_RESUME,
     # Expected return + slippage guards
-    "AURORA.EXPECTED_RETURN_ACCEPT", "AURORA.EXPECTED_RETURN_LOW", "AURORA.SLIPPAGE_GUARD",
+    AURORA_EXPECTED_RETURN_ACCEPT, AURORA_EXPECTED_RETURN_LOW, AURORA_SLIPPAGE_GUARD,
+    # SPRT decisions
+    "SPRT.DECISION_H0", "SPRT.DECISION_H1", "SPRT.CONTINUE", "SPRT.ERROR",
     }
 
     def __init__(
@@ -61,7 +73,7 @@ class AuroraEventLogger:
         self._seen: _LRUSet = _LRUSet(32768)
         self._run_id = time.strftime("%Y%m%d-%H%M%S", time.gmtime())
         # Optional Prometheus Counter hook: set via set_counter()
-        self._prom_counter = None
+        self._prom_counter: Optional[Any] = None
         # Monotonic guard for generated ts_ns to avoid duplicates when clock resolution is coarse
         self._last_emit_ns: int = 0
 

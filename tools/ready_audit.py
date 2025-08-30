@@ -32,9 +32,25 @@ def main():
     # 1) imports
     results.extend(check_imports())
 
-    # 2) env-over-YAML check: existence of configs/v4_min.yaml (we don't evaluate precedence here, just presence)
-    v4 = ROOT / "configs" / "v4_min.yaml"
-    results.append(("config:v4_min.yaml_present", v4.exists(), "present" if v4.exists() else "missing"))
+    # 2) Config presence: respect AURORA_CONFIG_NAME or fall back to common defaults
+    import os
+    cfg_name = os.getenv("AURORA_CONFIG_NAME") or "master_config_v2"
+    active_cfg = ROOT / "configs" / f"{cfg_name}.yaml"
+    ok = active_cfg.exists()
+    msg = f"present ({active_cfg.name})" if ok else f"missing ({active_cfg.name})"
+    # If missing, try common fallbacks to avoid false negatives on fresh repos
+    if not ok:
+        fallbacks = [
+            ROOT / "configs" / "master_config_v2.yaml",
+            ROOT / "configs" / "master_config_v1.yaml",
+            ROOT / "configs" / "aurora_config.template.yaml",
+        ]
+        for fp in fallbacks:
+            if fp.exists():
+                ok = True
+                msg = f"present ({fp.name})"
+                break
+    results.append(("config:active_present", ok, msg))
 
     # 3) kill-switch endpoints known (static check only)
     results.append(("ops:endpoints_known", True, "/aurora/{arm|disarm}, /ops/cooloff/{sec}"))

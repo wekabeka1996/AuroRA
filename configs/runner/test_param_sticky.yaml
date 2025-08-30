@@ -1,0 +1,104 @@
+market:
+  exchange: binance_testnet
+  symbol: BTC/USDT
+  tick_size: 0.1
+  lot_size: 0.099
+  fees_bps:
+    maker: 1.0
+    taker: 5.0
+
+trading:
+  mode: live                # live on testnet (safe)
+  max_latency_ms: 1000
+
+filters:
+  spread_guard_bps_max: 8.0
+  min_top5_liquidity_usd: 20000
+  gate_flags:
+    allow_clock: true
+    allow_spread: true
+    allow_trap: true
+
+slippage:
+  eta_fraction_of_b: 0.30
+
+alpha:
+  levels: 5
+  horizon_s: 2.0
+  obi:
+    halflife_s: 2.0
+    weight: 0.40
+  tfi:
+    halflife_s: 2.0
+    weight: 0.30
+    trade_sign: lee_ready
+    mapping: isotonic
+  micro:
+    window_s: 1.0
+    weight: 0.20
+  absorption:
+    window_s: 1.0
+    weight: 0.10
+  thresholding:
+    pi_min_bps: 2.3
+
+sprt:
+  enabled: true
+  alpha: 0.03
+  beta: 0.06
+  mu0_bps: 2.7
+  max_obs: 10
+
+trap:
+  enabled: true
+  window_s: 2.0
+  levels: 5
+  z_threshold: 1.64
+  cancel_pctl: 90
+
+execution:
+  post_only: true
+  passive_requote_ms: 4800      # реже переценяемся => ордер дольше стоит
+  quote_asymmetry:
+    with_alpha_spread_mult: 0.3  # меньше сдвига к альфе
+  max_order_age_ms: 360000        # держим заявку до 36с, если не трогают
+  cancel_on_trap: false          # не снимать ордер по trap, пусть стоит
+  join_queue_mode: join          # присоединяемся к очереди, не улучшаем агрессивно
+
+reward_manager:
+  tp_bps: 6.0
+  be_after_bps: 3.0
+  trail_bps: 3.5
+  time_stop_s: 340               # увеличим тайм-стоп
+  hard_sl_bps: 10.0
+
+risk:
+  dd_day_pct: 10.0
+  max_concurrent: 1              # консервативно, чтобы видеть поведение заявки
+  size_scale: 10
+  inventory_cap_usd: 200000
+
+governance:
+  enabled: true
+  approve_rule: pass_through
+
+logging:
+  level: INFO
+  events:
+    order_flow: true
+    decisions: true
+    rejects: true
+    trap: true
+    sprt: true
+  sinks:
+    - type: file
+      path: logs/aurora_runner.log
+    - type: csv
+      path: logs/orders.csv
+
+api:
+  auth: token
+  allow_ops:
+    - /risk/*
+    - /metrics/*
+    - /governance/*

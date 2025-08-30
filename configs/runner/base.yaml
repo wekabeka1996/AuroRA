@@ -1,0 +1,14 @@
+# Runner (scalper) base config placeholder.
+# This repo keeps Aurora service focused; runner configs live here as a standard location.
+# For now, use existing runner configs under skalp_bot/configs as needed.
+
+symbols:
+  - BTCUSDT
+  - ETHUSDT
+
+execution:
+  mode: maker
+  max_latency_ms: 1000
+
+risk:
+  per_order_notional_usdt: 50

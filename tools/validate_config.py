@@ -11,7 +11,10 @@ def validate(cfg: dict[str, Any], fail_unknown: bool = False) -> list[str]:
     errs: list[str] = []
     # unknown keys (optional strict)
     if fail_unknown:
-        allowed_top = {"aurora", "policy_shim", "chat", "logging", "risk", "slippage", "sprt", "trap", "guards", "pretrade", "trading", "api", "security"}
+        allowed_top = {
+            "env", "symbols", "reward", "dq",
+            "aurora", "policy_shim", "chat", "logging", "risk", "slippage", "sprt", "trap", "guards", "gates", "pretrade", "trading", "api", "security", "observability"
+        }
         for k in cfg.keys():
             if k not in allowed_top:
                 errs.append(f"Unknown top-level key: {k}")

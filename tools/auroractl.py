@@ -10,12 +10,13 @@ import time
 from pathlib import Path
 from typing import Optional
 
-import typer
-
-# Ensure repo root on sys.path for local runs
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+
+from observability.codes import AURORA_EXPECTED_RETURN_ACCEPT
+
+import typer
 
 from core.env import load_env
 from core.config_loader import load_config as load_cfg_model
@@ -407,7 +408,23 @@ def metrics(window: str = typer.Option("3600", "--window-sec", help="Window in s
         if legacy.exists():
             events = legacy
         else:
-            _exit(1, f"events file not found in session or logs: {events} / {legacy}")
+            # Fallback: scan logs/** for the newest aurora_events.jsonl or events.jsonl
+            candidates = []
+            try:
+                for pat in ("aurora_events.jsonl", "events.jsonl"):
+                    for p in (ROOT / "logs").rglob(pat):
+                        try:
+                            if p.is_file():
+                                candidates.append((p.stat().st_mtime, p))
+                        except Exception:
+                            continue
+            except Exception:
+                candidates = []
+            if candidates:
+                candidates.sort(key=lambda t: t[0], reverse=True)
+                events = candidates[0][1]
+            else:
+                _exit(1, f"events file not found in session or logs: {events} / {legacy}")
     # lightweight inline parser to avoid new deps
     import time
     now = time.time()
@@ -443,7 +460,7 @@ def metrics(window: str = typer.Option("3600", "--window-sec", help="Window in s
             continue
 
     # compute some trivial metrics
-    expected_accepts = sum(1 for r in recs if r.get('code') == 'AURORA.EXPECTED_RETURN_ACCEPT')
+    expected_accepts = sum(1 for r in recs if r.get('code') == AURORA_EXPECTED_RETURN_ACCEPT)
     latency_high = sum(1 for r in recs if r.get('code') == 'HEALTH.LATENCY_P95_HIGH')
     spread_trips = sum(1 for r in recs if 'spread' in (r.get('type') or '').lower())
     risk_denies = sum(1 for r in recs if r.get('type') == 'RISK.DENY')
@@ -528,6 +545,8 @@ def one_click(
     minutes: int = typer.Option(15, help="Duration for the run"),
     preflight: bool = typer.Option(True, help="Run smoke/preflight before canary"),
     analytics: bool = typer.Option(False, help="Attempt to start monitoring stack (docker compose)"),
+    runner_config: Optional[str] = typer.Option(None, help="Path or name of runner YAML config to use (passed to run_canary/run_live_aurora)"),
+    runner_in_testnet: bool = typer.Option(False, help="If true, start live runner even in testnet (AURORA_MODE=prod, EXCHANGE_TESTNET=true)"),
 ):
     """Run wallet-check → start API → wait healthy → canary → metrics → stop API."""
     mode_l = str(mode).lower().strip()
@@ -536,10 +555,13 @@ def one_click(
 
     # Prepare environment for the run (do not overwrite explicit user overrides)
     if mode_l == "testnet":
-        os.environ.setdefault("EXCHANGE_TESTNET", "true")
-        # Prefer shadow mode for testnet to avoid hard health gating on unloaded models
-        os.environ.setdefault("AURORA_MODE", "shadow")
-        os.environ.setdefault("DRY_RUN", "false")
+        os.environ["EXCHANGE_TESTNET"] = "true"
+        # By default keep shadow mode to avoid coupling, but allow opting into runner
+        if runner_in_testnet:
+            os.environ["AURORA_MODE"] = "prod"  # triggers runner in canary
+        else:
+            os.environ["AURORA_MODE"] = "shadow"
+        os.environ["DRY_RUN"] = "false"
     else:
         os.environ["EXCHANGE_TESTNET"] = "false"
         os.environ.setdefault("AURORA_MODE", "prod")
@@ -576,10 +598,15 @@ def one_click(
             args = [sys.executable, str(ROOT / "tools" / "run_live_testnet.py"), "--minutes", str(minutes)]
             if preflight:
                 args.append("--preflight")
+            if runner_config:
+                args += ["--runner-config", runner_config]
             rc_run = subprocess.call(args, cwd=str(ROOT))
         else:
             # live: directly run canary harness
-            rc_run = subprocess.call([sys.executable, str(ROOT / "tools" / "run_canary.py"), "--minutes", str(minutes)], cwd=str(ROOT))
+            args = [sys.executable, str(ROOT / "tools" / "run_canary.py"), "--minutes", str(minutes)]
+            if runner_config:
+                args += ["--runner-config", runner_config]
+            rc_run = subprocess.call(args, cwd=str(ROOT))
     except KeyboardInterrupt:
         rc_run = 130
 

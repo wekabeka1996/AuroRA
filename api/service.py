@@ -10,6 +10,7 @@ from contextlib import asynccontextmanager
 from fastapi.responses import RedirectResponse
 from pathlib import Path
 from pydantic import BaseModel
+from typing import Any, Dict, cast
 from prometheus_client import make_asgi_app, Histogram, Gauge, Counter
 from dotenv import load_dotenv, find_dotenv
 
@@ -31,7 +32,8 @@ from core.aurora.pretrade import gate_latency, gate_slippage, gate_expected_retu
 from core.scalper.calibrator import IsotonicCalibrator, CalibInput
 from core.scalper.sprt import SPRT, SprtConfig
 from core.scalper.trap import TrapWindow
-from common.config import load_sprt_cfg, load_config_any
+from core.aurora.pipeline import PretradePipeline
+from common.config import load_sprt_cfg, load_config_any, load_config_precedence, apply_env_overrides
 from common.events import EventEmitter
 from core.aurora_event_logger import AuroraEventLogger
 from core.order_logger import OrderLoggers
@@ -40,6 +42,10 @@ from risk.manager import RiskManager
 from aurora.health import HealthGuard
 from tools.build_version import build_version_record
 from aurora.governance import Governance
+from observability.codes import (
+    POLICY_DECISION, AURORA_RISK_WARN, AURORA_EXPECTED_RETURN_ACCEPT,
+    AURORA_EXPECTED_RETURN_LOW, AURORA_SLIPPAGE_GUARD, POSTTRADE_LOG
+)
 
 # Read version from VERSION file
 def get_version():
@@ -61,6 +67,7 @@ from api.models import (
 
 
 # --- Initialization ---
+# Deprecated fallback kept for BC if precedence chain yields empty
 CONFIG_PATH = os.path.join(PROJECT_ROOT, 'configs', 'v4_min.yaml')
 
 VERSION = get_version()
@@ -73,11 +80,12 @@ async def lifespan(app: FastAPI):
     # AURORA_CONFIG (path or name) → AURORA_CONFIG_NAME → default CONFIG_PATH
     cfg: dict = {}
     try:
-        name_or_path = os.getenv('AURORA_CONFIG') or os.getenv('AURORA_CONFIG_NAME')
-        if name_or_path:
-            cfg = load_config_any(name_or_path) or {}
+        # Unified precedence: env → defaults chain; then apply env overrides
+        cfg = load_config_precedence()
         if not cfg:
+            # final fallback for legacy deployments
             cfg = yaml.safe_load(open(CONFIG_PATH, 'r', encoding='utf-8')) or {}
+        cfg = apply_env_overrides(cfg)
     except Exception:
         cfg = {}
     # Session log directory
@@ -144,7 +152,12 @@ async def lifespan(app: FastAPI):
     # AckTracker: background scanner for ORDER.EXPIRE (no-op unless add_submit() is used by producers)
     try:
         try:
-            ack_ttl = int(os.getenv('AURORA_ACK_TTL_S', '300'))
+            # Prefer cfg.observability.ack.ttl_s, then env alias, then default
+            ack_cfg = ((cfg or {}).get('observability') or {}).get('ack') or {}
+            ack_ttl = ack_cfg.get('ttl_s')
+            if ack_ttl is None:
+                ack_ttl = int(os.getenv('AURORA_ACK_TTL_S', '300'))
+            ack_ttl = int(ack_ttl)
         except Exception:
             ack_ttl = 300
         ack_tracker = AckTracker(events_emit=lambda code, d: em_logger.emit(code, d), ttl_s=ack_ttl)
@@ -154,7 +167,12 @@ async def lifespan(app: FastAPI):
 
         async def _ack_scan_loop():
             try:
-                period = float(os.getenv('AURORA_ACK_SCAN_PERIOD_S', '1'))
+                # Prefer cfg.observability.ack.scan_period_s, then env alias, then default
+                ack_cfg2 = ((cfg or {}).get('observability') or {}).get('ack') or {}
+                period = ack_cfg2.get('scan_period_s')
+                if period is None:
+                    period = float(os.getenv('AURORA_ACK_SCAN_PERIOD_S', '1'))
+                period = float(period)
             except Exception:
                 period = 1.0
             # Periodically run scan_once until stopped
@@ -236,11 +254,60 @@ async def lifespan(app: FastAPI):
     except Exception:
         app.state.risk_manager = RiskManager({})
 
-        # Governance
+    # Governance
+    try:
+        app.state.governance = Governance(cfg)
+    except Exception:
+        app.state.governance = Governance({})
+
+    # Anti-churn state: per-symbol open rate-limit and cooldown after close (always initialize)
+    try:
+        aurora_cfg = (cfg or {}).get('aurora', {}) or {}
+        min_open_interval_ms = aurora_cfg.get('min_open_interval_ms')
+        if min_open_interval_ms is None:
+            try:
+                min_open_interval_ms = int(os.getenv('AURORA_MIN_OPEN_INTERVAL_MS', '0'))
+            except Exception:
+                min_open_interval_ms = 0
+        else:
+            try:
+                min_open_interval_ms = int(min_open_interval_ms)
+            except Exception:
+                min_open_interval_ms = 0
+        cooldown_after_close_ms = aurora_cfg.get('cooldown_after_close_ms')
+        if cooldown_after_close_ms is None:
+            try:
+                cooldown_after_close_ms = int(os.getenv('AURORA_COOLDOWN_AFTER_CLOSE_MS', '0'))
+            except Exception:
+                cooldown_after_close_ms = 0
+        else:
+            try:
+                cooldown_after_close_ms = int(cooldown_after_close_ms)
+            except Exception:
+                cooldown_after_close_ms = 0
+        app.state.min_open_interval_ms = int(max(0, min_open_interval_ms))
+        app.state.cooldown_after_close_ms = int(max(0, cooldown_after_close_ms))
+        # runtime maps
+        app.state._last_open_allow_ms = {}
+        app.state._cooldown_until_ms = {}
+        # Position state: track open direction and since_ms per symbol
         try:
-            app.state.governance = Governance(cfg)
+            mph = aurora_cfg.get('min_position_hold_ms')
+            if mph is None:
+                mph = int(os.getenv('AURORA_MIN_POSITION_HOLD_MS', '0'))
+            else:
+                mph = int(mph)
         except Exception:
-            app.state.governance = Governance({})
+            mph = 0
+        app.state.min_position_hold_ms = int(max(0, mph))
+        app.state._position_state = {}
+    except Exception:
+        app.state.min_open_interval_ms = 0
+        app.state.cooldown_after_close_ms = 0
+        app.state._last_open_allow_ms = {}
+        app.state._cooldown_until_ms = {}
+        app.state.min_position_hold_ms = 0
+        app.state._position_state = {}
 
     yield
 
@@ -412,390 +479,274 @@ async def readiness(_: bool = Depends(_ops_auth)):
 @app.post("/pretrade/check", response_model=PretradeCheckResponse)
 async def pretrade_check(request: Request, req: PretradeCheckRequest):
     try:
-        mode = (req.account or {}).get('mode', os.getenv('AURORA_MODE', 'shadow'))
-        max_qty = float((req.order or {}).get('qty', 0.0) or 0.0)
-        m = req.market or {}
-        latency_ms = float(m.get('latency_ms', 0.0) or 0.0)
-        slip_bps_est = float(m.get('slip_bps_est', 0.0) or 0.0)
-        a_bps = float(m.get('a_bps', 0.0) or 0.0)
-        b_bps = float(m.get('b_bps', 0.0) or 0.0)
-        score = float(m.get('score', 0.0) or 0.0)
-        regime = str(m.get('mode_regime', 'normal'))
-        spread_bps = float(m.get('spread_bps', 0.0) or 0.0)
-        sprt_samples = m.get('sprt_samples')
-        trap_cancel_deltas = m.get('trap_cancel_deltas')
-        trap_add_deltas = m.get('trap_add_deltas')
-        trap_trades_cnt = m.get('trap_trades_cnt')
-        pnl_today_pct = m.get('pnl_today_pct')
-        open_positions = m.get('open_positions')
-        base_notional = float((req.order or {}).get('base_notional', (req.order or {}).get('notional', 0.0)) or 0.0)
-
-        try:
-            lmax_ms = int(os.getenv('AURORA_LMAX_MS', '30'))
-        except Exception:
-            lmax_ms = 30
-
-        emitter: EventEmitter | None = getattr(request.app.state, 'events_emitter', None)
-        tw: TrapWindow | None = getattr(request.app.state, 'trap_window', None)
-
-        allow = True
-        reason = 'ok'
-        # If prod mode and trading system is not ready, mark as unhealthy but still allow
-        # advisory evaluations of ER/slippage for observability.
-        prod_unhealthy = False
-        if mode == 'prod':
-            ts = getattr(request.app.state, 'trading_system', None)
-            if ts is None or ts.student is None or ts.router is None:
-                allow, reason = False, 'service_unhealthy'
-                prod_unhealthy = True
-
-        reasons: list[str] = []
-
-        # Latency guard immediate threshold
-        if allow and not gate_latency(latency_ms=latency_ms, lmax_ms=float(lmax_ms), reasons=reasons):
-            allow, reason = False, 'latency_guard'
-            if emitter:
-                emitter.emit(
-                    type="HEALTH.LATENCY_HIGH",
-                    severity="warning",
-                    code="HEALTH.LATENCY_HIGH",
-                    payload={"latency_ms": latency_ms, "lmax_ms": float(lmax_ms)},
-                )
-
-        # Record latency and enforce p95-based escalations
-        hg: HealthGuard | None = getattr(request.app.state, 'health_guard', None)
-        if hg is not None:
-            ok, p95 = hg.record(latency_ms)
-            if not ok and emitter:
-                emitter.emit(
-                    type="HEALTH.LATENCY_P95_HIGH",
-                    severity="warning",
-                    code="HEALTH.LATENCY_P95_HIGH",
-                    payload={"p95_ms": p95, "threshold": hg.threshold_ms},
-                )
-            ok2, reason_h = hg.enforce()
-            if allow and not ok2:
-                allow = False
-                reason = f"latency_{reason_h}"
-                reasons.append(reason)
-                if emitter:
-                    emitter.emit(
-                        type="AURORA.ESCALATION",
-                        severity="warning",
-                        code="AURORA.ESCALATION",
-                        payload={"state": hg.snapshot()},
-                    )
-
-        # risk_obs/risk_scale placeholders (risk gate runs later)
-        rman: RiskManager | None = getattr(request.app.state, 'risk_manager', None)
-        risk_obs = None
-        risk_scale = 1.0
-
-        # TRAP guard (z-score + score based) with rollback
-        trap_obs = None
-        if allow and trap_cancel_deltas is not None and trap_add_deltas is not None and trap_trades_cnt is not None:
+        # Уніфікувати представлення у dict, навіть якщо це Pydantic-моделі
+        def _as_dict(v: Any) -> Dict[str, Any]:
             try:
-                z_threshold = float(os.getenv('AURORA_TRAP_Z_THRESHOLD', '1.64'))
-                cancel_pctl = int(os.getenv('AURORA_TRAP_CANCEL_PCTL', '90'))
+                return cast(Dict[str, Any], v.model_dump())  # type: ignore[attr-defined]
             except Exception:
-                z_threshold, cancel_pctl = 1.64, 90
-
-            obi_sign = m.get('obi_sign')
-            tfi_sign = m.get('tfi_sign')
-
-            cancel_d = [float(x) for x in trap_cancel_deltas]
-            add_d = [float(x) for x in trap_add_deltas]
-            trades_cnt = int(trap_trades_cnt)
-
-            if tw is None:
                 try:
-                    trap_cfg_local = (getattr(request.app.state, 'cfg', {}) or {}).get('trap', {}) or {}
-                    window_s_local = float(trap_cfg_local.get('window_s', 2.0))
-                    levels_local = int(trap_cfg_local.get('levels', 5))
+                    return dict(v)  # type: ignore[arg-type]
                 except Exception:
-                    window_s_local, levels_local = 2.0, 5
-                tw = TrapWindow(window_s=window_s_local, levels=levels_local)
+                    return cast(Dict[str, Any], v or {})
+
+        acc: Dict[str, Any] = _as_dict(req.account)
+        o: Dict[str, Any] = _as_dict(req.order)
+        m: Dict[str, Any] = _as_dict(req.market)
+    except Exception as e:
+        # Невалідний формат запиту
+        raise HTTPException(status_code=422, detail=str(e))
+
+    mode = (acc or {}).get('mode', os.getenv('AURORA_MODE', 'shadow'))
+    max_qty = float((o or {}).get('qty', 0.0) or 0.0)
+
+    emitter: EventEmitter | None = getattr(request.app.state, 'events_emitter', None)
+    # Advisory: if prod and trading system isn't ready, emit a service_unhealthy note
+    diagnostics_local: list[str] = []
+    if mode == 'prod':
+        ts = getattr(request.app.state, 'trading_system', None)
+        if ts is None or ts.student is None or ts.router is None:
+            diagnostics_local.append('service_unhealthy')
+            if emitter:
                 try:
-                    setattr(request.app.state, 'trap_window', tw)
+                    emitter.emit(
+                        type="HEALTH.SERVICE_UNHEALTHY",
+                        severity="warning",
+                        code="HEALTH.SERVICE_UNHEALTHY",
+                        payload={"mode": mode},
+                    )
                 except Exception:
                     pass
 
-            # TRAP guard enable switch: env overrides YAML guards.trap_guard_enabled
-            cfg_all = getattr(request.app.state, 'cfg', {}) or {}
-            guards_cfg = (cfg_all.get('guards') or {})
-            # Default ON when config is missing (tests clear startup). If YAML explicitly sets false, honor it.
-            default_trap_on = bool(guards_cfg.get('trap_guard_enabled', True))
-            # In pytest, force default ON for determinism unless TRAP_GUARD explicitly provided
-            if os.getenv('PYTEST_CURRENT_TEST'):
-                default_trap_on = True
-            trap_guard_env = os.getenv('TRAP_GUARD', 'on' if default_trap_on else 'off').lower()
-
-            allow_trap, metrics = gate_trap(
-                tw,
-                cancel_deltas=cancel_d,
-                add_deltas=add_d,
-                trades_cnt=trades_cnt,
-                z_threshold=z_threshold,
-                cancel_pctl=cancel_pctl,
-                obi_sign=int(obi_sign) if obi_sign is not None else None,
-                tfi_sign=int(tfi_sign) if tfi_sign is not None else None,
-                reasons=reasons,
-            )
-
-            # Compute trap_score ∈ [0,1]
-            try:
-                from core.scalper.trap import trap_score_from_features
-                cancel_sum = float(sum(max(x, 0.0) for x in cancel_d))
-                add_sum = float(sum(max(x, 0.0) for x in add_d))
-                denom = max(1e-6, cancel_sum + add_sum)
-                cancel_ratio = cancel_sum / denom
-                dt_s = getattr(tw, 'window_s', 2.0) or 2.0
-                repl_rate = float(add_sum) / float(dt_s) if dt_s > 0 else 0.0
-                repl_ms_proxy = 1000.0 if repl_rate <= 0 else max(0.0, 250.0 / repl_rate)
-                trap_score = float(trap_score_from_features(cancel_ratio, repl_ms_proxy))
-            except Exception:
-                trap_score = None
-
-            trap_threshold = float(os.getenv('AURORA_TRAP_THRESHOLD', '0.8'))
-            if allow and trap_score is not None and trap_guard_env not in {'off', '0', 'false'}:
-                if trap_score > trap_threshold:
-                    allow = False
-                    reason = 'trap_guard_score'
-                    reasons.append(f"trap_guard_score:{trap_score:.2f}>{trap_threshold:.2f}")
-                    if emitter:
-                        emitter.emit(
-                            type="POLICY.TRAP_GUARD",
-                            severity="warning",
-                            code="POLICY.TRAP_GUARD",
-                            payload={"trap_score": trap_score, "threshold": trap_threshold},
-                        )
-
-            trap_obs = {
-                'trap_z': metrics.trap_z,
-                'cancel_rate': metrics.cancel_rate,
-                'repl_rate': metrics.repl_rate,
-                'n_trades': metrics.n_trades,
-                'trap_score': trap_score,
-            }
-
-            # (debug removed)
-
-            if not allow_trap and trap_guard_env not in {'off', '0', 'false'}:
-                allow, reason = False, 'trap_guard'
-                if emitter:
-                    emitter.emit(
-                        type="POLICY.TRAP_BLOCK",
-                        severity="warning",
-                        code="POLICY.TRAP_BLOCK",
-                        payload={
-                            "trap_z": metrics.trap_z,
-                            "cancel_rate": metrics.cancel_rate,
-                            "repl_rate": metrics.repl_rate,
-                            "n_trades": metrics.n_trades,
-                        },
-                    )
-
-        # SPRT observability placeholders
-        sprt_decision = None
-        sprt_llr = None
-        sprt_n = None
-
-        # Determine order profile: expected return vs slippage
-        cfg_all = getattr(request.app.state, 'cfg', {}) or {}
-        order_profile = (cfg_all.get('pretrade', {}) or {}).get('order_profile', 'er_before_slip')
-        order_profile = os.getenv('PRETRADE_ORDER_PROFILE', order_profile)
-
-        def _run_expected_return():
-            nonlocal allow, reason
-            # Always evaluate ER for observability (shadow/prod_unhealthy even if earlier guard blocked).
-            # Only change the decision (allow) if ER is below threshold AND gate wasn't blocked yet.
-            fees_bps_local = float(req.fees_bps or 0.0)
-            cal = IsotonicCalibrator()
-            ci = CalibInput(score=score, a_bps=a_bps, b_bps=b_bps, fees_bps=fees_bps_local, slip_bps=slip_bps_est, regime=regime)
-            out_local = cal.e_pi_bps(ci)
-            try:
-                pi_min_local = float(os.getenv('AURORA_PI_MIN_BPS', '2.0'))
-            except Exception:
-                pi_min_local = 2.0
-            er_ok = gate_expected_return(e_pi_bps=out_local.e_pi_bps, pi_min_bps=pi_min_local, reasons=reasons)
-            if er_ok:
-                # Positive ER decision (advisory): record acceptance even if other guards block.
-                reasons.append("expected_return_accept")
-                if emitter:
-                    emitter.emit(
-                        type="POLICY.DECISION",
-                        severity=None,
-                        code="AURORA.EXPECTED_RETURN_ACCEPT",
-                        payload={
-                            "e_pi_bps": out_local.e_pi_bps,
-                            "pi_min_bps": pi_min_local,
-                            "fees_bps": fees_bps_local,
-                            "slip_bps": slip_bps_est,
-                            "score": score,
-                            "regime": regime,
-                        },
-                    )
-                # Do not change allow here; other guards may have blocked already.
-            else:
-                # ER below threshold: emit warning and block only if currently allowed (not already blocked)
-                if emitter:
-                    emitter.emit(
-                        type="AURORA.RISK_WARN",
-                        severity="warning",
-                        code="AURORA.EXPECTED_RETURN_LOW",
-                        payload={"e_pi_bps": out_local.e_pi_bps, "pi_min_bps": pi_min_local},
-                    )
-                if allow:
-                    allow, reason = False, 'expected_return_gate'
-
-        def _run_slippage():
-            nonlocal allow, reason
-            try:
-                eta_local = float(os.getenv('AURORA_SLIP_ETA', '0.3'))
-            except Exception:
-                eta_local = 0.3
-            if allow and not gate_slippage(slip_bps=slip_bps_est, b_bps=b_bps, eta_fraction_of_b=eta_local, reasons=reasons):
-                allow, reason = False, 'slippage_guard'
-                if emitter:
-                    emitter.emit(
-                        type="AURORA.RISK_WARN",
-                        severity="warning",
-                        code="AURORA.SLIPPAGE_GUARD",
-                        payload={"slip_bps": slip_bps_est, "b_bps": b_bps, "eta": eta_local},
-                    )
-
-        if str(order_profile).lower() == 'slip_before_er':
-            _run_slippage()
-            _run_expected_return()
-        else:
-            _run_expected_return()
-            _run_slippage()
-
-        # Risk caps (daily DD, max concurrent, size scale) — after expected_return, before SPRT
-        if allow and rman is not None:
-            try:
-                allow_risk, reason_r, scaled_notional, rctx = rman.decide(
-                    base_notional=base_notional,
-                    pnl_today_pct=float(pnl_today_pct) if pnl_today_pct is not None else None,
-                    open_positions=int(open_positions) if open_positions is not None else None,
-                )
-                risk_obs = {'cfg': rman.snapshot(), 'ctx': rctx}
-                risk_scale = float(rctx.get('size_scale', 1.0))
-                if not allow_risk:
-                    allow, reason = False, reason_r or 'risk_block'
-                    reasons.append(reason)
-                    if emitter:
-                        emitter.emit(
-                            type="RISK.DENY",
-                            severity="warning",
-                            code="RISK.DENY",
-                            payload={"reason": reason, "ctx": rctx},
-                        )
-            except Exception as e:
-                reasons.append(f"risk_error:{e}")
-
-        # Optional SPRT reconfirmation
-        if allow and sprt_samples is not None:
-            sprt_enabled_env = os.getenv('AURORA_SPRT_ENABLED')
-            if sprt_enabled_env is None or str(sprt_enabled_env).lower() in {"1", "true", "yes"}:
-                try:
-                    scfg = getattr(request.app.state, 'sprt_cfg', None)
-                    if scfg is not None and getattr(scfg, 'enabled', True):
-                        sigma = scfg.sigma
-                        A = scfg.A
-                        B = scfg.B
-                        max_obs = scfg.max_obs
-                    else:
-                        sigma, A, B, max_obs = 1.0, 2.0, -2.0, 10
-                    cfg_s = SprtConfig(mu0=0.0, mu1=score, sigma=sigma, A=A, B=B, max_obs=max_obs)
-                    sprt = SPRT(cfg_s)
-                    try:
-                        timeout_ms = int(os.getenv('AURORA_SPRT_TIMEOUT_MS', '500'))
-                    except Exception:
-                        timeout_ms = 500
-                    sprt_decision = sprt.run_with_timeout([float(x) for x in sprt_samples], time_limit_ms=timeout_ms)
-                    sprt_llr = sprt.llr
-                    sprt_n = sprt.n_obs
-                    if sprt_decision == "REJECT":
-                        allow, reason = False, 'sprt_reject'
-                        reasons.append("sprt_reject")
-                    elif sprt_decision == "ACCEPT":
-                        reasons.append("sprt_accept")
-                    else:
-                        reasons.append("sprt_continue")
-                except Exception:
-                    reasons.append("sprt_error")
-
-        if spread_bps > 100.0:
-            allow, reason = False, f'spread_bps_too_wide:{spread_bps:.1f}'
-
-        obs = {
-            'gate_state': 'PASS' if allow else 'BLOCK',
-            'spread_bps': spread_bps,
-            'mode': mode,
-            'latency_ms': latency_ms,
-            'slip_bps_est': slip_bps_est,
-            'a_bps': a_bps,
-            'b_bps': b_bps,
-            'score': score,
-            'risk': risk_obs,
-            'trap': trap_obs,
-            'sprt': {
-                'decision': sprt_decision,
-                'llr': sprt_llr,
-                'n_obs': sprt_n,
-            },
-            'reasons': reasons,
-        }
-
-        quotas = {'trades_pm_left': 999, 'symbol_exposure_left_usdt': 1e12}
-
-        # If gate denies, log into denied orders stream
+    # Anti-churn precheck (rate-limit opens and respect cooldown after close)
+    allow: bool = False
+    reason: str = "uninitialized"
+    obs: Dict[str, Any]
+    risk_scale: float = 1.0
+    obs = {"reasons": []}
+    pipeline = None
+    def _canon_symbol(s: Any) -> str | None:
         try:
-            if not allow:
-                ol: OrderLoggers | None = getattr(request.app.state, 'order_loggers', None)
-                if ol is None:
-                    # Lazy init to keep counters tied to actual writes even if lifespan didn't run
-                    try:
-                        ol = OrderLoggers()
-                        setattr(request.app.state, 'order_loggers', ol)
-                    except Exception:
-                        ol = None
-                if ol is not None:
-                    o = req.order or {}
-                    ol.log_denied(
-                        ts=int(time.time() * 1000),
-                        symbol=o.get('symbol'),
-                        side=o.get('side'),
-                        qty=o.get('qty'),
-                        price=o.get('price'),
+            if not s:
+                return None
+            s2 = str(s).upper().strip()
+            # Normalize forms like 'BINANCE:BTC/USDT' -> 'BTC/USDT'
+            if ':' in s2:
+                s2 = s2.split(':', 1)[-1]
+            return s2
+        except Exception:
+            return None
+
+    try:
+        sym_raw = (o or {}).get('symbol') or (m or {}).get('symbol')
+        sym = _canon_symbol(sym_raw)
+        side = str((o or {}).get('side') or '').lower() or None
+        now_ms = int(time.time() * 1000)
+        # Per-symbol cooldown after close
+        cd_until = getattr(request.app.state, '_cooldown_until_ms', {}).get(sym) if sym else None
+        if sym and isinstance(cd_until, (int, float)) and now_ms < int(cd_until) and int(getattr(request.app.state, 'cooldown_after_close_ms', 0)) > 0:
+            allow = False
+            reason = 'cooldown_after_close_active'
+            try:
+                remaining = int(cd_until) - now_ms
+                obs['cooldown_remaining_ms'] = max(0, remaining)
+            except Exception:
+                pass
+            obs['reasons'].append('cooldown_after_close_active')
+            # Emit observability event
+            try:
+                if emitter:
+                    emitter.emit('COOLDOWN.ACTIVE', {'symbol': sym, 'ms_left': obs.get('cooldown_remaining_ms', 0)})
+            except Exception:
+                pass
+        else:
+            # Per-symbol minimal interval between open approvals
+            min_iv = int(getattr(request.app.state, 'min_open_interval_ms', 0))
+            last_ok = getattr(request.app.state, '_last_open_allow_ms', {}).get(sym) if sym else None
+            if sym and min_iv > 0 and isinstance(last_ok, (int, float)) and (now_ms - int(last_ok)) < min_iv:
+                allow = False
+                reason = 'open_rate_limit'
+                try:
+                    obs['rate_limit_ms_left'] = max(0, min_iv - (now_ms - int(last_ok)))
+                except Exception:
+                    pass
+                obs['reasons'].append('open_rate_limit')
+                try:
+                    if emitter:
+                        emitter.emit('OPEN.RATE_LIMIT', {'symbol': sym, 'ms_left': obs.get('rate_limit_ms_left', 0)})
+                except Exception:
+                    pass
+            else:
+                # Enforce min position hold and opposite-side block if a position is open
+                pos_state = getattr(request.app.state, '_position_state', {})
+                min_hold = int(getattr(request.app.state, 'min_position_hold_ms', 0))
+                ps = pos_state.get(sym) if sym else None
+                if sym and ps and isinstance(ps, dict):
+                    open_side = ps.get('side')
+                    since_ms = int(ps.get('since_ms') or 0)
+                    if open_side in {'buy','sell'}:
+                        # Block opposite side while position alive
+                        if side and ((open_side == 'buy' and side == 'sell') or (open_side == 'sell' and side == 'buy')):
+                            # Respect min hold window for any side change
+                            if min_hold > 0 and now_ms - since_ms < min_hold:
+                                allow = False
+                                reason = 'position_min_hold_active'
+                                obs['reasons'].append('position_min_hold_active')
+                                obs['position'] = {'symbol': sym, 'side': open_side, 'age_ms': now_ms - since_ms, 'min_hold_ms': min_hold}
+                                try:
+                                    if emitter:
+                                        emitter.emit('POSITION.MIN_HOLD', {'symbol': sym, 'ms_left': max(0, min_hold - (now_ms - since_ms))})
+                                except Exception:
+                                    pass
+                            else:
+                                # Even if hold window elapsed, prevent cross in same tick to avoid self-trade churn
+                                allow = False
+                                reason = 'opposite_side_block'
+                                obs['reasons'].append('opposite_side_block')
+                                obs['position'] = {'symbol': sym, 'side': open_side, 'age_ms': now_ms - since_ms}
+                                try:
+                                    if emitter:
+                                        emitter.emit('POSITION.OPPOSITE_BLOCK', {'symbol': sym, 'open_side': open_side})
+                                except Exception:
+                                    pass
+                short_circuit = False
+                try:
+                    if reason in ('position_min_hold_active','opposite_side_block','open_rate_limit'):
+                        short_circuit = True
+                except Exception:
+                    short_circuit = False
+                if not short_circuit:
+                    # Run core pipeline when anti-churn didn't block
+                    pipeline = PretradePipeline(
+                        emitter=emitter,
+                        trap_window=getattr(request.app.state, 'trap_window', None),
+                        health_guard=getattr(request.app.state, 'health_guard', None),
+                        risk_manager=getattr(request.app.state, 'risk_manager', None),
+                        governance=getattr(request.app.state, 'governance', None),
+                        cfg=getattr(request.app.state, 'cfg', {}) or {},
+                    )
+                    allow, reason, obs, risk_scale = pipeline.decide(
+                        account=acc,
+                        order=o,
+                        market=m,
+                        fees_bps=float(req.fees_bps or 0.0),
+                    )
+                    # On allow, stamp last allow time for symbol
+                    if allow and sym:
+                        try:
+                            getattr(request.app.state, '_last_open_allow_ms')[sym] = now_ms  # type: ignore[index]
+                        except Exception:
+                            pass
+    except Exception:
+        # On error, fallback to running pipeline to avoid false blocks
+        pipeline = PretradePipeline(
+            emitter=emitter,
+            trap_window=getattr(request.app.state, 'trap_window', None),
+            health_guard=getattr(request.app.state, 'health_guard', None),
+            risk_manager=getattr(request.app.state, 'risk_manager', None),
+            governance=getattr(request.app.state, 'governance', None),
+            cfg=getattr(request.app.state, 'cfg', {}) or {},
+        )
+        allow, reason, obs, risk_scale = pipeline.decide(
+            account=acc,
+            order=o,
+            market=m,
+            fees_bps=float(req.fees_bps or 0.0),
+        )
+    # If pipeline created a trap_window lazily, persist it back to app.state
+    try:
+        if pipeline is not None and getattr(pipeline, 'tw', None) is not None and getattr(request.app.state, 'trap_window', None) is None:
+            setattr(request.app.state, 'trap_window', pipeline.tw)
+    except Exception:
+        pass
+
+    # If blocked due to spread — emit observability event (pipeline computes the decision; we add emit here)
+    try:
+        if not allow and isinstance(reason, str) and reason.startswith('spread_bps_too_wide') and emitter is not None:
+            # extract numbers for payload when possible
+            spread_bps_val = obs.get('spread_bps') if isinstance(obs, dict) else None
+            cfg_all_s = getattr(request.app.state, 'cfg', {}) or {}
+            spread_limit_bps = float(((cfg_all_s.get('guards') or {}).get('spread_bps_limit', 100.0)))
+            emitter.emit(
+                type="SPREAD_GUARD_TRIP",
+                severity="warning",
+                code="SPREAD_GUARD_TRIP",
+                payload={'spread_bps': float(spread_bps_val or 0.0), 'limit_bps': float(spread_limit_bps)},
+            )
+    except Exception:
+        pass
+
+    # Merge advisory diagnostics (do not contaminate blocking reasons)
+    try:
+        if diagnostics_local:
+            obs.setdefault('diagnostics', [])
+            # ensure uniqueness while preserving order
+            existing = set(obs['diagnostics']) if isinstance(obs.get('diagnostics'), list) else set()
+            for x in diagnostics_local:
+                if x not in existing:
+                    obs['diagnostics'].append(x)
+                    existing.add(x)
+    except Exception:
+        pass
+
+    quotas = {'trades_pm_left': 999, 'symbol_exposure_left_usdt': 1e12}
+    reasons_list = (obs.get('reasons') if isinstance(obs, dict) else None) or []
+
+    # If gate denies, log into denied orders stream
+    try:
+        if not allow:
+            # Increment counter regardless of file writer availability
+            try:
+                ORDERS_DENIED.inc()
+            except Exception:
+                pass
+            ol: OrderLoggers | None = getattr(request.app.state, 'order_loggers', None)
+            if ol is None:
+                # Lazy init to keep counters tied to actual writes even if lifespan didn't run
+                try:
+                    ol = OrderLoggers()
+                    setattr(request.app.state, 'order_loggers', ol)
+                except Exception:
+                    ol = None
+            if ol is not None:
+                ol.log_denied(
+                    ts=int(time.time() * 1000),
+                    symbol=o.get('symbol'),
+                    side=o.get('side'),
+                    qty=o.get('qty'),
+                    price=o.get('price'),
+                    deny_reason=reason,
+                    reasons=reasons_list,
+                    observability=obs,
+                )
+                # Optionally also build a structured OrderDenied schema (best-effort, no-op on failure)
+                try:
+                    from core.converters import api_order_to_denied_schema
+                    _ = api_order_to_denied_schema(
+                        decision_id=str(obs.get('decision_id') or ''),
+                        order=o,
                         deny_reason=reason,
-                        reasons=reasons,
+                        reasons=reasons_list,
                         observability=obs,
                     )
-                    try:
-                        ORDERS_DENIED.inc()
-                    except Exception:
-                        pass
-        except Exception:
-            pass
+                except Exception:
+                    pass
+    except Exception:
+        pass
 
-        if emitter:
-            emitter.emit(
-                type="POLICY.DECISION",
-                severity=None,
-                code=None,
-                payload={
-                    "decision": "EXECUTE" if allow else "NO_OP",
-                    "reasons": reasons,
-                    "mode": mode,
-                    "observability": obs,
-                },
-            )
+    if emitter:
+        emitter.emit(
+            type=POLICY_DECISION,
+            severity=None,
+            code=None,
+            payload={
+                "decision": "EXECUTE" if allow else "NO_OP",
+                "reasons": (obs.get('reasons') if isinstance(obs, dict) else None) or [],
+                "mode": mode,
+                "observability": obs,
+            },
+        )
 
-        return PretradeCheckResponse(allow=allow, max_qty=max_qty, reason=reason, observability=obs, quotas=quotas, risk_scale=risk_scale)
-    except Exception as e:
-        raise HTTPException(status_code=422, detail=str(e))
+    return PretradeCheckResponse(allow=allow, max_qty=max_qty, reason=reason, observability=obs, quotas=quotas, risk_scale=risk_scale)
 
 
 @app.post("/posttrade/log")
@@ -805,7 +756,7 @@ async def posttrade_log(request: Request, payload: dict):
         emitter: EventEmitter | None = getattr(request.app.state, 'events_emitter', None)
         if emitter:
             try:
-                emitter.emit(type="POSTTRADE.LOG", severity=None, code=None, payload=payload)
+                emitter.emit(type=POSTTRADE_LOG, severity=None, code=None, payload=payload)
             except Exception:
                 pass
 
@@ -842,6 +793,17 @@ async def posttrade_log(request: Request, payload: dict):
                     ol = None
             if ol is not None:
                 rec = dict(payload)
+                # If the runner posted the raw CCXT order object under 'response', enrich top-level keys
+                try:
+                    resp = rec.get('response') or {}
+                    if isinstance(resp, dict):
+                        # CCXT unified fields are at top-level of resp; exchange raw under resp['info']
+                        rec.setdefault('status', resp.get('status') or (resp.get('info') or {}).get('status'))
+                        rec.setdefault('filled', resp.get('filled') or (resp.get('info') or {}).get('executedQty'))
+                        rec.setdefault('average', resp.get('average') or resp.get('avg_price'))
+                        rec.setdefault('id', resp.get('id') or (resp.get('info') or {}).get('orderId'))
+                except Exception:
+                    pass
                 status = str(rec.get('status', '')).lower()
                 is_failed = bool(rec.get('error') or rec.get('error_code') or rec.get('error_msg'))
                 is_success = status in {"filled", "partially_filled", "partial", "closed"} or (rec.get('filled') or 0) > 0
@@ -857,6 +819,12 @@ async def posttrade_log(request: Request, payload: dict):
                 if is_failed:
                     base.update({'error_code': rec.get('error_code'), 'error_msg': rec.get('error_msg'), 'retry': rec.get('retry')})
                     ol.log_failed(**base)
+                    # Optional: build structured core OrderFailed schema (best-effort)
+                    try:
+                        from core.converters import posttrade_to_failed_schema
+                        _ = posttrade_to_failed_schema(rec, decision_id=str(rec.get('decision_id') or ''), snapshot=None)
+                    except Exception:
+                        pass
                     # Emit ORDER.REJECT event
                     try:
                         if em_ev:
@@ -882,6 +850,46 @@ async def posttrade_log(request: Request, payload: dict):
                 elif is_success:
                     base.update({'fill_qty': rec.get('filled'), 'avg_price': rec.get('average') or rec.get('avg_price'), 'fees': rec.get('fee') or rec.get('fees')})
                     ol.log_success(**base)
+                    # Update position state on successful orders
+                    try:
+                        sym_raw = rec.get('symbol')
+                        sym = (str(sym_raw).upper().strip() if sym_raw else None)
+                        if sym and ':' in sym:
+                            sym = sym.split(':', 1)[-1]
+                        side = (str(rec.get('side') or '') or '').lower() or None
+                        # Determine if this is a close/reduce.
+                        action = (str(payload.get('action')).lower() if isinstance(payload, dict) and payload.get('action') is not None else None)
+                        close_flag = False
+                        try:
+                            close_flag = bool((payload.get('close') if isinstance(payload, dict) else False) or (payload.get('reduceOnly') if isinstance(payload, dict) else False))
+                            resp2 = payload.get('response') if isinstance(payload, dict) else None
+                            if isinstance(resp2, dict):
+                                close_flag = close_flag or bool(resp2.get('close') or resp2.get('reduceOnly'))
+                        except Exception:
+                            close_flag = False
+                        ps_map = getattr(request.app.state, '_position_state', None)
+                        if isinstance(ps_map, dict) and sym:
+                            if action == 'close' or close_flag:
+                                # Clear position state on close
+                                try:
+                                    if sym in ps_map:
+                                        ps_map.pop(sym, None)
+                                except Exception:
+                                    pass
+                            else:
+                                # Set/refresh position state on open/partial fills
+                                try:
+                                    ps_map[sym] = {'side': side, 'since_ms': int(base.get('ts') or time.time() * 1000)}
+                                except Exception:
+                                    pass
+                    except Exception:
+                        pass
+                    # Optional: build structured core OrderSuccess schema (best-effort)
+                    try:
+                        from core.converters import posttrade_to_success_schema
+                        _ = posttrade_to_success_schema(rec, decision_id=str(rec.get('decision_id') or ''), snapshot=None)
+                    except Exception:
+                        pass
                     # Emit ORDER.PARTIAL or ORDER.FILL based on filled quantity vs qty if available
                     try:
                         if em_ev:
@@ -912,26 +920,50 @@ async def posttrade_log(request: Request, payload: dict):
                     except Exception:
                         pass
                 else:
-                    # if uncertain status, conservatively log as failed
-                    ol.log_failed(**base)
+                    # Pending/unknown status: write only to consolidated orders.jsonl (above) and do not emit reject.
+                    # We'll rely on subsequent updates (fills/partials) to log success, or explicit error fields to log failure.
+                    pass
+        except Exception:
+            pass
+
+        # Anti-churn: when a close/reduce observed, set cooldown for the symbol
+        try:
+            def _canon_symbol(s: Any) -> str | None:
+                try:
+                    if not s:
+                        return None
+                    s2 = str(s).upper().strip()
+                    if ':' in s2:
+                        s2 = s2.split(':', 1)[-1]
+                    return s2
+                except Exception:
+                    return None
+
+            sym = _canon_symbol((payload.get('symbol') if isinstance(payload, dict) else None))
+            action = (str(payload.get('action')).lower() if isinstance(payload, dict) and payload.get('action') is not None else None)
+            # Some runners may signal close via boolean flags
+            close_flag = False
+            try:
+                if isinstance(payload, dict):
+                    close_flag = bool(payload.get('close') or payload.get('reduceOnly'))
+                    # Also inspect nested 'response' structure
+                    resp = payload.get('response') or {}
+                    if isinstance(resp, dict):
+                        close_flag = close_flag or bool(resp.get('close') or resp.get('reduceOnly'))
+            except Exception:
+                close_flag = False
+            cd_ms = int(getattr(request.app.state, 'cooldown_after_close_ms', 0))
+            if sym and cd_ms > 0 and (action == 'close' or close_flag):
+                now_ms = int(time.time() * 1000)
+                try:
+                    getattr(request.app.state, '_cooldown_until_ms')[sym] = now_ms + cd_ms  # type: ignore[index]
+                except Exception:
+                    pass
+                # Emit an optional event for observability
+                em_ev2: AuroraEventLogger | None = getattr(request.app.state, 'events_emitter', None)
+                if em_ev2:
                     try:
-                        if em_ev:
-                            em_ev.emit(
-                                'ORDER.REJECT',
-                                {
-                                    'symbol': base.get('symbol'),
-                                    'oid': base.get('order_id'),
-                                    'side': base.get('side'),
-                                    'qty': base.get('qty'),
-                                    'price': base.get('price'),
-                                    'reason_detail': 'uncertain_status',
-                                },
-                                src='api',
-                            )
-                    except Exception:
-                        pass
-                    try:
-                        ORDERS_REJECTED.inc()
+                        em_ev2.emit('AURORA.COOL_OFF', {'symbol': sym, 'until_ms': now_ms + cd_ms}, src='api')
                     except Exception:
                         pass
         except Exception:

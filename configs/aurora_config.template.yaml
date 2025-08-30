@@ -43,7 +43,7 @@ pretrade:
 
 guards:
   # Spread/latency/volatility guards. Some also have env overrides.
-  spread_bps_limit: 80
+  spread_bps_limit: 8
   latency_ms_limit: 500
   vol_guard_std_bps: 300
   trap_guard_enabled: true
@@ -51,7 +51,7 @@ guards:
 risk:
   # Day drawdown, caps and live size scaling; API exposes /risk/* ops to update at runtime
   dd_day_pct: 10.0
-  max_concurrent: 3
+  max_concurrent: 2
   size_scale: 1.0
 
 slippage:
@@ -64,8 +64,8 @@ sprt:
   # One of:
   # - Provide alpha/beta (type-I/II) and thresholds will be derived
   # - Provide A/B directly
-  alpha: 0.2
-  beta: 0.2
+  alpha: 0.03
+  beta: 0.06
   sigma: 1.0
   A: 2.0
   B: -2.0

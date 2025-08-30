@@ -1,144 +1,95 @@
-# Aurora — Unified Trading System
+AURORA — Risk Gate API and Runner Integration
 
-This repository contains the Aurora core API and WiseScalp integration.
+Коротко
+- Aurora (FastAPI) — централізований pre‑trade гейт, health/ops, метрики Prometheus, події JSONL.
+- WiseScalp (runner) — генерує альфа‑сигнали і ПЕРЕД кожним ордером звертається до Aurora `/pretrade/check`.
+- Логи/події: структуровані JSONL у каталозі сесії `logs/YYYYMMDD-hhmmss/`.
 
-## Repo layout (high level)
-- `api/` — FastAPI service, health/ops endpoints, pretrade checks
-- `aurora/` — health guards, utilities
-- `common/` — configs, events
-- `core/` — env, loggers, scalper components
-- `risk/` — risk manager
-- `skalp_bot/` — WiseScalp integration & runners
-- `tools/` — operational CLIs, harnesses
-- `docs/` — specs, runbooks
-- `logs/`, `artifacts/` — runtime outputs (ignored), kept with `.keep`
-- `archive/YYYYMMDD/` — archived R&D with `ARCHIVE_INDEX.md`
+Структура проєкту
+- api/ — FastAPI сервіс: lifespan, ендпоінти, метрики.
+- core/
+  - aurora/ — доменна логіка: гейти (`pretrade.py`), health/governance, подієвий логер.
+  - scalper/ — сигнали/калібратори: isotonic+Platt fallback, TRAP, SPRT, ICP.
+  - … інші утиліти: `order_logger.py`, `ack_tracker.py`, `reward_manager.py`.
+- common/ — конфіг і крос‑утиліти (єдиний loader, адаптер EventEmitter → AuroraEventLogger).
+- observability/ — коди подій і JSON‑схеми (див. `observability/README.md`).
+- risk/ — RiskManager (щоденні ліміти, scale, concurrent caps).
+- configs/ — YAML‑конфіги (ENV має пріоритет над YAML).
+- docs/ — документація (паспорт, AURORA.md, план рефакторингу).
+- skalp_bot/ — інтеграції/runner‑клієнт (AuroraGate HTTP клієнт).
+- tests/ — юніт/інтеграційні тести.
+- tools/ — допоміжні утиліти (ctl, архівація тощо).
 
-See `Copilot_Master_Roadmap.md` for the SSOT roadmap.
+Контракт pre‑trade
+- Запит: `PretradeCheckRequest` складається з `account`, `order`, `market` (строго типізовані моделі у `api/models.py`).
+- Основний пайплайн (порядок може бути сконфігурований):
+  1) latency guard (миттєвий поріг) →
+  2) HealthGuard (p95 ескалації) →
+  3) TRAP guard →
+  4) expected return (isotonic) →
+  5) slippage guard →
+  6) RiskManager caps/scale →
+  7) optional SPRT →
+  8) spread guard.
+- Відповідь: `allow`, `max_qty`, `risk_scale`, `cooldown_ms`, `reason`, `observability`.
 
-## Tools
+Observability
+- Події: `core/aurora_event_logger.py` пише у `aurora_events.jsonl` (у сесії `AURORA_SESSION_DIR`).
+- Канонічні поля запису: `ts_ns`, `run_id`, `event_code`, `details`, інші — опційні (`symbol`, `cid`, `oid`, `side`, `qty`, ...).
+- Схема: див. `observability/aurora_event.schema.json` (файл `observability/schema.json` лишається як legacy‑схема для старого еммітера; не використовується новим логгером).
+- Метрики Prometheus: `/metrics` (латентність, лічильники подій/ордерів, OPS‑метрики).
 
-- `tools/auroractl.py` — unified CLI for config and ops.
-- `tools/metrics_summary.py` — summarize logs into reports.
-- `tools/lifecycle_audit.py` — build order lifecycle graphs and anomalies; run: `python tools/lifecycle_audit.py`.
+PretradePipeline
+- Центральна логіка тепер інкапсульована у `core/aurora/pipeline.py`. Сервісний ендпоінт `/pretrade/check` делегує прийняття рішення пайплайну й повертає `(allow, reason, observability, risk_scale)`.
+- Сервіс додатково: персистить створений `trap_window` у `app.state`, емить `POLICY_DECISION`, при блокуванні спредом емить `SPREAD_GUARD_TRIP`, інкрементує `aurora_orders_denied_total` та пише у `orders_denied.jsonl`.
 
+Governance & Health
+- `aurora/governance.py`: kill‑switch (reject storms), дані якості та системні ліміти.
+- `aurora/health.py`: HealthGuard (p95) з ескалацією WARN → COOL_OFF → HALT. OPS: `/ops/cooloff/{sec}`, `/ops/reset`, `/aurora/{arm|disarm}`.
 
-## Ops & Tokens + Event Codes
+ENV → YAML пріоритети (приклади)
+- Latency: `AURORA_LMAX_MS`
+- TRAP: `AURORA_TRAP_Z_THRESHOLD`, `AURORA_TRAP_CANCEL_PCTL`, `TRAP_GUARD`
+- ER: `AURORA_PI_MIN_BPS`
+- Slippage: `AURORA_SLIP_ETA`
+- Spread: `AURORA_SPREAD_BPS_LIMIT` (або `AURORA_SPREAD_MAX_BPS`)
+- SPRT: `AURORA_SPRT_ENABLED`, `AURORA_SPRT_TIMEOUT_MS`
+- ICP (опціонально): `AURORA_ICP_OBS=1`
+- OPS: `OPS_TOKEN` (alias `AURORA_OPS_TOKEN` підтримується, але емить WARN)
 
-### Ops & Security (X-OPS-TOKEN)
-
-- Canonical env var: `OPS_TOKEN` (alias `AURORA_OPS_TOKEN` is supported but emits WARN event `OPS.TOKEN.ALIAS_USED`).
-- Protected endpoints: `/liveness`, `/readiness`, `/ops/rotate_token` (metrics exposed at `/metrics`).
-- Examples:
-
-```bash
-# Metrics (header optional for local dev)
-curl -s -H "X-OPS-TOKEN: $OPS_TOKEN" http://localhost:8000/metrics
-
-# Token rotation (old token stops working)
-curl -s -X POST -H "X-OPS-TOKEN: $OPS_TOKEN" \
-	http://localhost:8000/ops/rotate_token -d '{"new_token":"REDACTED_32+"}' -H 'content-type: application/json'
+Приклад `.env`:
+```
+AURORA_CONFIG=configs/v4_min.yaml
+AURORA_LMAX_MS=30
+AURORA_TRAP_Z_THRESHOLD=1.64
+AURORA_TRAP_CANCEL_PCTL=90
+AURORA_PI_MIN_BPS=2.0
+AURORA_SLIP_ETA=0.3
+AURORA_SPREAD_BPS_LIMIT=80
+AURORA_SPRT_ENABLED=1
+OPS_TOKEN=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
 
-### Logs and retention
+Схеми: API vs Downstream
+- REST‑контракти у `api/models.py` (вхід/вихід FastAPI).
+- Downstream‑події/ордери у `core/schemas.py` (для файлів/шини). Не змішуйте рівні; за потреби використовуйте явні конвертери.
+ - Конвертери: `core/converters.py` надає явні мапінги між REST‑моделями та downstream‑схемами:
+   - `api_order_to_denied_schema(...)` → `OrderDenied`
+   - `posttrade_to_success_schema(...)` → `OrderSuccess`
+   - `posttrade_to_failed_schema(...)` → `OrderFailed`
+   Сервіс при логуванні order‑подій за можливості використовує ці конвертери для структурованих записів.
 
-- Orders: `logs/orders_success.jsonl`, `logs/orders_failed.jsonl`, `logs/orders_denied.jsonl`
-- Events: `logs/aurora_events.jsonl`
-- Rotation: daily + size, gzip, retention 7 days (configurable via `AURORA_LOG_RETENTION_DAYS`, `AURORA_LOG_ROTATE_MAX_MB`).
+Aurora API Lite (dev‑only)
+- `aurora_api_lite.py` — спрощений варіант для демо/інтеграційних сценаріїв. Не для продакшена; контракт наближений до `/pretrade/check`, але можливі службові поля (`cooldown_ms`, `hard_gate`).
+ - Уточнення: реалізація асинхронізована (`asyncio.sleep`), а поля спостережуваності узгоджені з основним сервісом.
 
-### Event codes (dot-canon)
+Config & ENV
+- Пріоритет: ENV > YAML > дефолти. Консолідований loader у `common/config.py` (перехід від дублікатів).
+- Ключові обмеження за замовчуванням: `latency_ms_limit=500`, `spread_bps_limit=80`, `daily_dd_limit_pct=10`, `cvar_alpha=0.1`.
 
-- ORDER.*: `SUBMIT`, `ACK`, `PARTIAL`, `FILL`, `REJECT`, `CANCEL.REQUEST`, `CANCEL.ACK`, `EXPIRE`
-- GOVERNANCE.*: `ALLOW`, `DENY`
-- HEALTH.*: `LATENCY_HIGH`, `LATENCY_P95_HIGH`
-- OPS.*: `TOKEN.ALIAS_USED`, `TOKEN_ROTATE`, `RESET`
-- AURORA.*: `EXPECTED_RETURN_*`, `SLIPPAGE_GUARD`, `COOL_OFF`, `ARM_STATE`, `ESCALATION`
-- RISK.*: `DENY`, `UPDATE`
-- Normalization: only `ORDER_* → ORDER.*`; other codes are unchanged.
+Як запускати локально
+- API: `python api/service.py` (або через VS Code task). Ендпоінти: `/health`, `/metrics`, `/pretrade/check`, `/posttrade/log`.
+- Runner: налаштуйте `.env` (див. `skalp_bot/README*.md`) і запускайте `skalp_bot.runner.run_live_aurora`.
 
-### Metrics (Prometheus)
-
-- Events: `aurora_events_emitted_total{code}`
-- Orders: `aurora_orders_success_total`, `aurora_orders_rejected_total`, `aurora_orders_denied_total`
-- OPS: `aurora_ops_auth_fail_total`, `aurora_ops_token_rotations_total`
-- Handy queries:
-
-```promql
-# Conversion (10m)
-rate(aurora_orders_success_total[10m])
-/
-rate(aurora_orders_success_total[10m] + aurora_orders_rejected_total[10m] + aurora_orders_denied_total[10m])
-
-# Reject spike (5m)
-increase(aurora_events_emitted_total{code="ORDER.REJECT"}[5m])
-```
-
-### Lifecycle & Latency
-
-- FSM: `PREPARED→SUBMITTED→ACK→PARTIAL/FILL|CANCEL|REJECT|EXPIRE`
-- Latency report (p50/p95/p99) from correlator: `submit→ack`, `ack→done`.
-
-### Kill‑switch (recommended thresholds)
-
-```yaml
-gates:
-	spread_bps_max: 8.0
-	vol_std_bps_max: 60.0
-	latency_ms_max: 150
-	dd_day_pct_max: 5.0
-	cvar_day_pct_max: 10.0
-killswitch:
-	window_trades: 50
-	max_reject_rate_pct: 35
-	max_denied_rate_pct: 50
-	action: HALT_AND_ALERT
-```
-
-### Testnet vs Prod
-
-- Testnet: you may enable cancel stub (emits `ORDER.CANCEL.REQUEST/ACK`).
-	- `AURORA_CANCEL_STUB=true`, `AURORA_CANCEL_STUB_EVERY_TICKS=120`
-- Prod: `AURORA_CANCEL_STUB=false` (default).
-
-### Quickstart
-
-```bash
-# Config validator
-python tools/auroractl.py config-validate --name master_config_v2
-
-# API (includes background AckTracker)
-python tools/auroractl.py start-api
-
-# Runner (WiseScalp)
-python -m skalp_bot.runner.run_live_aurora
-
-# Metrics summary
-python tools/metrics_summary.py --window-sec 3600 --out reports/summary_gate_status.json
-```
-
-### Troubleshooting
-
-- Orders success counter not increasing → ensure order loggers are initialized inside endpoints (`/pretrade/check`, `/posttrade/log`) — counters increment only after successful writes into `orders_*.jsonl`.
-- Events not written → check `logs/` permissions and path; verify `aurora_events.jsonl` is created.
-- Metrics look empty → include `X-OPS-TOKEN` header; alias usage will emit `OPS.TOKEN.ALIAS_USED`.
-
-
-## Post-merge quick actions
-
-```bash
-# Tag and release
-git tag -a v0.4-beta -m "Aurora+WiseScalp: ORDER.*, AckTracker, Metrics v1, OPS security"
-git push origin v0.4-beta
-
-# Targeted tests
-pytest -q tests/events/test_events_emission.py \
-					tests/events/test_events_rotation.py \
-					tests/metrics/test_metrics_summary.py \
-					tests/test_order_counters.py \
-					tests/events/test_late_ack_and_partial_cancel.py
-
-# Smoke
-curl -s -H "X-OPS-TOKEN: $OPS_TOKEN" http://localhost:8000/metrics | \
-	grep -E "aurora_events_emitted_total|aurora_orders_.*_total"
-python tools/metrics_summary.py --window-sec 600 --out reports/summary_gate_status.json
-```
+Тести
+- У VS Code задано готові задачі для таргетних прогонів (див. Tasks). Рекомендовано починати з інтеграційних pre‑trade тестів.

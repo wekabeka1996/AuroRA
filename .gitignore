@@ -156,8 +156,11 @@ snapshot.json
 *.parquet
 trading_logs/
 
-# Binance API keys (never commit these!)
+# Exchange API keys (never commit these!)
 .env.local
 .env.production
 binance_*.txt
+gate_*.txt
 api_keys.txt
+*_api_key.txt
+*_api_secret.txt

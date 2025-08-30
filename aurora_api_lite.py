@@ -5,6 +5,7 @@ Aurora API Lite - Спрощений API для тестування інтег�
 
 import json
 import time
+import asyncio
 from fastapi import FastAPI, HTTPException
 import uvicorn
 
@@ -33,14 +34,14 @@ async def pretrade_check(request: dict):
     Перевірка можливості виконання торгової операції
     Формат сумісний з WiseScalp AuroraGate
     """
-    # Симуляція обробки
-    time.sleep(0.001)  # Симуляція latency
+    # Симуляція обробки (не блокуємо event loop)
+    await asyncio.sleep(0.001)
     
     order = request.get("order", {})
     market = request.get("market", {})
     account = request.get("account", {})
     
-    symbol = market.get("symbol", "UNKNOWN")
+    symbol = (market or {}).get("symbol") or (request.get("order") or {}).get("symbol") or "UNKNOWN"
     qty = order.get("qty", 0)
     side = order.get("side", "buy")
     
@@ -54,7 +55,13 @@ async def pretrade_check(request: dict):
             "reason": "Invalid quantity",
             "hard_gate": True,
             "quotas": {"trades_pm_left": 999, "symbol_exposure_left_usdt": 1e12},
-            "observability": {"confidence": 0.0, "regime": 1, "latency_ms": 1.2}
+            "observability": {
+                "gate_state": "BLOCK",
+                "confidence": 0.0,
+                "regime": 1,
+                "latency_ms": 1.2,
+                "reasons": ["invalid_qty"],
+            }
         }
     
     # Симуляція Aurora логіки
@@ -71,7 +78,13 @@ async def pretrade_check(request: dict):
             "reason": "Position limit exceeded for BTC",
             "hard_gate": False,
             "quotas": {"trades_pm_left": 999, "symbol_exposure_left_usdt": 1e12},
-            "observability": {"confidence": 0.4, "regime": 3, "latency_ms": 1.8}
+            "observability": {
+                "gate_state": "BLOCK",
+                "confidence": 0.4,
+                "regime": 3,
+                "latency_ms": 1.8,
+                "reasons": ["pos_limit"],
+            }
         }
     
     # Дозволити операцію
@@ -83,7 +96,13 @@ async def pretrade_check(request: dict):
         "reason": "Trade approved by Aurora",
         "hard_gate": False,
         "quotas": {"trades_pm_left": 998, "symbol_exposure_left_usdt": 1e12},
-        "observability": {"confidence": confidence, "regime": regime, "latency_ms": 0.8}
+        "observability": {
+            "gate_state": "PASS",
+            "confidence": confidence,
+            "regime": regime,
+            "latency_ms": 0.8,
+            "reasons": [],
+        }
     }
 
 @app.post("/posttrade/log")

@@ -1,0 +1,51 @@
+# Aurora base config (template). Merge this with environment-specific overrides.
+# Keys documented in tools/validate_config.py and ЗАПУСК.md.
+
+env: prod
+api:
+  host: 0.0.0.0
+  port: 8000
+
+aurora:
+  latency_guard_ms: 30
+  latency_window_sec: 60
+  cooloff_base_sec: 120
+  halt_threshold_repeats: 2
+
+# Guards/gates for pretrade checks
+guards:
+  spread_bps_limit: 80
+  latency_ms_limit: 300
+  vol_guard_std_bps: 250
+  trap_guard_enabled: true
+
+risk:
+  pi_min_bps: 2.0
+  dd_day_pct: 10.0
+  max_concurrent: 10
+  size_scale: 1.0
+
+slippage:
+  eta_fraction_of_b: 0.30
+
+trap:
+  window_s: 2.0
+  levels: 5
+  z_threshold: 1.64
+  cancel_pctl: 90
+  score_threshold: 0.8
+
+sprt:
+  enabled: true
+  sigma: 1.0
+  A: 2.0
+  B: -2.0
+  max_obs: 10
+
+observability:
+  ack:
+    ttl_s: 300
+    scan_period_s: 1.0
+
+security:
+  ops_token: "change-me"

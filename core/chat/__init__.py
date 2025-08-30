@@ -1,1 +1,0 @@
-"""Chat command surface (placeholder)."""
