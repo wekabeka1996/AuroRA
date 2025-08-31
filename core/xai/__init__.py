@@ -5,7 +5,7 @@ XAI — Decision logging and alerting primitives
 This package provides:
 - DecisionLog schema and validation
 - Thread-safe JSONL logging with tamper-evidence
-- Operational alerts for live/shadow runs
+- Operational alerts for live runs (historical shadow mode removed)
 """
 
 from .schema import SCHEMA_ID, validate_decision, canonical_json

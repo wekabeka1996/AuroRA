@@ -1,0 +1,38 @@
+[market_data]
+source = "live_binance"
+
+[order_sink]
+mode = "net"
+
+[orders]
+enabled = true
+
+[execution.sla]
+max_latency_ms = 100
+
+[execution.exchange.binance.keys]
+readonly = true
+
+[risk]
+capital = 100000
+
+[risk.cvar]
+limit = 0.02
+
+[sizing]
+default_size = 1
+
+[reward]
+target = 0.01
+
+[tca]
+enabled = false
+
+[xai]
+enabled = false
+
+[universe]
+symbols = ["BTCUSDT"]
+
+[profile]
+name = "local"

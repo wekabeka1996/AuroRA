@@ -93,7 +93,7 @@ def stop_proc(proc: Optional[subprocess.Popen]) -> None:
         pass
 
 
-def health_check(base_url: str, allow_503_shadow: bool = True, timeout_sec: int = 30) -> bool:
+def health_check(base_url: str, allow_503_testnet: bool = True, timeout_sec: int = 30) -> bool:
     if requests is None:
         return True
     t0 = time.time()
@@ -102,9 +102,9 @@ def health_check(base_url: str, allow_503_shadow: bool = True, timeout_sec: int 
             r = requests.get(f'{base_url}/health', timeout=3)
             if r.status_code == 200:
                 return True
-            if allow_503_shadow and r.status_code == 503:
-                # acceptable in shadow/uninitialized trading system
-                return True
+                # For testnet we accept 503 only if explicitly allowed by caller
+                if allow_503_testnet and r.status_code == 503:
+                    return True
         except Exception:
             pass
         time.sleep(1.0)
@@ -122,7 +122,10 @@ def run_canary_harness(base_url: str, ops_token: Optional[str], minutes: int) ->
     return proc.returncode or 0
 
 
-def run_shadow_traffic(base_url: str, minutes: int, rps: float) -> int:
+def run_testnet_traffic(base_url: str, minutes: int, rps: float) -> int:
+    # Deprecated traffic helper: explicit shadow traffic removed. Fail fast to avoid accidental invocation.
+    raise RuntimeError("Deprecated mode requested; use 'testnet' or 'live' instead")
+def run_testnet_traffic(base_url: str, minutes: int, rps: float) -> int:
     script = TOOLS_DIR / 'smoke_traffic.py'
     if not script.exists():
         return 0
@@ -293,7 +296,8 @@ def main():
     try:
         # Start API
         api_proc = start_api(args.host, args.port)
-        ok = health_check(base_url, allow_503_shadow=True, timeout_sec=15)
+        ok = health_check(base_url, allow_503_testnet=False, timeout_sec=15)
+        print('[WiseScalp x Aurora] start — testnet=True')
         print(f'[health] ready={ok} url={base_url}')
 
         # Pre-check risk window and optional cooloff
@@ -308,9 +312,9 @@ def main():
             runner_proc = start_live_runner(resolved_cfg)
             time.sleep(max(0, int(args.minutes * 60)))
         else:
-            # Shadow traffic
-            print(f'[shadow] Generating traffic for {args.minutes} min @ {args.rps} rps → {base_url}/pretrade/check')
-            run_shadow_traffic(base_url, args.minutes, args.rps)
+            # Testnet traffic
+            print(f'[testnet] Generating traffic for {args.minutes} min @ {args.rps} rps → {base_url}/pretrade/check')
+            run_testnet_traffic(base_url, args.minutes, args.rps)
 
         summary_md = build_summary(args.minutes)
         g_code = run_gate(summary_md, time_window_last=args.time_window_last, strict=not args.no_strict)

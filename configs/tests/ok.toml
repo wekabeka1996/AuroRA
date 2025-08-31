@@ -1,0 +1,49 @@
+# ---- minimal critical sections to pass early checks ----
+[risk]
+max_position_usd = 1
+cvar_limit_usd   = 1
+
+[sizing]
+method       = "equal"
+
+[execution]
+sla_max_latency_ms = 40
+
+[reward]
+mode = "pnl_after_tca"
+
+[tca]
+mode = "light"
+
+[xai]
+enabled = true
+
+[universe]
+top_n = 3
+
+[profile]
+name = "local_mid"
+
+# ---- order sink (sim only) ----
+[order_sink]
+mode = "sim_local"
+
+[order_sink.sim_local]
+latency_ms = 10.0
+ttl_ms     = 5000
+maker_queue_model = "fifo"
+taker_slip_model  = "l1"
+
+# ---- timescale (REQUIRED) ----
+[timescale]
+ts_unit = "ns"
+
+# ---- replay ----
+[replay]
+chunk_minutes = 30
+
+# ---- leadlag ----
+[leadlag]
+grid   = [0.1]
+max_tau = 1.0
+method = "coherence"

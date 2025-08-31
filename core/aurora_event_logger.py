@@ -33,9 +33,12 @@ class AuroraEventLogger:
     "OPS.TOKEN_ROTATE", "OPS.RESET", "AURORA.COOL_OFF", "AURORA.ARM_STATE",
     "OPS.TOKEN.ALIAS_USED",
         # Order lifecycle
-        "ORDER.SUBMIT", "ORDER.ACK", "ORDER.PARTIAL", "ORDER.FILL",
-        "ORDER.CANCEL", "ORDER.CANCEL.REQUEST", "ORDER.CANCEL.ACK",
-        "ORDER.REJECT", "ORDER.EXPIRE",
+    "ORDER.SUBMIT", "ORDER.ACK", "ORDER.PARTIAL", "ORDER.FILL",
+    "ORDER.CANCEL", "ORDER.CANCEL.REQUEST", "ORDER.CANCEL.ACK",
+    "ORDER.REJECT", "ORDER.EXPIRE", "ORDER.STATUS",
+    "ORDER_STATUS(SIM)",
+    # accept canonical normalized form as well
+    "ORDER.STATUS(SIM)",
         # Risk
     "RISK.DENY.POS_LIMIT", "RISK.DENY.DRAWDOWN", "RISK.DENY.CVAR", "RISK.DENY",
     "RISK.UPDATE",
@@ -58,8 +61,11 @@ class AuroraEventLogger:
     def __init__(
         self,
         path: str | Path | None = None,
-        max_bytes: int = 200 * 1024 * 1024,
+        # Rotate JSONL when file reaches ~100 MB (configurable)
+        max_bytes: int = 100 * 1024 * 1024,
         retention_days: int = 7,
+        compress: bool = True,
+        retention_files: int | None = None,
     ) -> None:
         # Default to session directory if provided via env, else fallback to logs/
         if path is None:
@@ -68,7 +74,14 @@ class AuroraEventLogger:
         else:
             # If caller passed a path explicitly, honor it as-is
             self.path = Path(path)
-        self._writer = _JsonlWriter(self.path, max_bytes=max_bytes, retention_days=retention_days)
+        # Pass compression/retention options to underlying writer
+        self._writer = _JsonlWriter(
+            self.path,
+            max_bytes=max_bytes,
+            retention_days=retention_days,
+            compress=compress,
+            retention_files=retention_files,
+        )
         self._last_health_emit_ts: Dict[str, float] = {}
         self._seen: _LRUSet = _LRUSet(32768)
         self._run_id = time.strftime("%Y%m%d-%H%M%S", time.gmtime())

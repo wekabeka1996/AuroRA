@@ -8,7 +8,8 @@ market:
     taker: 5.0
 
 trading:
-  mode: shadow         # shadow | paper | live
+  # 'shadow' removed. Use 'testnet' for non-production network-integrated runs.
+  mode: testnet         # testnet | paper | live
   max_latency_ms: 1000
 
 filters:

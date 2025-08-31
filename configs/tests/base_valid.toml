@@ -1,0 +1,34 @@
+# Minimal valid base config for ssot validator tests
+[market_data]
+source = "replay"
+
+[order_sink]
+mode = "sim_local"
+
+[orders]
+enabled = false
+
+[execution.sla]
+max_latency_ms = 100
+
+[risk]
+[risk.cvar]
+limit = 0.02
+
+[sizing]
+default_size = 1
+
+[reward]
+target = 0.01
+
+[tca]
+enabled = false
+
+[xai]
+enabled = false
+
+[universe]
+symbols = ["BTCUSDT"]
+
+[profile]
+name = "local"

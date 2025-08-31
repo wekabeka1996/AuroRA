@@ -1,0 +1,24 @@
+name: SSOT Validate
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  ssot_validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install jsonschema toml
+      - name: Run SSOT validator
+        run: |
+          python tools/ssot_validate.py --config configs/default.toml

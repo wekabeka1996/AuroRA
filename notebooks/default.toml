@@ -1,0 +1,275 @@
+# Aurora — default configuration (SSOT)
+# NOTE: Sensitive secrets (API keys) must be provided via ENV overrides, e.g.:
+#   export AURORA__EXECUTION__EXCHANGE__BINANCE__API_KEY="..."
+# Runtime tuning is restricted by hotreload.whitelist (see bottom).
+
+[risk.limits]
+# Hard pre-trade risk guards (any breach = DENY)
+dd_day_bps = 300.0           # daily drawdown cap
+position_usd = 25000.0       # |net position| cap
+order_min_usd = 10.0         # minimum order notional
+order_max_usd = 5000.0       # maximum order notional
+cvar_usd = 150.0             # CVaR limit per trade
+evt_quantile = 0.999         # EVT tail quantile
+evt_max_loss_usd = 400.0     # EVT max loss threshold
+
+[risk.evt_pot]
+# EVT Peaks-Over-Threshold parameters
+u_percentile = 0.95          # threshold percentile for POT
+bootstrap = 500              # bootstrap samples for CI
+
+[risk.cvar]
+# Tail risk guardrail for sizing/governance
+limit = 0.02                # portfolio CVaR cap (post-TCA), fraction of equity
+alpha = 0.95                # CVaR confidence level
+method = "pot-gpd"          # {'historical','gaussian','cornish-fisher','student-t','pot-gpd'}
+confidence = 0.975          # POT tail-fit confidence for diagnostics
+lookback = 5000             # observations for risk window
+
+[execution.sla]
+# Latency gate and target fill probability for TCA router
+max_latency_ms = 25
+kappa_bps_per_ms = 0.05
+target_fill_prob = 0.6
+edge_floor_bps = 0.0
+
+[execution.router]
+horizon_ms = 1000
+p_min_fill = 0.5
+mode = "hybrid"             # {'maker','taker','hybrid'}
+tca_gate = true
+
+[execution.exchange.binance]
+# Do not commit keys here; use ENV overrides as noted above.
+enabled = false
+api_key = ""
+mode = "paper"
+recv_window_ms = 5000
+time_sync_sec = 60
+filters_ttl_sec = 3600
+rps = 8
+burst = 16
+
+[execution.exchange.gate]
+enabled = false
+mode = "paper"
+time_sync_sec = 60
+filters_ttl_sec = 3600
+rps = 8
+burst = 16
+
+[execution.fees]
+# Default exchange fees (when exchange doesn't provide)
+default_maker_bps = 1.0
+default_taker_bps = 7.5
+default_rebate_bps = 0.0
+
+[features.scaling]
+# Feature scaling used across OBI/microprice/TFI pipelines
+method = "robust"           # {'standard','robust','minmax','none'}
+
+[signal.score]
+# S = w^T x + gamma * beta_{i|SOL} * r_SOL(t - tau*)
+gamma = 0.0
+use_cross_asset = true
+
+[calibration]
+# Probability calibration for scores (prequential)
+method = "isotonic"         # {'platt','isotonic','none'}
+prequential_window = 5000
+
+[regime.manager]
+# Tradeable regimes and quantile gates
+trend_quantile = 0.6
+grind_quantile = 0.4
+
+[tca.edge_budget]
+# Enable TCA-aware entry gate
+enabled = true
+
+[sizing.kelly]
+# Kelly sizing parameters (production-safe defaults)
+risk_aversion = 0.2         # Conservative: 0.15-0.25 for anti-overbetting
+clip_min = 0.0
+clip_max = 0.2
+rr_default = 1.0
+fraction_cap = 0.2
+
+[sizing.portfolio]
+# Portfolio optimization parameters (production-safe defaults)
+method = "lw_shrinkage"
+gross_cap = 2.0             # 2x equity max exposure
+max_weight = 0.2            # Max 20% per asset
+cvar_alpha = 0.975
+cvar_limit = 0.08           # 0.8x DD_max for conservative sizing
+
+[sizing.dd_haircut]
+# DD haircut parameters
+dd_max_bps = 300.0          # Match risk.limits.dd_day_bps
+beta = 2.0                  # Haircut steepness
+enabled = true
+
+[sizing.stability]
+# Stability controls for production
+hysteresis_threshold = 0.1      # τ = 0.1 * current_f
+hysteresis_flip_threshold = 0.2 # τ_flip = 0.2 * current_f
+min_resize_interval_sec = 10.0  # Conservative: 5-10s between resizes
+bucket_sizes = [0.0, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0]  # Discrete sizes
+
+[sizing.limits]
+# Order sizing limits (production-safe)
+min_notional_usd = 10.0
+max_notional_usd = 5000.0
+leverage_max = 5.0           # Max leverage for futures
+initial_margin_pct = 0.1     # 10% initial margin
+maintenance_margin_pct = 0.05 # 5% maintenance margin
+
+[governance.alpha_ledger]
+# Alpha governance ledger
+enabled = true
+
+[xai.decision_log]
+# DecisionLog for traceability (pairs with config_hash and schema_version)
+enabled = true
+
+[hotreload]
+# Only these keys (or their descendants) are allowed to change at runtime.
+whitelist = [
+  "risk.cvar.limit",
+  "execution.sla.max_latency_ms",
+  "features.scaling",
+  "reward.scale_in.enabled",
+  "execution.router.mode_default",
+  "execution.router.spread_limit_bps",
+  "tca.adverse_window_s"
+]
+
+[universe.ranking]
+# Universe ranking weights and hysteresis parameters
+wL = 0.35                  # liquidity weight
+wS = 0.25                  # spread weight  
+wP = 0.25                  # fill probability weight
+wR = 0.15                  # regime weight
+add_thresh = 0.60          # hysteresis add threshold
+drop_thresh = 0.40         # hysteresis drop threshold
+min_dwell = 200            # minimum dwell ticks
+ema_alpha = 0.2            # EMA smoothing alpha
+
+## Historical shadow runner configuration removed — system now runs testnet by default.
+## Historical shadow settings archived. Negative tests may still reference 'shadow' explicitly.
+
+[reward]
+# Reward management parameters (TP ladder, trail-stop, breakeven, anti-martingale)
+tp_levels_bps = [20, 40, 70]    # TP ladder levels in bps
+tp_sizes = [0.25, 0.35, 0.40]  # TP exit sizes (sum <= 1.0)
+trail_atr_k = 0.8              # Trail distance multiplier (ATR)
+be_rr = 1.0                    # Breakeven activation R/R ratio
+be_buffer_bps = 2.0             # Breakeven buffer in bps
+ttl_minutes = 120               # Position time-to-live in minutes
+stuck_dt_s = 300                # No-progress timeout in seconds
+no_progress_eps_bps = 5.0       # No-progress epsilon in bps
+
+[reward.scale_in]
+# Anti-martingale scale-in parameters
+enabled = true
+hysteresis = 0.1               # Hysteresis threshold for scale-in
+rho = 0.5                      # Scale-in throttle factor
+max_add_per_step = 0.2         # Max additional fraction per step
+cooldown_s = 60                # Cooldown between scale-in attempts
+
+# execution.router (enhancements merged into primary section above)
+# Enhanced execution router parameters are declared earlier in the file.
+
+[execution.router.child_split]
+# Child order splitting parameters
+min_lot = 0.001                 # Minimum child lot size
+max_children = 5                # Maximum number of child orders
+
+[execution.router.vol_spike_guard]
+# Volatility spike guard parameters
+atr_mult = 2.0                  # ATR multiplier for spike detection
+window_s = 300                  # Volatility window in seconds
+
+[tca]
+# Transaction Cost Analysis parameters
+adverse_window_s = 1            # Adverse selection window in seconds
+mark_ref = "micro"              # Price reference for TCA (mid/micro)
+aggregate_interval_s = 300      # Aggregation interval for TCA metrics
+
+[order_sink]
+# Modes: sim_local (recommended for local live experiments), net (real exchange), disabled
+mode = "sim_local"
+
+[order_sink.sim_local]
+# Simulated local sink configuration (production-ready defaults)
+post_only = true
+ioc = true
+latency_ms_range = [8, 25]
+slip_bps_range = [0.0, 1.2]
+ttl_ms = 1500
+
+
+[order_sink.sim_local.maker]
+# queue_model: depth_l1 uses L1 only; depth_l2 sums multiple price levels
+queue_model = "depth_l1"
+queue_safety_eps = 0.000001
+
+[order_sink.sim_local.taker]
+# How many book levels a taker is allowed to eat when executing
+max_levels = 1
+
+[logger.jsonl]
+# Maximum active JSONL file size in MB before rotation
+max_mb = 100
+# Whether rotated files are gzipped
+compress = true
+# How many rotated .jsonl.gz files to keep (most recent). Null => use retention_days only
+retention_files = 8
+
+[profile.local_low]
+features = "minimal"
+tca = "surrogate"
+calibration = "platt"
+leadlag_enable = false
+leadlag_lag_grid = [1,2]
+xai_sig = true
+xai_level = "INFO"
+xai_sample_every = 10
+execution_sla_max_latency_ms = 50
+universe_top_n = 5
+universe_spread_bps_limit = 50
+sizing_max_position_usd = 1000
+sizing_leverage = 1
+replay_chunk_minutes = 30
+
+[profile.local_mid]
+features = "standard"
+tca = "light"
+calibration = "platt_temp"
+leadlag_enable = true
+leadlag_lag_grid = [1,2,3]
+xai_sig = true
+xai_level = "INFO"
+xai_sample_every = 5
+execution_sla_max_latency_ms = 35
+universe_top_n = 10
+universe_spread_bps_limit = 30
+sizing_max_position_usd = 5000
+sizing_leverage = 2
+replay_chunk_minutes = 60
+
+[profile.local_high]
+features = "full"
+tca = "full"
+calibration = "full"
+leadlag_enable = true
+leadlag_lag_grid = [1,2,3,5]
+xai_sig = true
+xai_level = "WARN"
+xai_sample_every = 1
+execution_sla_max_latency_ms = 25
+universe_top_n = 20
+universe_spread_bps_limit = 20
+sizing_max_position_usd = 20000
+sizing_leverage = 5
+replay_chunk_minutes = 60

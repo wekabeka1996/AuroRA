@@ -156,14 +156,106 @@ def main() -> None:
     ap.add_argument("--input", type=str, default="", help="JSONL events; empty -> synthetic stream")
     ap.add_argument("--config", type=str, default="configs/default.toml")
     ap.add_argument("--schema", type=str, default="configs/schema.json")
+    ap.add_argument("--profile", type=str, default="", help="Apply named profile from config (e.g. local_low)")
     ap.add_argument("--speed", type=float, default=1.0)
     ap.add_argument("--calib", type=str, default="isotonic", choices=["platt", "isotonic"])
     ap.add_argument("--threshold", type=float, default=0.55)
     ap.add_argument("--logdir", type=str, default="logs/decisions")
     args = ap.parse_args()
 
-    # Load SSOT config
-    cfg = load_config(config_path=args.config, schema_path=args.schema, enable_watcher=False)
+    # Load SSOT config (convert to mutable dict for profile overlay)
+    cfg_obj = load_config(config_path=args.config, schema_path=args.schema, enable_watcher=False)
+    cfg = cfg_obj.as_dict()
+
+    # Apply profile overlay if requested
+    def _get_nested(d: dict, parts: list):
+        cur = d
+        for p in parts:
+            if not isinstance(cur, dict) or p not in cur:
+                return None
+            cur = cur[p]
+        return cur
+
+    def _set_nested(d: dict, parts: list, value):
+        cur = d
+        for p in parts[:-1]:
+            if p not in cur or not isinstance(cur[p], dict):
+                cur[p] = {}
+            cur = cur[p]
+        cur[parts[-1]] = value
+
+    def _find_best_split_and_set(base: dict, key: str, value):
+        """Try to split underscore-style key into nested path that exists in base.
+        For key like 'execution_sla_max_latency_ms' try ['execution','sla','max_latency_ms'], etc.
+        Return dot-path string that was set."""
+        parts = key.split("_")
+        # Try prefixes of increasing length for nesting
+        for i in range(1, len(parts)):
+            prefix = parts[:i]
+            last = "_".join(parts[i:])
+            # check if nested prefix exists or is plausible
+            nested = _get_nested(base, prefix)
+            if nested is None:
+                continue
+            # set at nested[last]
+            _set_nested(base, prefix + [last], value)
+            return ".".join(prefix + [last])
+        # fallback: set at top-level key
+        base[key] = value
+        return key
+
+    def _recursive_merge(base: dict, overlay: dict, path: str = "") -> list:
+        """Merge overlay into base recursively. Return list of changed dot-paths.
+        Overlay keys may be nested dicts or underscore-joined flat keys which we attempt to map to nested paths in base."""
+        changes = []
+        for k, v in overlay.items():
+            cur_path = f"{path}.{k}" if path else k
+            if isinstance(v, dict):
+                # if base has same key as dict, merge recursively
+                if isinstance(base.get(k), dict):
+                    changes.extend(_recursive_merge(base[k], v, cur_path))
+                else:
+                    base[k] = v
+                    changes.append(cur_path)
+            else:
+                # try to map flat key to nested path in base
+                if k in base and not isinstance(base.get(k), dict):
+                    if base.get(k) != v:
+                        base[k] = v
+                        changes.append(cur_path)
+                else:
+                    mapped = _find_best_split_and_set(base, k, v)
+                    if mapped:
+                        changes.append(mapped)
+        return changes
+
+    if args.profile:
+        profiles = cfg.get("profile") or {}
+        prof = profiles.get(args.profile)
+        if prof is None:
+            print(f"PROFILE: unknown profile {args.profile}")
+            raise SystemExit(61)
+        # create copy of cfg for diff
+        import copy
+
+        before = copy.deepcopy(cfg)
+        changed = _recursive_merge(cfg, prof)
+        # write a diff file
+        logdir = Path("logs")
+        logdir.mkdir(parents=True, exist_ok=True)
+        out_path = logdir / f"profile_{args.profile}.txt"
+        with out_path.open("w", encoding="utf-8") as fh:
+            fh.write(f"APPLIED PROFILE: {args.profile}\n")
+            fh.write("CHANGED KEYS:\n")
+            for p in changed:
+                old = before
+                for part in p.split('.'):
+                    old = old.get(part, None) if isinstance(old, dict) else None
+                new = cfg
+                for part in p.split('.'):
+                    new = new.get(part, None) if isinstance(new, dict) else None
+                fh.write(f"- {p}: {old!r} -> {new!r}\n")
+        print(f"PROFILE: applied {args.profile} -> {out_path}")
 
     # Source
     if args.input:

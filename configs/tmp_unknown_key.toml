@@ -1,0 +1,31 @@
+# tmp config with unknown top-level key to trigger schema unknown key check
+market_data = { source = "testnet_binance" }
+
+[order_sink]
+mode = "sim_local"
+
+[orders]
+enabled = false
+
+[execution]
+sla = { max_latency_ms = 25 }
+
+# Unknown top-level key (should trigger SCHEMA: unknown key ...)
+this_is_a_fake_key = { hello = "world" }
+ 
+# Minimal required top-level placeholders
+[risk]
+[risk.cvar]
+limit = 0.01
+[sizing]
+[sizing.portfolio]
+method = "lw_shrinkage"
+[tca]
+[tca.edge_budget]
+enabled = true
+[xai]
+[xai.decision_log]
+enabled = true
+[universe]
+[universe.ranking]
+wL = 0.35

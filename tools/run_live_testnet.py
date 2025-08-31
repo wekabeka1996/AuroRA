@@ -39,9 +39,11 @@ def print_masked_keys() -> None:
 
 
 def set_live_env_defaults() -> None:
-    # Testnet runner should operate in shadow mode by default (no hard dependency on loaded models)
-    # Allow override via existing env if user explicitly wants prod.
-    os.environ['AURORA_MODE'] = os.environ.get('AURORA_MODE', 'shadow')
+    # Testnet runner default. Fail-fast if user explicitly requests the removed 'shadow' runtime.
+    aur_mode = os.environ.get('AURORA_MODE')
+    if aur_mode and str(aur_mode).lower().strip() == 'shadow':
+        raise RuntimeError("'shadow' mode is removed; set AURORA_MODE=testnet or live")
+    os.environ['AURORA_MODE'] = os.environ.get('AURORA_MODE', 'testnet')
     os.environ['DRY_RUN'] = 'false'
     os.environ.setdefault('EXCHANGE_ID', 'binanceusdm')
     os.environ.setdefault('EXCHANGE_TESTNET', 'true')

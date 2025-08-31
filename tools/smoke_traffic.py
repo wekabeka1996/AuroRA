@@ -19,7 +19,7 @@ class Stats:
 
 
 def make_payload(symbol: str) -> Dict[str, Any]:
-    # Generate a plausible pretrade payload; keep mode=shadow to avoid prod model requirement
+    # Generate a plausible pretrade payload; use testnet mode
     # Randomize a bit to exercise gates deterministically
     a_bps = random.uniform(3.0, 8.0)
     b_bps = a_bps + random.uniform(3.0, 10.0)
@@ -38,7 +38,7 @@ def make_payload(symbol: str) -> Dict[str, Any]:
         ntr = random.randint(1, 3)
 
     payload = {
-        "account": {"mode": "shadow"},
+        "account": {"mode": "testnet"},
         "order": {"symbol": symbol, "qty": 1.0, "base_notional": 100.0},
         "market": {
             "latency_ms": random.uniform(3.0, 25.0),

@@ -1,0 +1,62 @@
+[execution]
+sla_max_latency_ms = 40
+
+[timescale]
+  ts_unit = "ns"
+
+[order_sink]
+mode = "sim_local"
+
+[order_sink.sim_local]
+latency_ms = 10.0
+ttl_ms = 5000
+
+[replay]
+chunk_minutes = 30
+
+[market_data]
+source = "live_test"
+
+[orders]
+enabled = true
+
+[execution.exchange.binance.keys]
+readonly = false
+
+[risk]
+max_position_usd = 1
+cvar_limit_usd = 1
+
+[sizing]
+method = "equal"
+
+[reward]
+mode = "pnl_after_tca"
+
+[tca]
+mode = "light"
+
+[xai]
+enabled = true
+
+[universe]
+top_n = 3
+
+[profile]
+name = "local_mid"
+
+# Force "live" mode that triggers invariants in the validator
+[live]
+mode = "live"
+
+# Prohibited live_* sections that should trigger invariants
+[live.exchange]
+name = "testnet"
+
+[live.repl]
+enabled = true
+
+[leadlag]
+grid = [0.1]
+max_tau = 1.0
+method = "coherence"

@@ -7,8 +7,8 @@ import requests
 DEFAULT_TIMEOUT_S = float(os.getenv("AURORA_GATE_TIMEOUT_S", "0.20"))
 
 class AuroraGate:
-    """Thin HTTP client for Aurora pre-trade gate (fail-open in shadow/paper)."""
-    def __init__(self, base_url: str = "http://127.0.0.1:8037", mode: str = "shadow", timeout_s: float = DEFAULT_TIMEOUT_S):
+    """Thin HTTP client for Aurora pre-trade gate (fail-open in testnet/paper)."""
+    def __init__(self, base_url: str = "http://127.0.0.1:8037", mode: str = "testnet", timeout_s: float = DEFAULT_TIMEOUT_S):
         self.base_url = base_url.rstrip("/")
         self.mode = mode
         self.timeout_s = timeout_s
@@ -28,8 +28,8 @@ class AuroraGate:
             r.raise_for_status()
             return r.json()
         except Exception as e:
-            # In shadow/paper we prefer fail-open; in prod we fail-closed.
-            fail_open = (self.mode in ("shadow", "paper"))
+            # In permissive modes (testnet/paper) we prefer fail-open; in prod we fail-closed.
+            fail_open = (self.mode in ("testnet", "paper"))
             status = None
             try:
                 status = getattr(e.response, 'status_code', None)  # type: ignore[attr-defined]

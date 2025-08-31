@@ -1,0 +1,14 @@
+# tmp config: live source but exchange keys are not readonly
+market_data = { source = "live_binance" }
+
+[order_sink]
+mode = "sim_local"
+
+[orders]
+enabled = false
+
+[execution]
+sla_max_latency_ms = 25
+
+[execution.exchange.binance.keys]
+readonly = false

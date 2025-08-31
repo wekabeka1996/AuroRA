@@ -41,6 +41,7 @@ from dataclasses import dataclass
 from typing import Any, Mapping, Optional
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
+from pathlib import Path
 
 from core.config.loader import load_config
 from core.execution.exchange.common import HttpClient, OrderRequest, OrderType, Side, TimeInForce
@@ -149,10 +150,86 @@ def main() -> None:
     ap.add_argument('--latency-ms', type=float, default=10.0)
     ap.add_argument('--config', default='configs/default.toml')
     ap.add_argument('--schema', default='configs/schema.json')
+    ap.add_argument('--profile', default='', help='Apply named profile from config (e.g. local_low)')
     args = ap.parse_args()
 
-    # Load config for completeness
-    _ = load_config(config_path=args.config, schema_path=args.schema, enable_watcher=False)
+    # Load config for completeness (convert to mutable dict for profile overlay)
+    cfg_obj = load_config(config_path=args.config, schema_path=args.schema, enable_watcher=False)
+    cfg = cfg_obj.as_dict()
+
+    if args.profile:
+        def _get_nested(d: dict, parts: list):
+            cur = d
+            for p in parts:
+                if not isinstance(cur, dict) or p not in cur:
+                    return None
+                cur = cur[p]
+            return cur
+
+        def _set_nested(d: dict, parts: list, value):
+            cur = d
+            for p in parts[:-1]:
+                if p not in cur or not isinstance(cur[p], dict):
+                    cur[p] = {}
+                cur = cur[p]
+            cur[parts[-1]] = value
+
+        def _find_best_split_and_set(base: dict, key: str, value):
+            parts = key.split("_")
+            for i in range(1, len(parts)):
+                prefix = parts[:i]
+                last = "_".join(parts[i:])
+                nested = _get_nested(base, prefix)
+                if nested is None:
+                    continue
+                _set_nested(base, prefix + [last], value)
+                return ".".join(prefix + [last])
+            base[key] = value
+            return key
+
+        def _recursive_merge(base: dict, overlay: dict) -> list:
+            changes = []
+            for k, v in overlay.items():
+                if isinstance(v, dict):
+                    if isinstance(base.get(k), dict):
+                        changes.extend(_recursive_merge(base[k], v))
+                    else:
+                        base[k] = v
+                        changes.append(k)
+                else:
+                    if k in base and not isinstance(base.get(k), dict):
+                        if base.get(k) != v:
+                            base[k] = v
+                            changes.append(k)
+                    else:
+                        mapped = _find_best_split_and_set(base, k, v)
+                        if mapped:
+                            changes.append(mapped)
+            return changes
+
+        profiles = cfg.get('profile') or {}
+        prof = profiles.get(args.profile)
+        if prof is None:
+            print(f"PROFILE: unknown profile {args.profile}")
+            raise SystemExit(61)
+        import copy
+        before = copy.deepcopy(cfg)
+        changed = _recursive_merge(cfg, prof)
+        logdir = Path('logs')
+        logdir.mkdir(parents=True, exist_ok=True)
+        out_path = logdir / f"profile_{args.profile}.txt"
+        with out_path.open('w', encoding='utf-8') as fh:
+            fh.write(f"APPLIED PROFILE: {args.profile}\n")
+            fh.write("CHANGED KEYS:\n")
+            for p in changed:
+                old = before
+                for part in p.split('.'):
+                    old = old.get(part, None) if isinstance(old, dict) else None
+                new = cfg
+                for part in p.split('.'):
+                    new = new.get(part, None) if isinstance(new, dict) else None
+                fh.write(f"- {p}: {old!r} -> {new!r}\n")
+        print(f"PROFILE: applied {args.profile} -> {out_path}")
 
     http = StdlibHttpClient()
 

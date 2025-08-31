@@ -556,11 +556,11 @@ def one_click(
     # Prepare environment for the run (do not overwrite explicit user overrides)
     if mode_l == "testnet":
         os.environ["EXCHANGE_TESTNET"] = "true"
-        # By default keep shadow mode to avoid coupling, but allow opting into runner
+    # Default runtime for testnet: operate in testnet (legacy 'shadow' mode removed)
         if runner_in_testnet:
             os.environ["AURORA_MODE"] = "prod"  # triggers runner in canary
         else:
-            os.environ["AURORA_MODE"] = "shadow"
+            os.environ["AURORA_MODE"] = "testnet"
         os.environ["DRY_RUN"] = "false"
     else:
         os.environ["EXCHANGE_TESTNET"] = "false"

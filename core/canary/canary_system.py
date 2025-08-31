@@ -40,7 +40,8 @@ class KillSwitchType(Enum):
 class CanaryState(Enum):
     """Canary operational states"""
     INACTIVE = "inactive"
-    SHADOW = "shadow"      # Monitoring only, no real orders
+    # NOTE: 'shadow' runtime mode removed project-wide (2025-08-30).
+    # Historical: shadow was a monitoring-only mode that did not place orders.
     CANARY = "canary"      # 1% live execution
     EMERGENCY_STOP = "emergency_stop"
     KILLED = "killed"

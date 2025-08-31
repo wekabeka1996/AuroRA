@@ -55,7 +55,7 @@ class PretradePipeline:
         rman = self.rman
         cfg_all = self.cfg or {}
 
-        mode = (account or {}).get('mode', os.getenv('AURORA_MODE', 'shadow'))
+        mode = (account or {}).get('mode', os.getenv('AURORA_MODE', 'testnet'))
         reasons: list[str] = []
         allow = True
         reason = 'ok'

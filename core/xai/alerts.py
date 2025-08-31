@@ -4,7 +4,7 @@ from __future__ import annotations
 XAI — Alerts
 ============
 
-Alerting primitives used in live/shadow runs to surface operational and
+Alerting primitives used in live runs to surface operational and
 statistical issues:
   • NoTradesAlert: detects lack of tradeable decisions over a wall-time window
   • DenySpikeAlert: detects spikes in deny rate (action == 'deny')

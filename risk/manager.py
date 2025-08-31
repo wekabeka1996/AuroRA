@@ -92,7 +92,7 @@ class RiskManager:
             return False, 'risk_max_concurrent', scaled, ctx
 
         # Minimal notional sanity (very small sizes). If caller didn't provide a positive
-        # base_notional (e.g., shadow/test), don't hard-block on this check.
+    # base_notional (e.g., test), historical 'shadow' mode references removed.
         try:
             bn = float(base_notional)
         except Exception:

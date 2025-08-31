@@ -91,8 +91,11 @@ class TestTCAAnalyzer:
 
         metrics = analyzer.analyze_order(execution, sample_market_data)
 
-        # For SELL: IS should be negative when fill < arrival (good for seller)
-        assert metrics.implementation_shortfall_bps < 0
+        # For SELL: IS should be positive (TCA convention), and equal to spread + fees for this case
+        assert metrics.implementation_shortfall_bps > 0
+        # IS should equal spread + fees (no latency/adverse in this test)
+        expected_is = metrics.spread_cost_bps + metrics.fees_bps
+        assert abs(metrics.implementation_shortfall_bps - expected_is) <= 0.1
         # IS = Spread + Lat + Adv + Impact + Fees (within 0.1 bps tolerance)
         total_components = (
             metrics.spread_cost_bps +
@@ -144,8 +147,11 @@ class TestTCAAnalyzer:
         buy_metrics = analyzer.analyze_order(buy_execution, sample_market_data)
         sell_metrics = analyzer.analyze_order(sell_execution, sample_market_data)
 
-        # Mirror symmetry: IS_long ≈ -IS_short
-        assert abs(buy_metrics.implementation_shortfall_bps + sell_metrics.implementation_shortfall_bps) <= 0.5
+        # Mirror symmetry: IS_long ≈ IS_short for symmetric price movements
+        assert abs(buy_metrics.implementation_shortfall_bps - sell_metrics.implementation_shortfall_bps) <= 0.5
+        # Both should be positive (TCA convention for cost metrics)
+        assert buy_metrics.implementation_shortfall_bps > 0
+        assert sell_metrics.implementation_shortfall_bps > 0
         # Spread costs should be mirror (both positive for symmetric bad executions)
         assert abs(buy_metrics.spread_cost_bps - sell_metrics.spread_cost_bps) <= 1.0
 

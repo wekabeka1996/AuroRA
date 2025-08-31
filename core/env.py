@@ -29,7 +29,7 @@ def _to_int(v: Optional[str], default: int) -> int:
 @dataclass
 class EnvConfig:
     # core account/exchange
-    AURORA_MODE: str = "shadow"  # shadow|prod
+    AURORA_MODE: str = "testnet"  # testnet|prod
     EXCHANGE_ID: str = "binanceusdm"
     EXCHANGE_TESTNET: bool = True
     EXCHANGE_USE_FUTURES: bool = True
@@ -108,7 +108,7 @@ def load_env(dotenv: bool = True, path: Optional[Path] = None) -> EnvConfig:
     apply_aliases_env()
 
     return EnvConfig(
-        AURORA_MODE=os.getenv("AURORA_MODE", "shadow"),
+        AURORA_MODE=os.getenv("AURORA_MODE", "testnet"),
         EXCHANGE_ID=os.getenv("EXCHANGE_ID", "binanceusdm").strip(),
         EXCHANGE_TESTNET=_to_bool(os.getenv("EXCHANGE_TESTNET"), True),
         EXCHANGE_USE_FUTURES=_to_bool(os.getenv("EXCHANGE_USE_FUTURES"), True),

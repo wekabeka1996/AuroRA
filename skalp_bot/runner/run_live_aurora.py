@@ -4,11 +4,14 @@ import json
 import os
 import time
 from dataclasses import dataclass
+import sys
 from typing import Any, Optional
 from pathlib import Path
 
 # Local imports (kept simple/minimal to avoid heavy deps)
 from skalp_bot.exch.ccxt_binance import CCXTBinanceAdapter
+from core.execution.sim_local_sink import SimLocalSink
+from core.execution.sim_adapter import SimAdapter
 
 # B3.1 TCA/SLA/Router imports
 from core.tca.hazard_cox import CoxPH
@@ -28,7 +31,7 @@ from core.sizing.portfolio import PortfolioOptimizer
 
 # --- Lightweight gate client over Aurora API ---
 class AuroraGate:
-    def __init__(self, base_url: str = "http://127.0.0.1:8000", mode: str = "shadow", timeout_s: float = 1.2):
+    def __init__(self, base_url: str = "http://127.0.0.1:8000", mode: str = "testnet", timeout_s: float = 1.2):
         self.base_url = base_url.rstrip('/')
         self.mode = mode
         self.timeout_s = timeout_s
@@ -40,7 +43,7 @@ class AuroraGate:
 
     def check(self, account: dict, order: dict, market: dict, risk_tags=("scalping", "auto"), fees_bps: float = 1.0) -> dict:
         if self._requests is None:
-            # No HTTP available – default allow in tests (shadow)
+            # No HTTP available – default allow in tests (no network)
             return {"allow": True, "max_qty": order.get("qty", 0.001), "reason": "OK", "observability": {"gate_state": "ALLOW"}, "cooldown_ms": 0}
         payload = {
             "ts": int(time.time() * 1000),
@@ -114,6 +117,19 @@ def _session_dir() -> Path:
     return p
 
 
+def create_adapter(cfg: Optional[dict] = None):
+    """Factory that creates either a real adapter or a SimAdapter based on config.
+
+    If cfg['order_sink']['mode'] == 'sim_local', returns SimAdapter. Otherwise returns CCXTBinanceAdapter.
+    """
+    cfg = cfg or {}
+    mode = cfg.get('order_sink', {}).get('mode') or str(os.getenv('ORDER_SINK_MODE', '')).strip()
+    if str(mode).lower() == 'sim_local' or cfg.get('order_sink', {}).get('sim_local'):
+        return SimAdapter(cfg)
+    # Fallback to real adapter
+    return CCXTBinanceAdapter(cfg)
+
+
 def _log_events(code: str, details: dict[str, Any]) -> None:
     # Mirror EventEmitter/AuroraEventLogger format for tests
     rec = {
@@ -147,7 +163,7 @@ def _log_order(kind: str, **kwargs: Any) -> None:
 def main(config_path: Optional[str] = None, base_url: Optional[str] = None) -> None:
     # Environment/config
     base_url = base_url or os.getenv("AURORA_BASE_URL", "http://127.0.0.1:8000")
-    mode = os.getenv("AURORA_MODE", "shadow")
+    mode = os.getenv("AURORA_MODE", "testnet")
     dry = str(os.getenv("DRY_RUN", "true")).lower() in {"1", "true", "yes"}
     max_ticks = int(os.getenv("AURORA_MAX_TICKS", "0") or 0)  # 0 = unlimited
 
@@ -185,7 +201,7 @@ def main(config_path: Optional[str] = None, base_url: Optional[str] = None) -> N
     risk_guards = RiskGuards()
 
     # Exchange adapter (reads creds and symbol from env/cfg)
-    adapter = CCXTBinanceAdapter(cfg)
+    adapter = create_adapter(cfg)
 
     # Sizing initialization
     sizing_config = cfg.get("sizing", {})
@@ -234,7 +250,10 @@ def main(config_path: Optional[str] = None, base_url: Optional[str] = None) -> N
         # Build order intent (initial with placeholder qty)
         order = {"symbol": adapter.symbol, "side": "buy" if desire_long else "sell", "qty": 0.001}
         market = {"latency_ms": 10.0, "spread_bps": spread_bps, "score": score}
-        account = {"mode": ("prod" if (mode == "prod" and not dry) else "shadow")}
+        if str(mode).lower().strip() == 'shadow':
+            # 'shadow' mode has been removed project-wide — fail fast
+            raise RuntimeError("'shadow' mode is removed; set AURORA_MODE=testnet or live")
+        account = {"mode": ("prod" if (mode == "prod" and not dry) else "testnet")}
 
         # === SIZING INTEGRATION ===
         # Get calibrated probability and edge estimate

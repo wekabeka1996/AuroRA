@@ -13,5 +13,11 @@ optimization and risk management systems.
 """
 
 from . import latency, hazard_cox, hawkes
+from .tca_analyzer import TCAAnalyzer, TCAMetrics, FillEvent, OrderExecution, TCAInputs, TCAComponents
+from .types import TCAInputs as TCAInputsType, TCAComponents as TCAComponentsType, TCAMetrics as TCAMetricsType
 
-__all__ = ["latency", "hazard_cox", "hawkes"]
+__all__ = [
+    "latency", "hazard_cox", "hawkes",
+    "TCAAnalyzer", "TCAMetrics", "FillEvent", "OrderExecution",
+    "TCAInputs", "TCAComponents"
+]

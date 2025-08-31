@@ -20,7 +20,7 @@ class PredictionResponse(BaseModel):
 
 class AccountInfo(BaseModel):
     # Розширювано при потребі; зараз використовуємо тільки режим роботи раннера
-    mode: Optional[str] = None  # 'shadow' | 'paper' | 'prod'
+    mode: Optional[str] = None  # 'paper' | 'prod'  (historical 'shadow' mode removed)
     account_id: Optional[str] = None
     subaccount: Optional[str] = None
 

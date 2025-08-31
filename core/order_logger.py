@@ -97,11 +97,16 @@ class _JsonlWriter:
         base_path: Path,
         max_bytes: int = 200 * 1024 * 1024,
         retention_days: int = 7,
+        compress: bool = True,
+        retention_files: int | None = None,
         time_fn: Callable[[], float] | None = None,
     ) -> None:
         self.base_path = base_path
         self.max_bytes = max_bytes
         self.retention_days = retention_days
+        self.compress = compress
+        # If set, number of archived .jsonl.gz files to keep (most recent)
+        self.retention_files = retention_files
         self._time = time_fn or time.time
         self.base_path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = _FileLock(self.base_path.with_suffix(self.base_path.suffix + ".lock"))
@@ -131,27 +136,43 @@ class _JsonlWriter:
     def _gzip_and_purge(self, path: Path) -> None:
         try:
             gz = path.with_suffix(path.suffix + ".gz")
-            with path.open("rb") as fin, gzip.open(gz, "wb") as fout:
-                while True:
-                    chunk = fin.read(1024 * 256)
-                    if not chunk:
-                        break
-                    fout.write(chunk)
-            try:
-                path.unlink(missing_ok=True)
-            except Exception:
-                pass
+            if self.compress:
+                with path.open("rb") as fin, gzip.open(gz, "wb") as fout:
+                    while True:
+                        chunk = fin.read(1024 * 256)
+                        if not chunk:
+                            break
+                        fout.write(chunk)
+                try:
+                    path.unlink(missing_ok=True)
+                except Exception:
+                    pass
+            else:
+                # Keep plain .jsonl rotated file if compression disabled
+                gz = path
         except Exception:
             pass
         # Purge old gz files
         try:
             cutoff = self._time() - self.retention_days * 86400
-            for p in self.base_path.parent.glob(self.base_path.name + ".*.jsonl.gz"):
-                try:
-                    if p.stat().st_mtime < cutoff:
-                        p.unlink(missing_ok=True)
-                except Exception:
-                    continue
+            # Purge by age first (if retention_days set)
+            if self.retention_days is not None:
+                for p in self.base_path.parent.glob(self.base_path.name + ".*.jsonl.gz"):
+                    try:
+                        if p.stat().st_mtime < cutoff:
+                            p.unlink(missing_ok=True)
+                    except Exception:
+                        continue
+            # Purge by count (if retention_files set): keep newest N
+            if self.retention_files is not None:
+                files = sorted(self.base_path.parent.glob(self.base_path.name + ".*.jsonl.gz"), key=lambda p: p.stat().st_mtime)
+                # oldest first; remove until len <= retention_files
+                while len(files) > self.retention_files:
+                    old = files.pop(0)
+                    try:
+                        old.unlink(missing_ok=True)
+                    except Exception:
+                        pass
         except Exception:
             pass
 
@@ -192,13 +213,15 @@ class OrderLoggers:
     denied_path: Path = Path(os.getenv("AURORA_SESSION_DIR", "logs")) / "orders_denied.jsonl"
     max_bytes: int = 200 * 1024 * 1024
     retention_days: int = 7
+    compress: bool = True
+    retention_files: int | None = None
     _seen_cid_ts: _LRUSet = field(default_factory=lambda: _LRUSet(16384))
     _run_id: str = field(default_factory=lambda: time.strftime("%Y%m%d-%H%M%S", time.gmtime()))
 
     def __post_init__(self):
-        self._w_success = _JsonlWriter(self.success_path, self.max_bytes, self.retention_days)
-        self._w_failed = _JsonlWriter(self.failed_path, self.max_bytes, self.retention_days)
-        self._w_denied = _JsonlWriter(self.denied_path, self.max_bytes, self.retention_days)
+        self._w_success = _JsonlWriter(self.success_path, self.max_bytes, self.retention_days, compress=self.compress, retention_files=self.retention_files)
+        self._w_failed = _JsonlWriter(self.failed_path, self.max_bytes, self.retention_days, compress=self.compress, retention_files=self.retention_files)
+        self._w_denied = _JsonlWriter(self.denied_path, self.max_bytes, self.retention_days, compress=self.compress, retention_files=self.retention_files)
 
     # --- Schema mapping helpers ---
     @staticmethod

@@ -20,7 +20,10 @@ def ensure_env(mode: str) -> None:
     m = str(mode).lower().strip()
     if m == "testnet":
         os.environ.setdefault("EXCHANGE_TESTNET", "true")
-        os.environ.setdefault("AURORA_MODE", "shadow")
+        # Removed legacy 'shadow' mode; require explicit testnet selection
+        if os.environ.get('AURORA_MODE', '').lower().strip() == 'shadow':
+            raise RuntimeError("Removed legacy 'shadow' mode; use --mode testnet or set AURORA_MODE=testnet")
+        os.environ.setdefault("AURORA_MODE", "testnet")
         os.environ.setdefault("DRY_RUN", "false")
     elif m == "live":
         os.environ["EXCHANGE_TESTNET"] = "false"
@@ -71,7 +74,7 @@ def main():
     run([sys.executable, str(ROOT / "tools" / "auroractl.py"), "start-api"])
 
     # 4) Wait health
-    # For testnet/shadow, liveness is enough; for live, require readiness
+    # For testnet, liveness is enough; for live, require readiness
     ep = "readiness" if args.mode == "live" else "liveness"
     ok = wait_health(args.health_timeout_sec, endpoint=ep)
     print(f"health: {'OK' if ok else 'NOT_READY'}")

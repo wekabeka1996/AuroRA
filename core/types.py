@@ -53,7 +53,8 @@ class TimeInForce(str, Enum):
     FOK = "FOK"      # Fill-Or-Kill
 
 class ExecMode(str, Enum):
-    SHADOW = "shadow"   # dry-run with live feed
+    # NOTE: 'shadow' runtime mode removed project-wide (2025-08-30).
+    # Historical references may exist in tests or archive; do not use at runtime.
     PAPER = "paper"     # sim-exchange
     LIVE = "live"       # real venue
 

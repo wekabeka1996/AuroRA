@@ -83,4 +83,5 @@ trading:
   # SLA for /predict call (if TradingSystem is present)
   max_latency_ms: 1000
   # Default trading mode for runner integrations (api does not enforce this)
-  mode: shadow
+  # 'shadow' mode has been removed - use 'testnet' for non-production runs
+  mode: testnet

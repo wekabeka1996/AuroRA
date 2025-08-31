@@ -117,6 +117,11 @@ async def lifespan(app: FastAPI):
     app.state.cfg = cfg
     app.state.sprt_cfg = sprt_cfg
 
+    # Fail-fast: legacy 'shadow' runtime mode has been removed project-wide.
+    aurora_mode = os.getenv('AURORA_MODE', 'testnet')
+    if isinstance(aurora_mode, str) and aurora_mode.lower() == 'shadow':
+        raise RuntimeError("'shadow' runtime mode is removed; set AURORA_MODE=testnet or live")
+
     # Event emitter
     try:
         emitter_path = ((cfg or {}).get('logging') or {}).get('path', 'logs/events.jsonl')
@@ -496,7 +501,7 @@ async def pretrade_check(request: Request, req: PretradeCheckRequest):
         # Невалідний формат запиту
         raise HTTPException(status_code=422, detail=str(e))
 
-    mode = (acc or {}).get('mode', os.getenv('AURORA_MODE', 'shadow'))
+    mode = (acc or {}).get('mode', os.getenv('AURORA_MODE', 'testnet'))
     max_qty = float((o or {}).get('qty', 0.0) or 0.0)
 
     emitter: EventEmitter | None = getattr(request.app.state, 'events_emitter', None)

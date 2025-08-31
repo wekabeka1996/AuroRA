@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 """
-Ingestion — Sync Clock (Record→Replay/Shadow/Live)
+Ingestion — Sync Clock (Record→Replay/Live). Historical reference to 'shadow' removed.
 ==================================================
 
 Purpose
 -------
 Provide a deterministic clock that maps **event time** (ts_ns in nanoseconds)
-into **wall time** for replay/shadow execution, enforces *no backtracking*, and
+into **wall time** for replay execution (historical shadow execution removed), enforces *no backtracking*, and
 allows acceleration (speed > 1) or deceleration (speed < 1). Designed to be
 used by replay pipelines before emitting events to downstream modules.
 
@@ -75,7 +75,7 @@ class TickClock:
 # -------------------- Real-time clock --------------------
 
 class RealTimeClock(TickClock):
-    """Real-time clock; useful for live/shadow where pacing = wall time.
+    """Real-time clock; useful for live execution where pacing = wall time.
 
     Uses time.perf_counter_ns() for monotonic wall time.
     """

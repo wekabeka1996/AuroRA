@@ -1,3 +1,23 @@
+#!/usr/bin/env python
+#
+# How to run (PowerShell on Windows):
+#   python -m venv .venv
+#   .\.venv\Scripts\Activate.ps1
+#   pip install pandas requests ccxt
+#   python .\Dataset.py -h
+#   python .\Dataset.py --symbol SOL/USDT --timeframe 1m --hours 24 --out .\data\SOL_USDT_1m.csv
+#   # or use days instead of hours:
+#   python .\Dataset.py --symbol SOO/USDT --timeframe 1m --days 15
+#   # optional: public data works without keys; to set API keys:
+#   $env:BINANCE_API_KEY="your_key"; $env:BINANCE_API_SECRET="your_secret"
+#
+# macOS/Linux equivalents:
+#   python3 -m venv .venv
+#   source .venv/bin/activate
+#   pip install pandas requests ccxt
+#   python3 ./Dataset.py -h
+#   python3 ./Dataset.py --symbol SOL/USDT --timeframe 1m --hours 24 --out ./data/SOL_USDT_1m.csv
+#   export BINANCE_API_KEY=your_key; export BINANCE_API_SECRET=your_secret
 """
 Dataset.py — lightweight OHLCV loader for Binance.
 
@@ -104,7 +124,7 @@ def _http_fetch_klines(symbol: str, timeframe: str, start_ms: int, end_ms: int) 
     return out
 
 
-def fetch_ohlcv_df(symbol: str = 'SOL/USDT',
+def fetch_ohlcv_df(symbol: str = 'SUI/USDT',
                    timeframe: str = '1m',
                    hours: int = 24,
                    exchange: Optional[Any] = None) -> pd.DataFrame:
@@ -159,7 +179,7 @@ def fetch_ohlcv_df(symbol: str = 'SOL/USDT',
 
 def _main() -> None:
     ap = argparse.ArgumentParser(description='Fetch Binance OHLCV and save to CSV (no API key required)')
-    ap.add_argument('--symbol', default='SOL/USDT')
+    ap.add_argument('--symbol', default='SUI/USDT')
     ap.add_argument('--timeframe', default='1m')
     ap.add_argument('--hours', type=int, default=24, help='Lookback in hours (ignored if --days provided)')
     ap.add_argument('--days', type=int, default=None, help='Lookback in whole days (overrides --hours)')
