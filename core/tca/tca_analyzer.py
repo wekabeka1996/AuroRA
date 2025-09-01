@@ -88,6 +88,20 @@ class TCAAnalyzer:
 
     def analyze_order(self, execution: OrderExecution, market_data: Dict[str, Any]) -> TCAMetrics:
         """Analyze transaction costs for a complete order execution"""
+        try:
+            return self._analyze_v2(execution, market_data)
+        except Exception as e:
+            # Fallback to v1 analysis for legacy compatibility
+            print(f"Warning: v2 analysis failed ({e}), falling back to v1")
+            try:
+                return self._analyze_v1(execution, market_data)
+            except Exception as v1_error:
+                print(f"Both v2 and v1 analysis failed: v2={e}, v1={v1_error}")
+                # Ultimate fallback - return minimal metrics with error information
+                return self._create_minimal_metrics(execution, market_data, str(v1_error))
+
+    def _analyze_v2(self, execution: OrderExecution, market_data: Dict[str, Any]) -> TCAMetrics:
+        """Current v2 analysis implementation"""
         side_sign = 1.0 if execution.side.upper() == 'BUY' else -1.0
 
         # Extract price references
@@ -173,7 +187,13 @@ class TCAAnalyzer:
         # Canonical component defaults (all costs ≤ 0)
         slippage_in_bps = 0.0 if is_maker else -abs(float(execution.arrival_spread_bps or 0.0))
         slippage_out_bps = 0.0
-        latency_bps = -abs(float(market_data.get('latency_bps', 0.0)))
+        # Compute latency cost from mid move between decision and first fill when possible
+        if execution.fills:
+            latency_pos = self._calculate_latency_slippage(side_sign, mid_decision, mid_first_fill)
+        else:
+            # Fallback to market-provided metric if no fills
+            latency_pos = float(market_data.get('latency_slippage_bps', market_data.get('latency_bps', 0.0)))
+        latency_bps = -abs(float(latency_pos))
         adverse_bps = -abs(float(market_data.get('adverse_bps', 0.0)))
 
         # Temporary impact (legacy positive) default 0 unless market data provides
@@ -275,6 +295,145 @@ class TCAAnalyzer:
             realized_spread_bps=realized_spread_bps,
             effective_spread_bps=effective_spread_bps,
             analysis_ts_ns=int(time.time_ns())
+        )
+
+    def _analyze_v1(self, execution: OrderExecution, market_data: Dict[str, Any]) -> TCAMetrics:
+        """
+        Legacy v1 analysis method for backward compatibility.
+        Uses simplified latency penalty calculation and basic error handling.
+        """
+        try:
+            side_sign = 1.0 if execution.side.upper() == 'BUY' else -1.0
+            
+            # Basic price extraction with safe defaults
+            arrival_price = getattr(execution, 'arrival_price', 100.0)
+            vwap_fill = getattr(execution, 'vwap_fill', arrival_price)
+            
+            # Safe market data extraction
+            mid_price = market_data.get('mid_price', arrival_price)
+            expected_edge_bps = float(market_data.get('expected_edge_bps', 0.0))
+            
+            # Legacy latency penalty calculation
+            latency_ms = getattr(execution, 'latency_ms', 0.0)
+            kappa_bps_per_ms = float(market_data.get('kappa_bps_per_ms', 0.01))
+            latency_penalty_bps = latency_ms * kappa_bps_per_ms
+            
+            # Basic fill analysis with error protection
+            fills = getattr(execution, 'fills', [])
+            filled_qty = sum(f.qty for f in fills) if fills else 0.0
+            total_qty = getattr(execution, 'target_qty', filled_qty)
+            fill_ratio = (filled_qty / total_qty) if total_qty > 0 else 0.0
+            
+            # Simplified maker/taker analysis
+            maker_fills = [f for f in fills if getattr(f, 'liquidity_flag', '') == 'M']
+            maker_fill_ratio = (sum(f.qty for f in maker_fills) / filled_qty) if filled_qty > 0 else 0.0
+            taker_fill_ratio = 1.0 - maker_fill_ratio
+            
+            # Basic fee calculation
+            total_fees = sum(getattr(f, 'fee', 0.0) for f in fills)
+            fees_bps = (-abs(total_fees) * 1e4 / (filled_qty * arrival_price)) if filled_qty > 0 and arrival_price > 0 else 0.0
+            
+            # Simplified spread cost
+            spread_bps = float(market_data.get('spread_bps', getattr(execution, 'arrival_spread_bps', 2.0)))
+            slippage_in_bps = 0.0 if maker_fill_ratio > 0.5 else -abs(spread_bps / 2.0)
+            
+            # Legacy implementation shortfall calculation
+            price_impact_bps = side_sign * (vwap_fill - arrival_price) / arrival_price * 1e4 if arrival_price > 0 else 0.0
+            implementation_shortfall_bps = (
+                expected_edge_bps 
+                + fees_bps 
+                + (-slippage_in_bps)  # Convert to legacy positive
+                + latency_penalty_bps 
+                + price_impact_bps
+            )
+            
+            # Timing calculations with safety
+            decision_ts_ns = getattr(execution, 'decision_ts_ns', int(time.time_ns()))
+            arrival_ts_ns = getattr(execution, 'arrival_ts_ns', decision_ts_ns)
+            first_fill_ts_ns = fills[0].ts_ns if fills else None
+            last_fill_ts_ns = fills[-1].ts_ns if fills else None
+            
+            time_to_first_fill_ms = ((first_fill_ts_ns - decision_ts_ns) / 1e6) if first_fill_ts_ns else 0.0
+            total_execution_time_ms = ((last_fill_ts_ns - decision_ts_ns) / 1e6) if last_fill_ts_ns else 0.0
+            
+            # Return simplified TCAMetrics for v1 compatibility
+            return TCAMetrics(
+                symbol=getattr(execution, 'symbol', 'UNKNOWN'),
+                side=getattr(execution, 'side', 'BUY'),
+                order_id=getattr(execution, 'order_id', f'v1_fallback_{int(time.time_ns())}'),
+                order_qty=total_qty,
+                filled_qty=filled_qty,
+                arrival_price=arrival_price,
+                vwap_fill=vwap_fill,
+                mid_at_decision=mid_price,
+                mid_at_first_fill=mid_price,
+                mid_at_last_fill=mid_price,
+                arrival_ts_ns=arrival_ts_ns,
+                decision_ts_ns=decision_ts_ns,
+                first_fill_ts_ns=first_fill_ts_ns,
+                last_fill_ts_ns=last_fill_ts_ns,
+                decision_latency_ms=latency_ms,
+                time_to_first_fill_ms=time_to_first_fill_ms,
+                total_execution_time_ms=total_execution_time_ms,
+                fill_ratio=fill_ratio,
+                maker_fill_ratio=maker_fill_ratio,
+                taker_fill_ratio=taker_fill_ratio,
+                avg_queue_position=None,
+                raw_edge_bps=expected_edge_bps,
+                fees_bps=fees_bps,
+                slippage_in_bps=slippage_in_bps,
+                slippage_out_bps=0.0,
+                adverse_bps=0.0,
+                latency_bps=-abs(latency_penalty_bps),  # Canonical negative
+                impact_bps=-abs(price_impact_bps),     # Canonical negative
+                rebate_bps=0.0,
+                implementation_shortfall_bps=implementation_shortfall_bps,
+                realized_spread_bps=0.0,
+                effective_spread_bps=0.0,
+                analysis_ts_ns=int(time.time_ns())
+            )
+            
+        except Exception as e:
+            # Ultimate fallback - return minimal valid metrics
+            return self._create_minimal_metrics(execution, market_data, f"v1_fallback_error: {e}")
+
+    def _create_minimal_metrics(self, execution: Any, market_data: Dict[str, Any], error_msg: str) -> TCAMetrics:
+        """Create minimal valid TCAMetrics when all else fails."""
+        return TCAMetrics(
+            symbol=getattr(execution, 'symbol', 'ERROR'),
+            side=getattr(execution, 'side', 'BUY'),
+            order_id=getattr(execution, 'order_id', f'error_fallback_{int(time.time_ns())}'),
+            order_qty=getattr(execution, 'target_qty', 0.0),
+            filled_qty=0.0,
+            arrival_price=100.0,
+            vwap_fill=100.0,
+            mid_at_decision=100.0,
+            mid_at_first_fill=100.0,
+            mid_at_last_fill=100.0,
+            arrival_ts_ns=int(time.time_ns()),
+            decision_ts_ns=int(time.time_ns()),
+            first_fill_ts_ns=None,
+            last_fill_ts_ns=None,
+            decision_latency_ms=0.0,
+            time_to_first_fill_ms=0.0,
+            total_execution_time_ms=0.0,
+            fill_ratio=0.0,
+            maker_fill_ratio=0.0,
+            taker_fill_ratio=0.0,
+            avg_queue_position=None,
+            raw_edge_bps=0.0,
+            fees_bps=0.0,
+            slippage_in_bps=0.0,
+            slippage_out_bps=0.0,
+            adverse_bps=0.0,
+            latency_bps=0.0,
+            impact_bps=0.0,
+            rebate_bps=0.0,
+            implementation_shortfall_bps=0.0,
+            realized_spread_bps=0.0,
+            effective_spread_bps=0.0,
+            analysis_ts_ns=int(time.time_ns()),
+            error_msg=error_msg
         )
 
     def _calculate_spread_cost(self, side_sign: float, vwap_fill: float, mid_price: float) -> float:

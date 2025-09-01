@@ -35,12 +35,22 @@ Notes
 """
 
 import argparse
+import os
 import json
 import math
 from pathlib import Path
 from typing import Any, Dict, Iterable, Iterator, Mapping, Optional
 
 from core.config.loader import load_config
+
+# Lightweight TOML reader for early profile check (before schema validation)
+try:
+    import tomllib as _toml_early  # type: ignore
+except Exception:  # pragma: no cover
+    try:
+        import toml as _toml_early  # type: ignore
+    except Exception:  # pragma: no cover
+        _toml_early = None  # best-effort only
 from core.ingestion.normalizer import Normalizer
 from core.ingestion.replay import Replay
 from core.ingestion.sync_clock import ReplayClock
@@ -163,6 +173,28 @@ def main() -> None:
     ap.add_argument("--logdir", type=str, default="logs/decisions")
     args = ap.parse_args()
 
+    # Early unknown-profile check to ensure deterministic exit code 61
+    if args.profile and _toml_early is not None:
+        try:
+            raw = Path(args.config).read_bytes()
+            parsed = _toml_early.loads(raw.decode("utf-8") if isinstance(raw, (bytes, bytearray)) else raw)  # type: ignore
+            profiles = (parsed or {}).get("profile") or {}
+            if args.profile not in profiles:
+                try:
+                    import sys as _sys
+                    _sys.stdout.write(f"PROFILE: unknown profile {args.profile}\n")
+                    _sys.stdout.flush()
+                    _sys.exit(61)
+                except SystemExit:
+                    raise
+                except Exception:
+                    raise SystemExit(61)
+        except SystemExit:
+            raise
+        except Exception:
+            # If early check fails (file missing or parse error), fall back to normal loader
+            pass
+
     # Load SSOT config (convert to mutable dict for profile overlay)
     cfg_obj = load_config(config_path=args.config, schema_path=args.schema, enable_watcher=False)
     cfg = cfg_obj.as_dict()
@@ -233,8 +265,16 @@ def main() -> None:
         profiles = cfg.get("profile") or {}
         prof = profiles.get(args.profile)
         if prof is None:
-            print(f"PROFILE: unknown profile {args.profile}")
-            raise SystemExit(61)
+            # Ensure deterministic stdout message before exit (Windows-safe)
+            try:
+                import sys as _sys
+                _sys.stdout.write(f"PROFILE: unknown profile {args.profile}\n")
+                _sys.stdout.flush()
+                _sys.exit(61)
+            except SystemExit:
+                raise
+            except Exception:
+                raise SystemExit(61)
         # create copy of cfg for diff
         import copy
 

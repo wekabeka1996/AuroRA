@@ -263,6 +263,11 @@ class XAIRecord:
     risk_gates: RiskGatesStatus
     why_codes: List[WhyCode] = field(default_factory=list)
     extras: MutableMapping[str, Any] = field(default_factory=dict)
+    
+    # P3-α Governance fields
+    sprt_llr: Optional[float] = None          # SPRT log-likelihood ratio
+    sprt_conf: Optional[float] = None         # SPRT decision confidence [0,1]
+    alpha_spent: Optional[float] = None       # α budget spent on this decision
 
     def to_json(self) -> str:
         def _conv(o: Any) -> Any:

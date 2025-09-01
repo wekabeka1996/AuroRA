@@ -1,34 +1,19 @@
-[execution]
-sla_max_latency_ms = 40
-
-[timescale]
-  ts_unit = "ns"
-
-[order_sink]
-mode = "sim_local"
-
-[order_sink.sim_local]
-latency_ms = 10.0
-ttl_ms = 5000
-
-[replay]
-chunk_minutes = 30
-
-[market_data]
-source = "live_test"
-
-[orders]
-enabled = true
-
-[execution.exchange.binance.keys]
-readonly = false
-
 [risk]
 max_position_usd = 1
-cvar_limit_usd = 1
+cvar_limit_usd   = 1
+limit            = 1
+
+[risk.cvar]
+alpha = 0.95
 
 [sizing]
-method = "equal"
+method        = "equal"
+gross_cap_usd = 1
+max_weight    = 0.5
+
+[execution]
+[execution.sla]
+max_latency_ms = 40
 
 [reward]
 mode = "pnl_after_tca"
@@ -45,18 +30,22 @@ top_n = 3
 [profile]
 name = "local_mid"
 
-# Force "live" mode that triggers invariants in the validator
-[live]
-mode = "live"
+[market_data]
+source = "live_binance"   # live_* → trigger invariants
 
-# Prohibited live_* sections that should trigger invariants
-[live.exchange]
-name = "testnet"
+[orders]
+enabled = false           # keep safe so we don't trigger 403
 
-[live.repl]
-enabled = true
+[order_sink]
+mode = "none"             # trigger 401 (must be sim_local)
+
+[timescale]
+ts_unit = "ns"
+
+[replay]
+chunk_minutes = 30
 
 [leadlag]
-grid = [0.1]
+grid    = [0.1]
 max_tau = 1.0
-method = "coherence"
+method  = "coherence"

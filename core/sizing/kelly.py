@@ -9,7 +9,7 @@ Implements the specified API contracts for Step 2: Sizing/Portfolio.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, Optional, Any, Tuple, List
+from typing import Dict, Optional, Any, Tuple, List, Callable
 import math
 import time
 
@@ -482,6 +482,8 @@ class SizingStabilizer:
     # Time guard parameters
     min_resize_interval_sec: float = 5.0  # Minimum time between resizes
     last_resize_time: float = 0.0
+    # Optional injectable clock for testing; defaults to time.monotonic
+    clock: Optional[Callable[[], float]] = None
 
     # Bucket sizing parameters
     bucket_sizes: Optional[List[float]] = None  # Discrete position sizes
@@ -490,6 +492,11 @@ class SizingStabilizer:
         if self.bucket_sizes is None:
             # Default bucket sizes: 0, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0
             self.bucket_sizes = [0.0, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0]
+        # Initialize internal clock (monotonic to avoid wall-clock jumps)
+        try:
+            self._clock = self.clock or time.monotonic
+        except Exception:
+            self._clock = time.monotonic
 
     def apply_hysteresis(
         self,
@@ -543,7 +550,8 @@ class SizingStabilizer:
         bool
             True if resize is allowed, False if too soon
         """
-        current_time = time.time()
+        # Use monotonic clock to avoid Windows wall-clock flakiness
+        current_time = getattr(self, "_clock", time.monotonic)()
         time_since_last = current_time - self.last_resize_time
 
         return time_since_last >= self.min_resize_interval_sec
@@ -633,9 +641,9 @@ class SizingStabilizer:
                 metadata["bucket_applied"] = True
             stabilized = bucket_result
 
-        # Update last resize time if actually changed
+        # Update last resize time ONLY if change accepted
         if stabilized != current_fraction:
-            self.last_resize_time = time.time()
+            self.last_resize_time = getattr(self, "_clock", time.monotonic)()
 
         metadata["final_fraction"] = stabilized
         return stabilized, metadata

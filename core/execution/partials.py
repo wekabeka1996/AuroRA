@@ -24,6 +24,7 @@ maintains per-order state. Connect it to exchange adapters.
 
 from dataclasses import dataclass
 from typing import Dict, Optional
+import math
 
 
 @dataclass
@@ -55,7 +56,8 @@ class PartialSlicer:
     def _state_of(self, order_id: str) -> Dict[str, float]:
         s = self._state.get(order_id)
         if s is None:
-            s = {"idx": 0.0, "filled": 0.0, "target": 0.0}
+            # last_fill stores the last registered fill quantity to make register_fill idempotent
+            s = {"idx": 0.0, "filled": 0.0, "target": 0.0, "last_fill": None}
             self._state[order_id] = s
         return s
 
@@ -63,11 +65,22 @@ class PartialSlicer:
         s = self._state_of(order_id)
         s["idx"] = 0.0
         s["filled"] = 0.0
+        s["last_fill"] = None
         s["target"] = float(target_qty)
 
     def register_fill(self, order_id: str, fill_qty: float) -> float:
         s = self._state_of(order_id)
-        s["filled"] = s.get("filled", 0.0) + float(fill_qty)
+        fq = float(fill_qty)
+        # Idempotency: if the last registered fill for this order is (close to) the
+        # incoming quantity, assume a duplicate delivery and do not double-count it.
+        last = s.get("last_fill")
+        if last is not None and math.isclose(last, fq, rel_tol=1e-9, abs_tol=1e-12):
+            rem = max(0.0, s["target"] - s["filled"])
+            return rem
+
+        # Otherwise apply the fill and remember it as last_fill.
+        s["filled"] = s.get("filled", 0.0) + fq
+        s["last_fill"] = fq
         rem = max(0.0, s["target"] - s["filled"])
         return rem
 

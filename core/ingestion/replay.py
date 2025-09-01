@@ -179,6 +179,18 @@ class Replay:
                         dropped_invalid += 1
                         continue
 
+                # Carry over any extra fields from raw into the normalized event
+                # so downstream transform/post-processing can inspect raw tags.
+                try:
+                    if isinstance(raw, dict):
+                        for k, v in raw.items():
+                            if k not in evt:
+                                evt[k] = v
+                except Exception:
+                    # Ignore enrichment issues in non-strict mode
+                    if self._strict:
+                        raise
+
                 if post_filter is not None and not post_filter(evt):
                     dropped_filtered += 1
                     continue
@@ -248,3 +260,84 @@ class Replay:
         )
         
         return self.stats
+
+
+# -------------------- Lightweight generator API (post-transform filters) --------------------
+
+from typing import Iterable, Callable, Optional, Dict, Any, Iterator, Sequence, Set
+import time
+
+
+def replay_events(
+    records: Iterable[Any],
+    *,
+    transformer: Optional[Callable[[Any], Optional[Dict[str, Any]]]] = None,
+    start_ns: Optional[int] = None,
+    end_ns: Optional[int] = None,
+    symbols: Optional[Sequence[str]] = None,
+    types: Optional[Sequence[str]] = None,
+    strict: bool = True,
+    pace_ms: Optional[float] = None,
+    clock: Optional[Callable[[], float]] = None,
+    sleep: Optional[Callable[[float], None]] = None,
+) -> Iterator[Dict[str, Any]]:
+    """
+    Pipeline: raw -> transformer -> filters(start/end/symbols/types) -> (optional) pacing -> yield.
+    strict=False: любые ошибки/некорректные записи тихо дропаются. Фильтры применяются ПОСЛЕ трансформации.
+    This API does not print to stdout/stderr.
+    """
+    _clock = clock or time.monotonic
+    _sleep = sleep or time.sleep
+    _symbols: Optional[Set[str]] = set(symbols) if symbols else None
+    _types: Optional[Set[str]] = set(types) if types else None
+    _pace_s = (pace_ms or 0.0) / 1000.0
+    last_emit_t: Optional[float] = None
+
+    for rec in records:
+        try:
+            item = transformer(rec) if transformer is not None else rec
+            if item is None or not isinstance(item, dict):
+                continue
+
+            ts = item.get("ts_ns")
+            sym = item.get("symbol")
+            typ = item.get("type")
+
+            if start_ns is not None and (ts is None or ts < start_ns):
+                continue
+            if end_ns is not None and (ts is None or ts > end_ns):
+                continue
+            if _symbols is not None and sym not in _symbols:
+                continue
+            if _types is not None and typ not in _types:
+                continue
+
+            if _pace_s > 0.0:
+                now = _clock()
+                if last_emit_t is None:
+                    last_emit_t = now
+                else:
+                    dt = now - last_emit_t
+                    if dt < _pace_s:
+                        _sleep(_pace_s - dt)
+                    last_emit_t = _clock()
+
+            yield item
+
+        except Exception:
+            if strict:
+                raise
+            # swallow and continue
+
+
+def run_replay_stream(*args, **kwargs) -> Iterator[Dict[str, Any]]:
+    """Back-compat wrapper for callers using an older name."""
+    return replay_events(*args, **kwargs)
+
+
+__all__ = [
+    "ReplayStats",
+    "Replay",
+    "replay_events",
+    "run_replay_stream",
+]

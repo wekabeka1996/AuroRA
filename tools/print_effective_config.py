@@ -84,6 +84,14 @@ def main():
 
     prof_norm = normalize_profile_flat_keys(prof)
     eff = merge_profile_to_dict(base, prof_norm)
+    # ensure sim_local latency default present when mode==sim_local
+    try:
+        if (eff.get("order_sink", {}) or {}).get("mode") == "sim_local":
+            sim = eff.setdefault("order_sink", {}).setdefault("sim_local", {})
+            sim.setdefault("latency_ms", 5)
+            sim.setdefault("ttl_ms", 1500)
+    except Exception:
+        pass
     out_dir = Path("reports")
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / f"effective_{args.profile}.toml"

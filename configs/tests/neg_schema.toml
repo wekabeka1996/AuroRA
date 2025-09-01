@@ -2,18 +2,13 @@
   [execution.sla]
   max_latency_ms = 10
 
-[timescale]
-  ts_unit = "ns"
-
 [order_sink]
 mode = "sim_local"
 [order_sink.sim_local]
-latency_ms = 5
-ttl_ms = 1000
-
-[replay]
-# Should be integer per schema but set as string to fail schema validation
-chunk_minutes = "thirty"
+latency_ms        = 10.0
+ttl_ms            = 5000
+maker_queue_model = "fifo"
+taker_slip_model  = "l1"
 
 [market_data]
 source = "live_test"
@@ -26,13 +21,17 @@ readonly = true
 
 [risk]
 max_position_usd = 1
-cvar_limit_usd = 1
+cvar_limit_usd   = 1
+limit            = 1
+
+[risk.cvar]
+limit = 0.02
+alpha = 0.95
 
 [sizing]
-method = "equal"
-
-[execution]
-sla_max_latency_ms = 40
+method        = "equal"
+gross_cap_usd = 1
+max_weight    = 0.5
 
 [reward]
 mode = "pnl_after_tca"
@@ -49,21 +48,13 @@ top_n = 3
 [profile]
 name = "local_mid"
 
-[order_sink]
-mode = "sim_local"
-
-[order_sink.sim_local]
-latency_ms = 10.0
-ttl_ms = 5000
-
 [timescale]
 ts_unit = "ns"
 
 [replay]
-# Should be integer per schema but set as string to fail schema validation
-chunk_minutes = "thirty"
+chunk_minutes = "thirty"  # type mismatch
 
 [leadlag]
-grid = [0.1]
+grid    = [0.1]
 max_tau = 1.0
-method = "coherence"
+method  = "coherence"

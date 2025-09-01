@@ -248,6 +248,11 @@ class EnhancedRouter:
         # Apply minimum edge thresholds
         min_edge_threshold = 0.1  # 0.1 bps minimum
         
+        # Additional check: if taker is very negative AND initial edge was negative, deny
+        # (This prevents trading in very bad market conditions with negative expectations)
+        if e_taker <= -100.0:  # Only for extremely negative taker edges
+            return "deny"
+        
         if e_taker > min_edge_threshold and e_taker >= e_maker:
             return "taker"
         elif e_maker > min_edge_threshold:

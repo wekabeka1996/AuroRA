@@ -1,13 +1,22 @@
 # ---- minimal critical sections to pass early checks ----
 [risk]
-max_position_usd = 1
-cvar_limit_usd   = 1
+max_position_usd = 10000
+cvar_limit_usd   = 150
+limit            = 150
+
+[risk.cvar]
+limit = 0.02
+alpha = 0.95
 
 [sizing]
-method       = "equal"
+method        = "equal"
+gross_cap_usd = 50000
+max_weight    = 0.5
 
 [execution]
-sla_max_latency_ms = 40
+
+[execution.sla]
+max_latency_ms = 40
 
 [reward]
 mode = "pnl_after_tca"
@@ -19,7 +28,7 @@ mode = "light"
 enabled = true
 
 [universe]
-top_n = 3
+top_n = 5
 
 [profile]
 name = "local_mid"
@@ -29,8 +38,8 @@ name = "local_mid"
 mode = "sim_local"
 
 [order_sink.sim_local]
-latency_ms = 10.0
-ttl_ms     = 5000
+latency_ms        = 10.0
+ttl_ms            = 5000
 maker_queue_model = "fifo"
 taker_slip_model  = "l1"
 
@@ -44,6 +53,6 @@ chunk_minutes = 30
 
 # ---- leadlag ----
 [leadlag]
-grid   = [0.1]
+grid    = [0.1, 0.2, 0.5]
 max_tau = 1.0
-method = "coherence"
+method  = "coherence"

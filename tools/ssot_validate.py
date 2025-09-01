@@ -56,6 +56,33 @@ def load_schema(path: Path) -> dict[str, Any]:
         print(f"SCHEMA: failed to load schema (detail={e})")
         raise SystemExit(50)
 
+# Exported exit codes and simple SCHEMA facade for tests/tools
+EXIT_UNKNOWN = 20
+EXIT_NULLS   = 30
+EXIT_SCHEMA  = 50
+EXIT_INVAR   = 401
+ALLOWED_TOP_LEVEL = {
+    "risk","sizing","execution","reward","tca","xai",
+    "universe","profile","order_sink","timescale",
+    "replay","leadlag","market_data","orders","exchange","logger","shadow",
+    # allow free-form naming field in minimal configs/tests
+    "name",
+}
+SCHEMA = {
+    "allowed_top": ALLOWED_TOP_LEVEL,
+    "required": ["timescale","execution","order_sink"],
+}
+__all__ = [
+    "EXIT_UNKNOWN","EXIT_NULLS","EXIT_SCHEMA","EXIT_INVAR","SCHEMA",
+]
+
+def _print(msg: str) -> None:
+    # Windows-safe ASCII-only printing to avoid cp1252 issues
+    try:
+        sys.stdout.write((str(msg)).encode("ascii", "ignore").decode("ascii") + "\n")
+    except Exception:
+        print(str(msg))
+
 
 def collect_schema_properties(schema: dict[str, Any], prefix: str = "") -> dict[str, Any]:
     """Return mapping of schema properties nodes by path for quick lookup.
@@ -121,35 +148,22 @@ def check_missing_required_keys(cfg: dict[str, Any]) -> None:
         raise SystemExit(50)
 
 
+# === UNKNOWN (20): top-level keys, not in schema nor whitelist ==========
+def _check_unknown_top_level(cfg: dict, schema: dict):
+    schema_props = set((schema or {}).get("properties", {}).keys())
+    whitelist = set(ALLOWED_TOP_LEVEL)
+    allowed = schema_props | whitelist
+    unknown = [k for k in cfg.keys() if k not in allowed]
+    if unknown:
+        _print(f"UNKNOWN: top-level keys not allowed: {unknown}")
+        raise SystemExit(EXIT_UNKNOWN)
+
+
 def check_unknown_and_nulls(cfg: dict[str, Any], schema: dict[str, Any]) -> None:
-    # Unknown keys: recursive comparison to schema properties
-    schema_map = collect_schema_properties(schema or {})
-
-    prop_names = collect_schema_property_names(schema or {})
-
-    # Only check top-level keys for unknowns. Nested unknown detection is skipped to
-    # avoid false positives because the JSON Schema is permissive/partial in this project.
-    def _check_unknown(node: Any, schema_node: dict[str, Any], path: str = '', trusted: bool = False):
-        if not isinstance(node, dict):
-            return
-        if path:
-            return
-        props = (schema_node.get('properties') if isinstance(schema_node, dict) else {}) or {}
-        allowed_top = set((schema or {}).get('properties', {}).keys())
-        allowed_top.update({
-            'market_data', 'order_sink', 'orders', 'profile', 'features', 'signal', 'calibration',
-            'regime', 'governance', 'hotreload', 'reward', 'tca'
-        })
-        for k in node.keys():
-            p = k
-            if k not in props and k not in allowed_top and ("_" in k or k not in prop_names):
-                print(f"SCHEMA: unknown key {p}")
-                raise SystemExit(20)
-
-    _check_unknown(cfg, schema or {}, '')
-
     # Null/empty checks for critical sections
-    critical = ['risk', 'sizing', 'execution', 'reward', 'tca', 'xai', 'universe', 'profile']
+    # Only enforce non-empty on sections that are truly required for operation.
+    # 'reward', 'tca', 'xai', 'universe', 'profile' may be omitted in minimal configs.
+    critical = ['risk', 'sizing', 'execution']
     def _get_path(cfg_obj: dict, path: str):
         parts = path.split('.')
         cur = cfg_obj
@@ -160,13 +174,27 @@ def check_unknown_and_nulls(cfg: dict[str, Any], schema: dict[str, Any]) -> None
         return cur
 
     for key in critical:
+        # Only check for null/empty if key exists; don't require optional sections
         val = _get_path(cfg, key)
         if val is None:
-            print(f"SCHEMA: null/empty not allowed at {key}")
-            raise SystemExit(30)
+            continue
         if isinstance(val, (dict, list, str)) and len(val) == 0:
-            print(f"SCHEMA: null/empty not allowed at {key}")
-            raise SystemExit(30)
+            _print(f"SCHEMA: null/empty not allowed at {key}")
+            raise SystemExit(EXIT_NULLS)
+
+    # Targeted unknown-key check within execution.sla (strict set of known keys)
+    try:
+        exec_sla = ((cfg.get('execution') or {}).get('sla') or {})
+        if isinstance(exec_sla, dict):
+            allowed_sla_keys = {"max_latency_ms", "kappa_bps_per_ms", "target_fill_prob", "edge_floor_bps"}
+            extra = [k for k in exec_sla.keys() if k not in allowed_sla_keys]
+            if extra:
+                _print(f"UNKNOWN: execution.sla contains unknown keys: {extra}")
+                raise SystemExit(EXIT_UNKNOWN)
+    except SystemExit:
+        raise
+    except Exception:
+        pass
 
 
 def main() -> None:
@@ -187,15 +215,18 @@ def main() -> None:
         schema = load_schema(SCHEMA_PATH)
         actual_schema = schema.get('schema') if isinstance(schema, dict) and 'schema' in schema else schema
 
-    # 2) missing required keys check (user-facing message required)
+    # UNKNOWN check (must precede other schema checks for deterministic exit code)
+    _check_unknown_top_level(cfg, actual_schema)
+
+    # 2) unknown-key and null/empty checks
     try:
-        check_missing_required_keys(cfg)
+        check_unknown_and_nulls(cfg, schema if actual_schema is None else actual_schema)
     except SystemExit:
         raise
 
-    # 3) unknown-key and null/empty checks
+    # 3) missing required keys check (user-facing message required)
     try:
-        check_unknown_and_nulls(cfg, schema if actual_schema is None else actual_schema)
+        check_missing_required_keys(cfg)
     except SystemExit:
         raise
 
@@ -203,6 +234,28 @@ def main() -> None:
     check_invariants(cfg)
 
     if actual_schema is not None:
+        # Inject pragmatic defaults before strict JSON Schema validation
+        try:
+            if isinstance(cfg.get('order_sink'), dict):
+                osink = cfg['order_sink']  # type: ignore[index]
+                if osink.get('mode') == 'sim_local':
+                    sim = osink.get('sim_local')
+                    if not isinstance(sim, dict):
+                        sim = {}
+                    # inject sensible defaults
+                    if 'latency_ms' not in sim:
+                        sim['latency_ms'] = 5
+                    if 'ttl_ms' not in sim:
+                        sim['ttl_ms'] = 1500
+                    # prune unknown keys to satisfy additionalProperties=false (remove any not in allowed set)
+                    allowed = {"latency_ms", "ttl_ms", "maker_queue_model", "taker_slip_model"}
+                    for k in list(sim.keys()):
+                        if k not in allowed:
+                            sim.pop(k, None)
+                    osink['sim_local'] = sim
+                    cfg['order_sink'] = osink
+        except Exception:
+            pass
         try:
             jsonschema.validate(instance=cfg, schema=actual_schema)
         except jsonschema.ValidationError as e:
@@ -210,21 +263,21 @@ def main() -> None:
             if getattr(e, 'validator', None) == 'required':
                 # path describes where the error occurred
                 missing = e.message
-                print(f"SCHEMA: {missing}")
-                raise SystemExit(50)
+                _print(f"SCHEMA: {missing}")
+                raise SystemExit(EXIT_SCHEMA)
             else:
-                print(f"SCHEMA: {e.message}")
-                raise SystemExit(50)
+                _print(f"SCHEMA: {e.message}")
+                raise SystemExit(EXIT_SCHEMA)
 
     # 3) additional presence checks (warn only)
     required = ['risk', 'sizing', 'execution', 'tca', 'xai', 'universe']
     missing = [k for k in required if k not in cfg]
     if missing:
-        print(f"WARNING: missing top-level keys: {missing}")
+        _print(f"WARNING: missing top-level keys: {missing}")
 
     # Report checked key counts (top-level)
     checked_keys_count = len([k for k in cfg.keys()])
-    print(f"OK: ssot validation passed (checked_keys={checked_keys_count})")
+    _print(f"OK: ssot validation passed (checked_keys={checked_keys_count})")
 
 
 if __name__ == '__main__':

@@ -37,6 +37,10 @@ from core.config.loader import get_config
 from common.events import EventEmitter
 from core.tca.tca_analyzer import FillEvent, OrderExecution
 
+# Enhanced idempotency and partials support
+from .idempotency import IdempotencyStore
+from .partials import PartialSlicer
+
 
 class OrderState(Enum):
     """Order lifecycle states"""
@@ -144,6 +148,15 @@ class ExecutionRouter:
         self._requote_counts: Dict[str, List[int]] = {}  # symbol -> timestamps
         self._lock = threading.RLock()
 
+        # Enhanced idempotency and partials support
+        self._idempotency_store = IdempotencyStore()
+        self._partial_slicer = PartialSlicer(
+            alpha=0.5,  # 50% geometric decay
+            q_min=0.01,  # Min slice size
+            q_max=float("inf"),  # No max limit
+            use_p_fill=True
+        )
+
         # Performance tracking
         self._decision_latencies: List[float] = []
         self._max_latency_history = 1000
@@ -222,7 +235,13 @@ class ExecutionRouter:
             return child_orders
 
     def handle_order_ack(self, order_id: str, ack_ts_ns: int, exchange_latency_ms: float):
-        """Handle order acknowledgment"""
+        """Handle order acknowledgment with enhanced idempotency"""
+        ack_event_id = f"ack:{order_id}:{ack_ts_ns}"
+        
+        # Enhanced idempotency check
+        if self._idempotency_store.seen(ack_event_id):
+            return  # Duplicate ACK already processed
+        
         with self._lock:
             if order_id not in self._active_orders:
                 return  # Idempotency: ignore unknown orders
@@ -231,8 +250,14 @@ class ExecutionRouter:
             if order.state != OrderState.PENDING:
                 return  # Idempotency: already processed
 
+            # Mark ACK as processed (5 min TTL)
+            self._idempotency_store.mark(ack_event_id, ttl_sec=300)
+
             order.state = OrderState.OPEN
             order.last_update_ts_ns = ack_ts_ns
+
+            # Initialize partial slicing for this order
+            self._partial_slicer.start(order_id, order.target_qty)
 
             self._log_event("ORDER_ACK", order.correlation_id, {
                 "order_id": order_id,
@@ -243,7 +268,13 @@ class ExecutionRouter:
             })
 
     def handle_order_fill(self, order_id: str, fill: FillEvent):
-        """Handle fill event"""
+        """Handle fill event with enhanced idempotency and partial tracking"""
+        # Enhanced fill deduplication
+        fill_event_id = f"fill:{order_id}:{fill.ts_ns}:{fill.qty}:{getattr(fill, 'trade_id', '')}"
+        
+        if self._idempotency_store.seen(fill_event_id):
+            return  # Duplicate fill already processed
+        
         with self._lock:
             if order_id not in self._active_orders:
                 # Late fill after cleanup - still log for TCA
@@ -260,17 +291,30 @@ class ExecutionRouter:
 
             order = self._active_orders[order_id]
 
-            # Deduplication: check if fill already processed
-            if any(f.ts_ns == fill.ts_ns and f.qty == fill.qty for f in order.fills):
+            # Mark fill as processed (5 min TTL)
+            self._idempotency_store.mark(fill_event_id, ttl_sec=300)
+
+            # Enhanced deduplication: check if fill already processed by multiple criteria
+            if any(
+                (f.ts_ns == fill.ts_ns and f.qty == fill.qty and f.price == fill.price) or
+                (hasattr(fill, 'trade_id') and hasattr(f, 'trade_id') and 
+                 getattr(fill, 'trade_id', '') and getattr(f, 'trade_id', '') == getattr(fill, 'trade_id', ''))
+                for f in order.fills
+            ):
                 return
 
             order.fills.append(fill)
             order.filled_qty += fill.qty
             order.last_update_ts_ns = fill.ts_ns
 
+            # Update partial slicer with new fill
+            remaining_qty = self._partial_slicer.register_fill(order_id, fill.qty)
+
             # Update state
             if order.filled_qty >= order.target_qty:
                 order.state = OrderState.CLOSED
+                # Clean up partial slicer state
+                self._partial_slicer.cancel(order_id)
             else:
                 order.state = OrderState.PARTIAL
 
@@ -281,7 +325,9 @@ class ExecutionRouter:
                 "px": fill.price,
                 "fee": fill.fee,
                 "liquidity": fill.liquidity_flag,
-                "remaining_qty": order.target_qty - order.filled_qty
+                "remaining_qty": remaining_qty,
+                "total_filled": order.filled_qty,
+                "target_qty": order.target_qty
             })
 
             # Check for escalation after partial fill
@@ -550,6 +596,39 @@ class ExecutionRouter:
         }
 
         self.event_logger.emit(event_type, event, code=event_type)
+
+    # ------------- ENHANCED PARTIAL FILL SUPPORT -------------
+
+    def get_next_slice(self, order_id: str, p_fill: Optional[float] = None) -> Optional[Dict[str, Any]]:
+        """Get next slice for partial fill continuation"""
+        with self._lock:
+            if order_id not in self._active_orders:
+                return None
+            
+            order = self._active_orders[order_id]
+            if order.state != OrderState.PARTIAL:
+                return None
+            
+            slice_decision = self._partial_slicer.next_slice(order_id, p_fill=p_fill)
+            if slice_decision is None:
+                return None
+            
+            return {
+                "slice_key": slice_decision.key,
+                "qty": slice_decision.qty,
+                "remaining_after": slice_decision.remaining_after,
+                "slice_idx": slice_decision.slice_idx,
+                "idempotent": not self._idempotency_store.seen(slice_decision.key)
+            }
+
+    def get_remaining_qty(self, order_id: str) -> float:
+        """Get remaining quantity for order"""
+        with self._lock:
+            return self._partial_slicer.remaining(order_id)
+
+    def cleanup_idempotency_store(self) -> int:
+        """Cleanup expired idempotency entries"""
+        return self._idempotency_store.cleanup_expired()
 
     # ------------- PERFORMANCE MONITORING -------------
 

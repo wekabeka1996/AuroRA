@@ -26,8 +26,8 @@ def test_idempotency_store_ttl():
     store.mark("event1", ttl_sec=0.1)
     assert store.seen("event1")
     
-    # Wait for expiry
-    time.sleep(0.2)
+    # Wait for expiry (longer than TTL)
+    time.sleep(0.3)
     assert not store.seen("event1")
     assert store.size() == 0
 

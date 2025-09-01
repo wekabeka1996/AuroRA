@@ -1,48 +1,49 @@
+[foobar]
+# top-level unknown moved here so it's truly top-level for TOML parsing
+value = 1
+
+[risk]
+max_position_usd = 1
+cvar_limit_usd   = 1
+limit            = 1
+
+[risk.cvar]
+alpha = 0.95
+limit = 0.02
+
+[sizing]
+method        = "equal"
+gross_cap_usd = 1
+max_weight    = 0.5
+
 [execution]
-  [execution.sla]
-  max_latency_ms = 10
+[execution.sla]
+max_latency_ms = 40
 
-[timescale]
-  ts_unit = "ns"
-  foo = "bar"
+[reward]
+mode = "pnl_after_tca"
 
-[order_sink]
-mode = "sim_local"
-[order_sink.sim_local]
-latency_ms = 5
-ttl_ms = 1000
+[tca]
+mode = "light"
 
-[replay]
-chunk_minutes = 5
+[xai]
+enabled = true
 
-[market_data]
-source = "live_test"
+[universe]
+top_n = 3
 
-[orders]
-enabled = false
+# Навмисно невідомий top-level ключ (не в whitelist валідатора)
+foobar = 1
 
-[execution.exchange.binance.keys]
-readonly = true
-
-# critical sections present
-[risk]; max_position_usd=1; cvar_limit_usd=1
-[sizing]; method="equal"; gross_cap_usd=1; max_weight=0.5
-[execution]; sla_max_latency_ms=40
-[reward]; mode="pnl_after_tca"
-[tca]; mode="light"
-[xai]; enabled=true
-[universe]; top_n=3
-[profile]; name="local_mid"
-
-# unknown at TOP LEVEL to trigger the validator's unknown-key pass
-__unknown_top_level__ = "please_fail_unknown"
+[profile]
+name = "local_mid"
 
 [order_sink]
 mode = "sim_local"
 
 [order_sink.sim_local]
-latency_ms = 10.0
-ttl_ms     = 5000
+latency_ms        = 10.0
+ttl_ms            = 5000
 maker_queue_model = "fifo"
 taker_slip_model  = "l1"
 
@@ -53,6 +54,7 @@ ts_unit = "ns"
 chunk_minutes = 30
 
 [leadlag]
-grid = [0.1]
+grid    = [0.1]
 max_tau = 1.0
-method = "coherence"
+method  = "coherence"
+ 

@@ -22,6 +22,45 @@ from core.execution.router import Router, QuoteSnapshot
 from core.execution.idempotency import IdempotencyStore
 
 
+@pytest.fixture
+def tca_components():
+    """Create TCA components for testing at module level."""
+    # CoxPH with simple coefficients
+    cox = CoxPH()
+    cox._beta = {'obi': 0.1, 'spread_bps': -0.05}
+    cox._feat = ['obi', 'spread_bps']
+
+    # SLA gate
+    sla = SLAGate(
+        max_latency_ms=250,
+        kappa_bps_per_ms=0.01,
+        min_edge_after_bps=1.0
+    )
+
+    # Router
+    router = Router(
+        hazard_model=cox,
+        slagate=sla,
+        min_p_fill=0.25,
+        exchange_name='fake'
+    )
+
+    return {'cox': cox, 'sla': sla, 'router': router}
+
+
+@pytest.fixture
+def temp_config():
+    """Create temporary config for testing at module level."""
+    config = {
+        'execution': {
+            'router': {'horizon_ms': 1500, 'p_min_fill': 0.25},
+            'sla': {'max_latency_ms': 250, 'kappa_bps_per_ms': 0.01},
+            'edge_floor_bps': 1.0
+        }
+    }
+    return config
+
+
 class TestLivePipelinePaperLoop:
     """Test live pipeline with paper trading simulation."""
     
@@ -36,30 +75,6 @@ class TestLivePipelinePaperLoop:
             latency_ms=5
         )
     
-    @pytest.fixture
-    def tca_components(self):
-        """Create TCA components for testing."""
-        # CoxPH with simple coefficients
-        cox = CoxPH()
-        cox._beta = {'obi': 0.1, 'spread_bps': -0.05}
-        cox._feat = ['obi', 'spread_bps']
-        
-        # SLA gate
-        sla = SLAGate(
-            max_latency_ms=250,
-            kappa_bps_per_ms=0.01,
-            min_edge_after_bps=1.0
-        )
-        
-        # Router
-        router = Router(
-            hazard_model=cox,
-            slagate=sla,
-            min_p_fill=0.25,
-            exchange_name='fake'
-        )
-        
-        return {'cox': cox, 'sla': sla, 'router': router}
     
     @pytest.fixture
     def temp_config(self):
@@ -96,6 +111,9 @@ class TestLivePipelinePaperLoop:
         )
         
         # Should route to maker due to high P(fill)
+        if decision.route != "maker":
+            scores = decision.get("scores", {}) if hasattr(decision, "get") else getattr(decision, "scores", {})
+            print("DIAG: decision=", decision.route, "scores=", scores, "features.fill=", fill_features)
         assert decision.route == "maker"
         assert decision.p_fill > 0.5
         assert "E_maker" in decision.reason

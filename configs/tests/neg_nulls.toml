@@ -1,37 +1,18 @@
-[execution]
-  [execution.sla]
-  max_latency_ms = 10
-
-[timescale]
-  ts_unit = "ns"
-
-[order_sink]
-mode = "sim_local"
-[order_sink.sim_local]
-latency_ms = 5
-ttl_ms = ""
-
-[replay]
-chunk_minutes = 5
-
-[market_data]
-source = "live_test"
-
-[orders]
-enabled = false
-
-[execution.exchange.binance.keys]
-readonly = true
-
 [risk]
 max_position_usd = 1
-cvar_limit_usd = 1
+cvar_limit_usd   = 1
+limit            = 1
+[risk.cvar]
+alpha = 0.95
 
 [sizing]
-method = "equal"
+method        = "equal"
+gross_cap_usd = 1
+max_weight    = 0.5
 
 [execution]
-sla_max_latency_ms = 40
+  [execution.sla]
+  max_latency_ms = 40
 
 [reward]
 mode = "pnl_after_tca"
@@ -45,15 +26,16 @@ enabled = true
 [universe]
 top_n = 3
 
-[profile]
-name = "local_mid"
+# ВАЖЛИВО: жодної секції [profile] нижче!
+profile = ""   # ← це top-level ключ із порожнім значенням (NULLS gate)
 
 [order_sink]
 mode = "sim_local"
-
 [order_sink.sim_local]
-latency_ms = 10.0
-ttl_ms = ""
+latency_ms        = 10.0
+ttl_ms            = 5000
+maker_queue_model = "fifo"
+taker_slip_model  = "l1"
 
 [timescale]
 ts_unit = "ns"
@@ -62,6 +44,6 @@ ts_unit = "ns"
 chunk_minutes = 30
 
 [leadlag]
-grid = [0.1]
+grid    = [0.1]
 max_tau = 1.0
-method = "coherence"
+method  = "coherence"

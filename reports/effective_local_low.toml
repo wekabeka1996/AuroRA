@@ -81,10 +81,8 @@ lag_grid = [1, 2]
 mode = "sim_local"
 
 [order_sink.sim_local]
-latency_mean_ms = 50
-latency_std_ms = 10
-slip_bps_mean = 1.0
-slip_bps_std = 0.5
+latency_ms = 5
+ttl_ms = 1500
 
 [profile]
 

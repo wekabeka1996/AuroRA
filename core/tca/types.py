@@ -120,6 +120,7 @@ class TCAMetrics:
 
     # Metadata
     analysis_ts_ns: int = field(default_factory=lambda: int(datetime.now().timestamp() * 1e9))
+    error_msg: Optional[str] = None  # Error message for fallback analysis
 
     # Legacy fields for backward compatibility (mapped from canonical)
     spread_cost_bps: float = field(init=False)  # maps to slippage_in_bps
