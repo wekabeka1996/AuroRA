@@ -18,6 +18,11 @@ class TestTCAAnalyzer:
         return TCAAnalyzer(adverse_window_s=1.0, mark_ref="micro")
 
     @pytest.fixture
+    def analyzer_mid_ref(self) -> TCAAnalyzer:
+        """Test analyzer using mid price as reference for spread cost calculations"""
+        return TCAAnalyzer(adverse_window_s=1.0, mark_ref="mid")
+
+    @pytest.fixture
     def sample_market_data(self) -> dict:
         """Sample market data for testing"""
         return {
@@ -106,7 +111,7 @@ class TestTCAAnalyzer:
         )
         assert abs(metrics.implementation_shortfall_bps - total_components) <= 0.1
 
-    def test_long_short_mirror_symmetry(self, analyzer: TCAAnalyzer, sample_market_data: dict):
+    def test_long_short_mirror_symmetry(self, analyzer_mid_ref: TCAAnalyzer, sample_market_data: dict):
         """Test that long and short positions show mirror symmetry"""
         # Create symmetric scenarios: same price movement, opposite directions
 
@@ -144,8 +149,8 @@ class TestTCAAnalyzer:
             latency_ms=2.0
         )
 
-        buy_metrics = analyzer.analyze_order(buy_execution, sample_market_data)
-        sell_metrics = analyzer.analyze_order(sell_execution, sample_market_data)
+        buy_metrics = analyzer_mid_ref.analyze_order(buy_execution, sample_market_data)
+        sell_metrics = analyzer_mid_ref.analyze_order(sell_execution, sample_market_data)
 
         # Mirror symmetry: IS_long ≈ IS_short for symmetric price movements
         assert abs(buy_metrics.implementation_shortfall_bps - sell_metrics.implementation_shortfall_bps) <= 0.5
@@ -309,7 +314,7 @@ class TestTCAAnalyzer:
         expected_latency = 20.0
         assert abs(metrics.latency_slippage_bps - expected_latency) <= 1.0
 
-    def test_spread_cost_maker_vs_taker(self, analyzer: TCAAnalyzer, sample_market_data: dict):
+    def test_spread_cost_maker_vs_taker(self, analyzer_mid_ref: TCAAnalyzer, sample_market_data: dict):
         """Test spread cost calculation for maker vs taker fills"""
         # Maker fill at mid price (should have ~0 spread cost)
         maker_fills = [
@@ -347,8 +352,8 @@ class TestTCAAnalyzer:
             latency_ms=1.0
         )
 
-        maker_metrics = analyzer.analyze_order(maker_execution, sample_market_data)
-        taker_metrics = analyzer.analyze_order(taker_execution, sample_market_data)
+        maker_metrics = analyzer_mid_ref.analyze_order(maker_execution, sample_market_data)
+        taker_metrics = analyzer_mid_ref.analyze_order(taker_execution, sample_market_data)
 
         # Maker fill at mid should have near-zero spread cost
         assert abs(maker_metrics.spread_cost_bps) <= 1.0
@@ -386,7 +391,8 @@ class TestTCAAnalyzer:
         assert abs(metrics.total_fees - expected_total_fees) <= 0.001
 
         # Fees in bps = total_fees * 1e4 / (filled_qty * arrival_price)
-        expected_fees_bps = expected_total_fees * 1e4 / (100.0 * 100.0)
+        # Note: fees_bps is canonical as negative (cost representation)
+        expected_fees_bps = -expected_total_fees * 1e4 / (100.0 * 100.0)
         assert abs(metrics.fees_bps - expected_fees_bps) <= 0.1
 
     def test_aggregation_by_symbol(self, analyzer: TCAAnalyzer, sample_market_data: dict):

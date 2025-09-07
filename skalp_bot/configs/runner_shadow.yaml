@@ -1,0 +1,30 @@
+# Minimal runner config to ensure SimAdapter/shadow orders and overlay hot-reload
+overlays:
+  active: profiles/overlays/_active_shadow.yaml
+
+execution:
+  broker: shadow  # force SimAdapter via create_adapter()
+  sla:
+    max_latency_ms: 250
+    kappa_bps_per_ms: 0.01
+  edge_floor_bps: 1.0
+symbol: SOONUSDT
+
+order_sink:
+  mode: sim_local  # double-safety for SimAdapter
+  mock_obi_bias: 0.3
+  mock_tfi_bias: 0.25
+
+governance:
+  policy: pocock
+  alpha0: 0.05
+  delta: 0.1
+  spend_step: 0.001
+
+sizing:
+  kelly:
+    clip_min: 0.0
+    clip_max: 0.005  # cap ~0.5% of equity -> ~50 USD notional at equity=10k
+  limits:
+    min_notional_usd: 10
+    max_notional_usd: 50

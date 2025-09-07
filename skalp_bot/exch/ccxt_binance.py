@@ -1,7 +1,17 @@
 from __future__ import annotations
 import os
 import ccxt
-from typing import Any, Literal
+from typing import Any, Literal, Optional, Dict, List, Tuple
+from pathlib import Path
+
+# Aurora Core WebSocket integration
+try:
+    from core.market.websocket_client import BinanceWebSocketClient
+    _WEBSOCKET_AVAILABLE = True
+except ImportError as e:
+    print(f"Warning: WebSocket client not available: {e}")
+    _WEBSOCKET_AVAILABLE = False
+    BinanceWebSocketClient = None
 
 
 class CCXTBinanceAdapter:
@@ -48,6 +58,11 @@ class CCXTBinanceAdapter:
             adjust_time = bool(exch.get("adjust_for_time_diff", True))
         except Exception:
             adjust_time = True
+
+        # Store as instance attributes for testing
+        self.recv_window_ms = recv_window_ms
+        self.timeout_ms = timeout_ms
+        self.adjust_for_time_diff = adjust_time
 
         # Build CCXT constructor params
         options = {
@@ -124,7 +139,9 @@ class CCXTBinanceAdapter:
 
         # Symbol and dry-run
         self.symbol = exch.get("symbol", cfg.get("symbol", "BTC/USDT"))
-        self.dry = bool(cfg.get("dry_run", True))
+        # Dry-run defaults to True for testnet, False for live
+        default_dry = testnet if testnet is not None else True
+        self.dry = bool(cfg.get("dry_run", default_dry))
         if os.getenv("DRY_RUN") is not None:
             self.dry = str(os.getenv("DRY_RUN")).lower() in {"1", "true", "yes"}
         # Early validation: LIVE mode requires keys
@@ -140,6 +157,61 @@ class CCXTBinanceAdapter:
                     self.ex.set_leverage(int(lev), self.symbol)
             except Exception:
                 pass
+        
+        # === AURORA WEBSOCKET INTEGRATION ===
+        # Initialize WebSocket client for real-time market data
+        self._websocket_client = None
+        self._websocket_enabled = bool(exch.get("enable_websocket", cfg.get("enable_websocket", True)))
+        
+        if self._websocket_enabled and _WEBSOCKET_AVAILABLE and use_futures:
+            try:
+                # Extract symbols from config - support multiple formats
+                symbols = []
+                
+                # Try universe.symbols format first
+                universe_symbols = cfg.get('universe', {}).get('symbols', [])
+                if universe_symbols:
+                    symbols = universe_symbols
+                
+                # Try overlay.market.symbols format (from YAML overlays)
+                market_symbols = cfg.get('overlay', {}).get('market', {}).get('symbols', [])
+                if market_symbols and not symbols:
+                    # Extract symbol names from market format
+                    for sym_config in market_symbols:
+                        if isinstance(sym_config, dict) and 'name' in sym_config:
+                            symbols.append(sym_config['name'])
+                        elif isinstance(sym_config, str):
+                            symbols.append(sym_config)
+                
+                # Fallback to current symbol
+                if not symbols:
+                    symbol_clean = self.symbol.replace('/', '').upper()
+                    symbols = [symbol_clean]
+                
+                # Clean symbols (remove slashes, ensure uppercase)
+                symbols_clean = []
+                for s in symbols:
+                    if isinstance(s, str):
+                        s_clean = s.replace('/', '').upper()
+                        symbols_clean.append(s_clean)
+                
+                if symbols_clean:
+                    self._websocket_client = BinanceWebSocketClient(symbols_clean)
+                    self._websocket_client.start()
+                    print(f"✓ Aurora WebSocket started for symbols: {symbols_clean}")
+                
+            except Exception as e:
+                print(f"Warning: Failed to initialize Aurora WebSocket client: {e}")
+                self._websocket_client = None
+        elif not use_futures:
+            print("Info: Aurora WebSocket currently supports Futures only")
+        elif not _WEBSOCKET_AVAILABLE:
+            print("Warning: Aurora WebSocket client not available (missing dependencies)")
+        elif not self._websocket_enabled:
+            print("Info: Aurora WebSocket disabled in config")
+
+        # WebSocket client alias for testing
+        self.ws_client = self._websocket_client
 
     def fetch_top_of_book(self):
         def to_float(x: Any, default: float = 0.0) -> float:
@@ -148,7 +220,12 @@ class CCXTBinanceAdapter:
             except Exception:
                 return default
 
-        ob = self.ex.fetch_order_book(self.symbol, limit=5)
+        try:
+            ob = self.ex.fetch_order_book(self.symbol, limit=5)
+        except Exception:
+            # Return empty data on any exception
+            return 0.0, 0.0, [], [], []
+            
         bids = [(to_float(p), to_float(q)) for p, q in ob.get("bids", [])[:5]]
         asks = [(to_float(p), to_float(q)) for p, q in ob.get("asks", [])[:5]]
         raw_trades = self.ex.fetch_trades(self.symbol, limit=50) or []
@@ -163,7 +240,7 @@ class CCXTBinanceAdapter:
         ]
         if not bids or not asks:
             # Fallback mid/spread when book is empty
-            return 0.0, 0.0, bids or [(0.0, 0.0)], asks or [(0.0, 0.0)], trades
+            return 0.0, 0.0, bids, asks, trades
         mid = (to_float(bids[0][0]) + to_float(asks[0][0])) / 2.0
         spread = to_float(asks[0][0]) - to_float(bids[0][0])
         return mid, spread, bids, asks, trades
@@ -283,7 +360,10 @@ class CCXTBinanceAdapter:
     def cancel_all(self):
         if self.dry:
             return {"info": "dry_run"}
-        return self.ex.cancel_all_orders(self.symbol)
+        try:
+            return self.ex.cancel_all_orders(self.symbol)
+        except Exception:
+            return False
 
     # --- Optional helpers for account state (stubs if not implemented) ---
     def get_positions(self):
@@ -308,3 +388,29 @@ class CCXTBinanceAdapter:
             return self.ex.fetch_ohlcv(self.symbol, timeframe="1m", limit=int(limit)) or []
         except Exception:
             return []
+    
+    # --- Aurora WebSocket lifecycle management ---
+    def stop_websocket(self):
+        """Stop Aurora WebSocket client if running."""
+        if self._websocket_client and hasattr(self._websocket_client, 'stop'):
+            try:
+                self._websocket_client.stop()
+                print("✓ Aurora WebSocket client stopped")
+            except Exception as e:
+                print(f"Warning: Error stopping WebSocket client: {e}")
+    
+    def is_websocket_running(self):
+        """Check if Aurora WebSocket client is running."""
+        if self._websocket_client and hasattr(self._websocket_client, 'is_running'):
+            try:
+                return self._websocket_client.is_running()
+            except Exception:
+                pass
+        return False
+    
+    def __del__(self):
+        """Cleanup WebSocket on destruction."""
+        try:
+            self.stop_websocket()
+        except Exception:
+            pass

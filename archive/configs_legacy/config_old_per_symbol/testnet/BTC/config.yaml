@@ -1,0 +1,24 @@
+# Testnet futures config for BTCUSDT
+symbol: BTCUSDT
+execution:
+  broker: shadow  # start in shadow (SimAdapter) for DRY_RUN phase
+  sla:
+    max_latency_ms: 250
+sizing:
+  kelly:
+    clip_min: 0.0
+    clip_max: 0.002  # tighter for initial testnet
+  limits:
+    min_notional_usd: 5
+    max_notional_usd: 25
+order_sink:
+  mode: sim_local  # shadow phase; remove for live testnet run
+  mock_obi_bias: 0.15
+  mock_tfi_bias: 0.10
+governance:
+  policy: pocock
+  alpha0: 0.05
+  delta: 0.1
+  spend_step: 0.001
+reward:
+  expected_net_reward_threshold_bps: 0.0

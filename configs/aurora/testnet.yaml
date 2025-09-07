@@ -1,51 +1,47 @@
-# Aurora testnet profile (safe defaults)
-# Tailored for testnet/shadow runs: conservative risk, permissive observability, reasonable guards.
-
-env: testnet
+# Aurora testnet config
+env: testnet  # Changed from live to testnet
 api:
   host: 127.0.0.1
-  port: 8000
-
-security:
-  # Override via OPS_TOKEN/AURORA_OPS_TOKEN if needed
-  ops_token: "change-me-testnet-ops-token-XXXXXXXXXXXXXXXX"
+  port: 8080
 
 aurora:
-  latency_guard_ms: 40
-  latency_window_sec: 60
-  cooloff_base_sec: 120
-  halt_threshold_repeats: 2
+  latency_guard_ms: 10000   # Very high - almost no latency blocking
+  latency_window_sec: 3600  # Very long window
+  cooloff_base_sec: 1       # Very short cooloff
+  halt_threshold_repeats: 100  # Very high - almost never halt
 
+# Guards/gates for pretrade checks (EXTREMELY AGGRESSIVE for execution testing)
 guards:
-  spread_bps_limit: 100
-  latency_ms_limit: 400
-  vol_guard_std_bps: 300
-  trap_guard_enabled: true
+  spread_bps_limit: 5000    # Very high - almost no spread limits
+  latency_ms_limit: 10000   # Very high - almost no latency limits
+  vol_guard_std_bps: 10000  # Very high - almost no volatility limits
+  trap_guard_enabled: false # Disable trap guard completely
 
 risk:
-  pi_min_bps: 2.0
-  dd_day_pct: 10.0
-  max_concurrent: 2
-  size_scale: 0.1
+  pi_min_bps: 0.1           # Very low - accept almost any expected profit
+  dd_day_pct: 95.0          # Very high - allow huge drawdowns
+  max_concurrent: 50        # Very high - many concurrent positions
+  size_scale: 10.0          # Very high - large position sizes
 
 slippage:
-  eta_fraction_of_b: 0.25
+  eta_fraction_of_b: 0.10   # Lower slippage estimation
 
 trap:
-  window_s: 2.0
-  levels: 5
-  z_threshold: 1.64
-  cancel_pctl: 90
-  score_threshold: 0.8
+  window_s: 0.1             # Very short window - less restrictive
+  levels: 20                # More levels - less restrictive  
+  z_threshold: 10.0         # Very high z - almost never triggers
+  cancel_pctl: 10           # Very low cancel percentile
+
+pretrade:
+  order_profile: er_before_slip
 
 sprt:
-  enabled: true
+  enabled: false
   alpha: 0.05
-  beta: 0.10
+  beta: 0.05
   sigma: 1.0
-  max_obs: 10
+  max_obs: 100
 
-observability:
-  ack:
-    ttl_s: 300
-    scan_period_s: 1.0
+security:
+  ops_token: aurora_dev_ops_token_abcdef0123456789
+  api_token: aurora_testnet_api_token_abcdef0123456789

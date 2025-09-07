@@ -1,0 +1,24 @@
+# Live futures config for SOLUSDT (initial stub)
+symbol: SOLUSDT
+execution:
+  broker: shadow
+  sla:
+    max_latency_ms: 250
+sizing:
+  kelly:
+    clip_min: 0.0
+    clip_max: 0.005
+  limits:
+    min_notional_usd: 10
+    max_notional_usd: 100
+order_sink:
+  mode: sim_local
+  mock_obi_bias: 0.25
+  mock_tfi_bias: 0.20
+governance:
+  policy: pocock
+  alpha0: 0.05
+  delta: 0.1
+  spend_step: 0.001
+reward:
+  expected_net_reward_threshold_bps: 0.0

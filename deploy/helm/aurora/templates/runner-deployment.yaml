@@ -1,0 +1,79 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "aurora.fullname" . }}-runner
+  labels:
+    app.kubernetes.io/name: {{ include "aurora.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: runner
+    app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  replicas: {{ .Values.runner.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "aurora.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: runner
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "aurora.name" . }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: runner
+    spec:
+      containers:
+        - name: aurora-runner
+          image: "{{ .Values.runner.image.repository }}:{{ .Values.runner.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.runner.image.pullPolicy }}
+          ports:
+            - name: metrics
+              containerPort: {{ .Values.runner.port }}
+              protocol: TCP
+          env:
+            {{- range .Values.runner.env }}
+            - name: {{ .name }}
+              value: {{ .value | quote }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.runner.resources | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: metrics
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: metrics
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          volumeMounts:
+            - name: logs
+              mountPath: /app/logs
+            - name: data
+              mountPath: /app/data
+            - name: configs
+              mountPath: /app/configs
+              readOnly: true
+      volumes:
+        - name: logs
+          emptyDir: {}
+        - name: data
+          emptyDir: {}
+        - name: configs
+          configMap:
+            name: {{ include "aurora.fullname" . }}-config
+      {{- with .Values.runner.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.runner.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.runner.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

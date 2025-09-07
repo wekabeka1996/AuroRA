@@ -185,7 +185,12 @@ class TCAAnalyzer:
         raw_edge_bps = float(market_data.get("expected_edge_bps", 0.0))
 
         # Canonical component defaults (all costs ≤ 0)
-        slippage_in_bps = 0.0 if is_maker else -abs(float(execution.arrival_spread_bps or 0.0))
+        # Calculate spread cost based on actual fill prices vs mid
+        if execution.fills and mid_decision > 0:
+            spread_pos = side_sign * (vwap - mid_decision) / mid_decision * 1e4
+            slippage_in_bps = -abs(spread_pos) if not is_maker else 0.0
+        else:
+            slippage_in_bps = 0.0 if is_maker else -abs(float(execution.arrival_spread_bps or 0.0))
         slippage_out_bps = 0.0
         # Compute latency cost from mid move between decision and first fill when possible
         if execution.fills:
@@ -194,7 +199,12 @@ class TCAAnalyzer:
             # Fallback to market-provided metric if no fills
             latency_pos = float(market_data.get('latency_slippage_bps', market_data.get('latency_bps', 0.0)))
         latency_bps = -abs(float(latency_pos))
-        adverse_bps = -abs(float(market_data.get('adverse_bps', 0.0)))
+        # Calculate adverse selection dynamically if fills exist
+        if execution.fills:
+            adverse_pos = self._calculate_adverse_selection(execution, market_data, side_sign)
+            adverse_bps = -abs(adverse_pos)  # Canonical: always ≤ 0
+        else:
+            adverse_bps = -abs(float(market_data.get('adverse_bps', 0.0)))
 
         # Temporary impact (legacy positive) default 0 unless market data provides
         temp_impact_pos = float(market_data.get('temporary_impact_bps', 0.0))
@@ -552,6 +562,7 @@ class TCAAnalyzer:
                 'avg_fill_ratio': statistics.mean([m.fill_ratio for m in group_metrics]),
                 'avg_fees_bps': statistics.mean([m.fees_bps for m in group_metrics]),
                 'p50_implementation_shortfall_bps': statistics.median(impl),
+                'p90_implementation_shortfall_bps': statistics.quantiles(impl, n=10)[8] if len(impl) >= 10 else max(impl) if impl else 0.0,
                 'total_orders': len(group_metrics),
             }
 

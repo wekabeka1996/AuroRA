@@ -15,13 +15,15 @@ class TestAlphaTxn:
     def test_valid_transaction(self):
         """Test creating valid transaction."""
         txn = AlphaTxn(
-            ts_ns=1000000000,
+            ts_ns_mono=1000000000,
+            ts_ns_wall=1000000001,
             test_id="sprt:maker_edge",
             alpha0=0.05,
             spent=0.01,
             outcome="open"
         )
-        assert txn.ts_ns == 1000000000
+        assert txn.ts_ns_mono == 1000000000
+        assert txn.ts_ns_wall == 1000000001
         assert txn.test_id == "sprt:maker_edge"
         assert txn.alpha0 == 0.05
         assert txn.spent == 0.01
@@ -31,7 +33,8 @@ class TestAlphaTxn:
         """Test that negative spent raises ValueError."""
         with pytest.raises(ValueError, match="spent cannot be negative"):
             AlphaTxn(
-                ts_ns=1000000000,
+                ts_ns_mono=1000000000,
+                ts_ns_wall=1000000001,
                 test_id="test",
                 alpha0=0.05,
                 spent=-0.01,
@@ -42,7 +45,8 @@ class TestAlphaTxn:
         """Test that spent > alpha0 raises ValueError."""
         with pytest.raises(ValueError, match="spent .* exceeds alpha0"):
             AlphaTxn(
-                ts_ns=1000000000,
+                ts_ns_mono=1000000000,
+                ts_ns_wall=1000000001,
                 test_id="test",
                 alpha0=0.05,
                 spent=0.06,
@@ -53,7 +57,8 @@ class TestAlphaTxn:
         """Test that invalid outcome raises ValueError."""
         with pytest.raises(ValueError, match="invalid outcome"):
             AlphaTxn(
-                ts_ns=1000000000,
+                ts_ns_mono=1000000000,
+                ts_ns_wall=1000000001,
                 test_id="test",
                 alpha0=0.05,
                 spent=0.01,
@@ -65,7 +70,8 @@ class TestAlphaTxn:
         valid_outcomes = ["open", "accept", "reject", "abandon"]
         for outcome in valid_outcomes:
             txn = AlphaTxn(
-                ts_ns=1000000000,
+                ts_ns_mono=1000000000,
+                ts_ns_wall=1000000001,
                 test_id="test",
                 alpha0=0.05,
                 spent=0.01,
@@ -136,7 +142,7 @@ class TestAlphaLedger:
         """Test spending negative amount raises ValueError."""
         token = self.ledger.open("test", alpha0=0.05)
         
-        with pytest.raises(ValueError, match="spend amount must be positive"):
+        with pytest.raises(ValueError, match="amount must be a finite positive number"):
             self.ledger.spend(token, -0.01)
 
     def test_spend_exceeds_budget(self):

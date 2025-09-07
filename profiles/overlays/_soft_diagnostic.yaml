@@ -1,0 +1,23 @@
+broker: shadow
+execution:
+  router:
+    spread_limit_bps: 19
+parent_gate:
+  enabled: true
+  z_threshold: 0.66
+  cooloff_s: 9
+  align_sign: true
+  lookback_s: 120
+  max_spread_bps: 50
+reward:
+  expected_net_reward_threshold_bps: -2.0
+sizing:
+  limits:
+    max_notional_usd: 60
+logging:
+  dedup_window_ms: 500
+  sampling:
+    - match: "POLICY.DECISION:skip_open"
+      sample_every: 50
+    - match: "RISK.DENY:WHY_NEGATIVE_EDGE"
+      sample_every: 50

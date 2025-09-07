@@ -118,7 +118,8 @@ class TestAlphaLedgerPatched:
         txn1 = ledger1.get_transaction(token)
         txn2 = ledger2.get_transaction(token)
         
-        assert txn1.ts_ns == txn2.ts_ns
+        assert txn1.ts_ns_mono == txn2.ts_ns_mono
+        assert txn1.ts_ns_wall == txn2.ts_ns_wall
         assert txn1.test_id == txn2.test_id
         assert txn1.alpha0 == txn2.alpha0
         assert txn1.spent == txn2.spent

@@ -1,3 +1,7 @@
+# --- Environment files (protect secrets) ---
+.env
+.env.*
+!.env.example
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -164,3 +168,11 @@ gate_*.txt
 api_keys.txt
 *_api_key.txt
 *_api_secret.txt
+
+# Windows reserved device filenames (prevent accidental add)
+NUL
+PRN
+CON
+AUX
+COM1
+LPT1

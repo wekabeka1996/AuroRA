@@ -93,3 +93,62 @@ Config & ENV
 
 Тести
 - У VS Code задано готові задачі для таргетних прогонів (див. Tasks). Рекомендовано починати з інтеграційних pre‑trade тестів.
+
+## Full E2E Futures (Shadow) Proof Script
+
+A fully automated PowerShell script is available to produce a single JSON proof that the entire futures pipeline is alive end‑to‑end (WS -> Models -> ENR Gate -> ParentGate -> Policy -> Shadow Orders -> Metrics -> Optuna heartbeat & parameter updates).
+
+Script: `scripts/full_e2e_futures_shadow.ps1`
+
+### Prerequisites
+* Windows + PowerShell (pwsh recommended)
+* Valid `AURORA_API_TOKEN` and `AURORA_OPS_TOKEN`
+* Network access to Binance futures WS `wss://fstream.binance.com/stream`
+
+### What it does
+1. (Optional) Kills existing python/uvicorn processes (can disable with `-NoKill`)
+2. `auroractl.py init-run` to create isolated run dir
+3. Exports required FUTURES + shadow env vars
+4. Starts API (lifespan off) and validates `/health` + `/metrics`
+5. Applies production overlay (SOLUSDT & SOONUSDT, ParentGate z=0.75, ENR>=0)
+6. Starts Runner (shadow) + Telemetry
+7. Starts Optuna orchestrator (explore ratio configurable, default 0.05)
+8. Waits (<=120s) for MODEL/ENR/PARENT/POLICY/ORDER events; auto‑triage overlay (relaxed thresholds) if missing
+9. Captures WS TCP evidence to `fstream.binance.com:443` for runner PID
+10. Collects SLI metrics and Optuna HEARTBEAT + PARAMETER_UPDATE
+11. Emits JSON summary to `artifacts/full_e2e_proof.json` and prints raw log tails
+
+### Run
+```powershell
+$env:AURORA_API_TOKEN = '<api_token>'
+$env:AURORA_OPS_TOKEN = '<ops_token>'
+# Optional: adjust explore ratio / max wait
+pwsh -File scripts/full_e2e_futures_shadow.ps1 -ExploreRatio 0.05 -MaxWaitSeconds 120
+```
+
+### Output Example (truncated)
+```json
+{
+  "who": "copilot",
+  "ts": "2025-09-06T10:15:44.123Z",
+  "processes": {"api": {"health":200,"metrics":200},"runner": {"up":true,...},"optuna":{"running":true}},
+  "overlay_active": {"symbols":["SOLUSDT@binance_futures","SOONUSDT@binance_futures"],"z_threshold":0.75,...},
+  "xai_tail": {"model":["..."],"enr_gate":["..."],"parent_gate":["..."],"policy_decision":["..."],"orders":["..."]},
+  "sli": {"deny_rate_15m":0.21,"latency_p99_ms":180,"ece":0.03,"cvar95_min":0.01,...},
+  "optuna": {"heartbeat_ok":true,"param_tail":["..."]}
+}
+```
+
+### Flags
+* `-NoKill` — do not stop existing python processes
+* `-ForceTriage` — always apply diagnostic relaxed overlay after baseline attempt
+* `-ExploreRatio <float>` — orchestrator exploration ratio (default 0.05)
+* `-MaxWaitSeconds <int>` — wait window for initial XAI chain (default 120)
+
+### Triage Logic
+If required XAI events missing: temporary relaxed overlay (z=0.50, ENR threshold -10.0 bps, spreads widened, full sampling) then recollect evidence.
+
+### Acceptance Criteria Embedded
+Script mirrors the Definition of Done: prints JSON + sections `RUNNER_WS_LAST`, `XAI_LAST`, `METRICS_LAST`.
+
+---

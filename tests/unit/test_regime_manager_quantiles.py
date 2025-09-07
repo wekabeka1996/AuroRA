@@ -8,6 +8,10 @@ def test_quantile_trigger_simple():
     rm = regime.RegimeManager()
     # feed synthetic series
     series = np.linspace(0, 1, 100)
-    changed = rm.update_with_series(series)
+    changed = False
+    for value in series:
+        state = rm.update(value)
+        if state.changed:
+            changed = True
     assert isinstance(changed, bool)
 

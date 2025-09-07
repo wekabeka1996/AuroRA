@@ -268,6 +268,28 @@ class PretradePipeline:
             nonlocal allow, reason
             cal = IsotonicCalibrator()
             ci = CalibInput(score=score, a_bps=a_bps, b_bps=b_bps, fees_bps=fees_bps, slip_bps=slip_bps_est, regime=regime)
+            # --- START: DEBUG LOGGING BLOCK ---
+            try:
+                print("\n" + "=" * 50)
+                print("--- PRE-COMPUTE DIAGNOSTICS ---")
+                print(f"  Signal Score: {float(score)}")
+                print(f"  Potential Gain (b_bps): {float(b_bps)}")
+                print(f"  Potential Loss (a_bps): {float(a_bps)}")
+                print(f"  Estimated Fees (bps): {float(fees_bps)}")
+                print(f"  Estimated Slippage (bps): {float(slip_bps_est)}")
+                try:
+                    total_cost = float(fees_bps) + float(slip_bps_est)
+                except Exception:
+                    total_cost = None
+                print(f"  Estimated Costs (fees+slip): {total_cost}")
+                print(f"  Market Regime: {str(regime)}")
+                print("=" * 50 + "\n")
+            except Exception as _dbg_e:
+                try:
+                    print(f"Error in debug logging: {_dbg_e}")
+                except Exception:
+                    pass
+            # --- END: DEBUG LOGGING BLOCK ---
             out_local = cal.e_pi_bps(ci)
             try:
                 # Prefer cfg.risk.pi_min_bps (env overrides уже применены), затем env alias, затем default

@@ -1,0 +1,293 @@
+# Aurora P3-E & P4 CI/CD Pipeline
+# GitHub Actions workflow for automated testing, building, and deployment
+
+name: Aurora CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  # Test job
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: [3.9, 3.10, 3.11]
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install -r requirements-dev.txt
+
+    - name: Run tests with coverage
+      run: |
+        pytest --cov=core --cov=skalp_bot --cov=tools \
+               --cov-report=xml --cov-report=html \
+               --cov-fail-under=80
+
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage.xml
+        flags: unittests
+        name: codecov-umbrella
+        fail_ci_if_error: false
+
+    - name: Run security scan
+      run: |
+        pip install safety
+        safety check
+
+    - name: Run linting
+      run: |
+        pip install flake8 black isort mypy
+        flake8 core skalp_bot tools --count --select=E9,F63,F7,F82 --show-source --statistics
+        black --check core skalp_bot tools
+        isort --check-only core skalp_bot tools
+
+  # Build and push Docker images
+  build-and-push:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Log in to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Extract metadata for runner
+      id: meta-runner
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-runner
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=sha,prefix={{branch}}-
+          type=raw,value=latest,enable={{is_default_branch}}
+
+    - name: Build and push runner image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: ./Dockerfile.runner
+        push: true
+        tags: ${{ steps.meta-runner.outputs.tags }}
+        labels: ${{ steps.meta-runner.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+    - name: Extract metadata for live-feed
+      id: meta-live-feed
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-live-feed
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=sha,prefix={{branch}}-
+          type=raw,value=latest,enable={{is_default_branch}}
+
+    - name: Build and push live-feed image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: ./Dockerfile.live_feed
+        push: true
+        tags: ${{ steps.meta-live-feed.outputs.tags }}
+        labels: ${{ steps.meta-live-feed.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+    - name: Extract metadata for dashboard
+      id: meta-dashboard
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-dashboard
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=sha,prefix={{branch}}-
+          type=raw,value=latest,enable={{is_default_branch}}
+
+    - name: Build and push dashboard image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: ./Dockerfile.dashboard
+        push: true
+        tags: ${{ steps.meta-dashboard.outputs.tags }}
+        labels: ${{ steps.meta-dashboard.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+  # Deploy to staging
+  deploy-staging:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/develop'
+    environment: staging
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Configure kubectl
+      uses: azure/k8s-set-context@v3
+      with:
+        method: kubeconfig
+        kubeconfig: ${{ secrets.KUBE_CONFIG_STAGING }}
+
+    - name: Deploy to staging
+      run: |
+        # Update Helm dependencies
+        helm dependency update deploy/helm/aurora
+
+        # Deploy with staging values
+        helm upgrade --install aurora-staging deploy/helm/aurora \
+          --namespace aurora-staging \
+          --create-namespace \
+          --values deploy/helm/aurora/values-staging.yaml \
+          --set runner.image.tag=${{ github.sha }} \
+          --set liveFeed.image.tag=${{ github.sha }} \
+          --set dashboard.image.tag=${{ github.sha }} \
+          --wait \
+          --timeout 10m
+
+    - name: Run smoke tests
+      run: |
+        # Wait for services to be ready
+        kubectl wait --for=condition=available --timeout=300s deployment/aurora-staging-runner -n aurora-staging
+        kubectl wait --for=condition=available --timeout=300s deployment/aurora-staging-live-feed -n aurora-staging
+        kubectl wait --for=condition=available --timeout=300s deployment/aurora-staging-dashboard -n aurora-staging
+
+        # Run smoke tests
+        python tools/smoke_test.py --env staging
+
+  # Deploy to production
+  deploy-production:
+    needs: deploy-staging
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    environment: production
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Configure kubectl
+      uses: azure/k8s-set-context@v3
+      with:
+        method: kubeconfig
+        kubeconfig: ${{ secrets.KUBE_CONFIG_PRODUCTION }}
+
+    - name: Deploy to production
+      run: |
+        # Update Helm dependencies
+        helm dependency update deploy/helm/aurora
+
+        # Deploy with production values
+        helm upgrade --install aurora deploy/helm/aurora \
+          --namespace aurora \
+          --create-namespace \
+          --values deploy/helm/aurora/values-production.yaml \
+          --set runner.image.tag=${{ github.sha }} \
+          --set liveFeed.image.tag=${{ github.sha }} \
+          --set dashboard.image.tag=${{ github.sha }} \
+          --wait \
+          --timeout 15m
+
+    - name: Run production validation
+      run: |
+        # Wait for services to be ready
+        kubectl wait --for=condition=available --timeout=600s deployment/aurora-runner -n aurora
+        kubectl wait --for=condition=available --timeout=600s deployment/aurora-live-feed -n aurora
+        kubectl wait --for=condition=available --timeout=600s deployment/aurora-dashboard -n aurora
+
+        # Run production validation tests
+        python tools/production_validation.py
+
+    - name: Notify deployment success
+      if: success()
+      run: |
+        curl -X POST -H 'Content-type: application/json' \
+        --data '{"text":"🚀 Aurora P3-E & P4 deployed successfully to production!"}' \
+        ${{ secrets.SLACK_WEBHOOK_URL }}
+
+    - name: Notify deployment failure
+      if: failure()
+      run: |
+        curl -X POST -H 'Content-type: application/json' \
+        --data '{"text":"❌ Aurora deployment to production failed!"}' \
+        ${{ secrets.SLACK_WEBHOOK_URL }}
+
+  # Security scan
+  security-scan:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: 'fs'
+        scan-ref: '.'
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+
+    - name: Upload Trivy scan results to GitHub Security tab
+      uses: github/codeql-action/upload-sarif@v2
+      if: always()
+      with:
+        sarif_file: 'trivy-results.sarif'
+
+  # Performance test
+  performance-test:
+    needs: deploy-staging
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/develop'
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Run performance tests
+      run: |
+        pip install locust
+        locust --headless --users 100 --spawn-rate 10 \
+               --run-time 5m --host http://aurora-staging.example.com \
+               --csv results
+
+    - name: Upload performance results
+      uses: actions/upload-artifact@v3
+      with:
+        name: performance-results
+        path: results_*.csv

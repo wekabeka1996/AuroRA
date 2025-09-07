@@ -1,0 +1,12 @@
+# Aurora Log Rotation Cron Job
+# Install: cp aurora-log-rotate /etc/cron.d/
+# This will run log rotation daily at 2:00 AM
+
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# Run log rotation daily at 2:00 AM
+0 2 * * * aurora /opt/aurora/scripts/log_rotate.sh >> /var/log/aurora/log_rotation.log 2>&1
+
+# Optional: Run health check every 5 minutes
+*/5 * * * * aurora curl -s --max-time 10 http://localhost:8001/healthz || echo "$(date): Health check failed" >> /var/log/aurora/health_checks.log

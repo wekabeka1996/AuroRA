@@ -5,7 +5,11 @@
     "risk.cvar.limit",
     "risk.cvar.alpha",
     "execution.sla.max_latency_ms",
-    "features.scaling"
+    "features.scaling",
+    "governance.alpha0",
+    "governance.delta",
+    "governance.spend_step",
+    "governance.policy"
   ],
   "schema": {
     "type": "object",
@@ -78,6 +82,16 @@
           "exchange": { "type": "object", "additionalProperties": true }
         }
       },
+      "governance": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "alpha0": {"type": "number", "minimum": 1e-6, "maximum": 1.0, "default": 0.05},
+          "delta": {"type": "number", "minimum": 0.0, "maximum": 10.0, "default": 0.1},
+          "spend_step": {"type": "number", "minimum": 1e-9, "maximum": 0.1, "default": 0.001},
+          "policy": {"type": "string", "enum": ["pocock","obf","bh_fdr"], "default": "pocock"}
+        }
+      },
       "features": {
         "type": "object",
         "additionalProperties": true
@@ -89,7 +103,6 @@
       "sizing": { "type": "object", "additionalProperties": true },
       "profile": { "type": "object", "additionalProperties": true },
       "universe": { "type": "object", "additionalProperties": true },
-      "governance": { "type": "object", "additionalProperties": true },
       "xai": { "type": "object", "additionalProperties": true },
       "leadlag": {
         "type": "object",

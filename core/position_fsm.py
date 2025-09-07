@@ -61,12 +61,6 @@ class PositionData:
     last_update_ts: int = 0
     ttl_seconds: Optional[int] = None
     exit_reason: Optional[str] = None
-    
-    def __post_init__(self):
-        if self.created_ts == 0:
-            self.created_ts = int(time.time())
-        if self.last_update_ts == 0:
-            self.last_update_ts = int(time.time())
 
 
 @dataclass
@@ -77,10 +71,6 @@ class TransitionResult:
     actions: List[str]  # Actions to take (e.g., ["cancel_orders", "flatten_position"])
     reason: str
     metadata: Optional[Dict[str, Any]] = None
-    
-    def __post_init__(self):
-        if self.metadata is None:
-            self.metadata = {}
 
 
 class PositionFSM:

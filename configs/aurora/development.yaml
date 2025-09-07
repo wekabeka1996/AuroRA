@@ -1,0 +1,47 @@
+# Aurora development config
+env: development
+api:
+  host: 127.0.0.1
+  port: 8080
+
+aurora:
+  latency_guard_ms: 100     # Relaxed for development
+  latency_window_sec: 60
+  cooloff_base_sec: 60      # Shorter for development
+  halt_threshold_repeats: 3
+
+# Guards/gates for pretrade checks (very relaxed for development)
+guards:
+  spread_bps_limit: 200     # Very relaxed
+  latency_ms_limit: 1000    # Very relaxed  
+  vol_guard_std_bps: 500    # Very relaxed
+  trap_guard_enabled: false # Disabled for development
+
+risk:
+  pi_min_bps: 0.5          # Lower for development
+  dd_day_pct: 20.0         # Higher tolerance
+  max_concurrent: 2         # Lower for development
+  size_scale: 0.1          # Much smaller positions
+
+slippage:
+  eta_fraction_of_b: 0.50  # Higher tolerance
+
+trap:
+  window_s: 5.0            # Longer window
+  levels: 3                # Fewer levels
+  z_threshold: 3.0         # Higher threshold
+  cancel_pctl: 95
+
+pretrade:
+  order_profile: er_before_slip
+
+sprt:
+  enabled: false           # Disabled for development
+  alpha: 0.1
+  beta: 0.1
+  sigma: 2.0
+  max_obs: 50
+
+security:
+  ops_token: aurora_dev_ops_token_development_123456789
+  api_token: aurora_dev_api_token_development_123456789

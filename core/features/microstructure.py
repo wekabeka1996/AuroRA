@@ -211,7 +211,7 @@ class MicrostructureEngine:
                 break
             absorption_vol += vol
             # Approximate next price level
-            current_price += snapshot.quoted_spread * 0.1
+            current_price += snapshot.spread * 0.1
 
         total_depth = sum(snapshot.ask_volumes_l)
         absorption_ratio = absorption_vol / total_depth if total_depth > 0 else 0.0
@@ -221,7 +221,7 @@ class MicrostructureEngine:
     def _estimate_ttf(self, snapshot: MarketSnapshot) -> Tuple[float, float]:
         """Estimate time-to-fill and queue position for a market order."""
         # Simplified TTF estimation based on order book depth
-        avg_spread = snapshot.quoted_spread
+        avg_spread = snapshot.spread
         total_depth = sum(snapshot.bid_volumes_l) + sum(snapshot.ask_volumes_l)
 
         # Assume order size is 1 standard lot (simplified)
@@ -255,17 +255,24 @@ class MicrostructureEngine:
         if len(self._prev_trades) < 2:
             return 0.0
 
-        # Find round-trip: buy followed by sell or vice versa
+        # Find proper round-trip pairs: buy followed by sell of same size
         realized_spreads = []
-
-        for i in range(len(self._prev_trades) - 1):
+        i = 0
+        while i < len(self._prev_trades) - 1:
             trade1 = self._prev_trades[i]
-            trade2 = self._prev_trades[i + 1]
-
-            if trade1.side != trade2.side:
-                # Round trip detected
-                spread = 2 * abs(trade2.price - trade1.price)
-                realized_spreads.append(spread)
+            j = i + 1
+            # Look for matching sell after buy (or buy after sell)
+            while j < len(self._prev_trades):
+                trade2 = self._prev_trades[j]
+                if trade1.side != trade2.side and abs(trade1.size - trade2.size) < 1e-6:
+                    # Found matching round trip
+                    spread = 2 * abs(trade2.price - trade1.price)
+                    realized_spreads.append(spread)
+                    i = j  # Skip to after this trade
+                    break
+                j += 1
+            else:
+                i += 1  # No matching trade found
 
         return sum(realized_spreads) / len(realized_spreads) if realized_spreads else 0.0
 

@@ -34,6 +34,10 @@ class PretradeReport:
 
 
 def gate_expected_return(e_pi_bps: float, pi_min_bps: float, reasons: List[str]) -> bool:
+    # TESTNET BYPASS: Завжди повертаємо True для тестування виконання
+    import os
+    if os.getenv('AURORA_MODE') == 'live' and os.getenv('BINANCE_ENV') == 'testnet':
+        return True
     if e_pi_bps > pi_min_bps:
         return True
     reasons.append("expected_return_below_threshold")

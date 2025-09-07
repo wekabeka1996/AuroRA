@@ -21,7 +21,7 @@ Design goals
 
 from collections import deque
 from dataclasses import dataclass
-from typing import Deque, Dict, Iterable, List, Optional, Tuple
+from typing import Deque, Dict, Iterable, List, Optional, Tuple, Any
 
 from core.config.loader import get_config, ConfigError
 from core.calibration.calibrator import PrequentialMetrics
@@ -200,10 +200,52 @@ class CvarBreachAlert(BaseAlert):
         return None
 
 
+def route_reason_for_context(context: Dict[str, Any]) -> str:
+    """Generate routing reason based on context information."""
+    if not isinstance(context, dict):
+        return "invalid_context"
+
+    # Check for high latency
+    latency_ms = context.get("latency_ms")
+    if latency_ms is not None and isinstance(latency_ms, (int, float)):
+        if latency_ms > 5000:  # High latency threshold
+            return "high_latency"
+        elif latency_ms > 1000:  # Medium latency threshold
+            return "medium_latency"
+
+    # Check for deny rate
+    deny_rate = context.get("deny_rate")
+    if deny_rate is not None and isinstance(deny_rate, (int, float)):
+        if deny_rate > 0.8:
+            return "high_deny_rate"
+        elif deny_rate > 0.5:
+            return "medium_deny_rate"
+
+    # Check for calibration drift
+    ece = context.get("ece")
+    if ece is not None and isinstance(ece, (int, float)):
+        if ece > 0.1:
+            return "calibration_drift"
+        elif ece > 0.05:
+            return "minor_calibration_drift"
+
+    # Check for CVaR breach
+    cvar = context.get("cvar")
+    if cvar is not None and isinstance(cvar, (int, float)):
+        if cvar > 0.05:
+            return "cvar_breach"
+        elif cvar > 0.02:
+            return "cvar_warning"
+
+    # Default reason
+    return "unknown_issue"
+
+
 __all__ = [
     "AlertResult",
     "NoTradesAlert",
     "DenySpikeAlert",
     "CalibrationDriftAlert",
     "CvarBreachAlert",
+    "route_reason_for_context",
 ]

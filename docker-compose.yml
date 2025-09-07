@@ -1,0 +1,160 @@
+# Aurora P3-E & P4 Development Stack
+# Docker Compose configuration for local development and testing
+
+version: '3.8'
+
+services:
+  # Aurora Runner Service
+  aurora-runner:
+    build:
+      context: .
+      dockerfile: Dockerfile.runner
+    container_name: aurora-runner
+    ports:
+      - "8000:8000"
+    environment:
+      - PYTHONPATH=/app
+      - AURORA_ENV=development
+      - PROMETHEUS_METRICS_PORT=8000
+    volumes:
+      - ./logs:/app/logs
+      - ./data:/app/data
+      - ./configs:/app/configs:ro
+    networks:
+      - aurora-network
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Live Feed SSE Service
+  aurora-live-feed:
+    build:
+      context: .
+      dockerfile: Dockerfile.live_feed
+    container_name: aurora-live-feed
+    ports:
+      - "8001:8001"
+    environment:
+      - PYTHONPATH=/app
+      - AURORA_ENV=development
+      - SSE_PORT=8001
+    volumes:
+      - ./logs:/app/logs:ro
+    networks:
+      - aurora-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # Metrics Exporter/Dashboard
+  aurora-dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile.dashboard
+    container_name: aurora-dashboard
+    ports:
+      - "8002:8002"
+    environment:
+      - PYTHONPATH=/app
+      - AURORA_ENV=development
+      - METRICS_PORT=8002
+    volumes:
+      - ./docs:/app/docs:ro
+    networks:
+      - aurora-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # Prometheus Monitoring
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: aurora-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./deploy/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    networks:
+      - aurora-network
+    restart: unless-stopped
+
+  # Alertmanager
+  alertmanager:
+    image: prom/alertmanager:latest
+    container_name: aurora-alertmanager
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./deploy/alerts.yml:/etc/alertmanager/alertmanager.yml:ro
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+    networks:
+      - aurora-network
+    restart: unless-stopped
+
+  # Grafana Dashboard
+  grafana:
+    image: grafana/grafana:latest
+    container_name: aurora-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=aurora123
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deploy/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    networks:
+      - aurora-network
+    restart: unless-stopped
+
+  # Node Exporter (System Metrics)
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: aurora-node-exporter
+    ports:
+      - "9100:9100"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.rootfs=/rootfs'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    networks:
+      - aurora-network
+    restart: unless-stopped
+
+volumes:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  aurora-network:
+    driver: bridge

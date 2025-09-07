@@ -1,0 +1,31 @@
+overlay:
+  market:
+    symbols:
+    - name: SOLUSDT
+      venue: binance_futures
+    - name: SOONUSDT
+      venue: binance_futures
+  parent_gate:
+    enabled: true
+    z_threshold: 0.66
+    align_sign: true
+    lookback_s: 120
+    max_spread_bps: 50
+  reward:
+    expected_net_reward_threshold_bps: -2.0
+  sizing:
+    limits:
+      max_notional_usd: 60
+  logging:
+    dedup_window_ms: 200
+    sampling:
+    - match: WS\.CONNECT|WS\.SUBSCRIBE|EXCH
+      sample_every: 1
+    - match: EXPECTED_NET_REWARD_GATE
+      sample_every: 1
+    - match: PARENT_GATE\.EVAL
+      sample_every: 1
+    - match: POLICY\.DECISION
+      sample_every: 1
+    - match: RISK\.DENY|WHY_NEGATIVE_EDGE
+      sample_every: 50

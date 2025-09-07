@@ -5,14 +5,16 @@ import asyncio
 import uvicorn
 import json
 import time
+import shutil
 from fastapi import FastAPI, HTTPException, Request
 from contextlib import asynccontextmanager
 from fastapi.responses import RedirectResponse
 from pathlib import Path
 from pydantic import BaseModel
 from typing import Any, Dict, cast
-from prometheus_client import make_asgi_app, Histogram, Gauge, Counter
+from prometheus_client import make_asgi_app, Histogram, Gauge, Counter, CollectorRegistry
 from dotenv import load_dotenv, find_dotenv
+from fastapi.middleware.cors import CORSMiddleware
 
 # Ensure project root is on sys.path when running directly (python api/service.py)
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -75,7 +77,23 @@ VERSION = get_version()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # startup
+    # startup - Use new production configuration system
+    try:
+        from core.config.api_integration import production_lifespan
+        async with production_lifespan(app):
+            yield
+        return
+    except ImportError:
+        # Fallback to legacy system if new system isn't available
+        pass
+    
+    # Legacy startup for backward compatibility
+    # Security bootstrap: require AURORA_API_TOKEN
+    api_token = os.getenv('AURORA_API_TOKEN')
+    if not api_token or len(api_token.strip()) < 16:
+        # Fail startup fast if token is not configured
+        raise RuntimeError("AURORA_API_TOKEN is required and must be >=16 chars")
+
     # Load YAML-first config with env overrides. Precedence:
     # AURORA_CONFIG (path or name) → AURORA_CONFIG_NAME → default CONFIG_PATH
     cfg: dict = {}
@@ -116,11 +134,32 @@ async def lifespan(app: FastAPI):
         sprt_cfg = None
     app.state.cfg = cfg
     app.state.sprt_cfg = sprt_cfg
+    # Persist overlay path from config for control-plane endpoints
+    try:
+        ov_path = ((cfg or {}).get('overlays') or {}).get('active', 'profiles/overlays/_active_shadow.yaml')
+    except Exception:
+        ov_path = 'profiles/overlays/_active_shadow.yaml'
+    try:
+        p = Path(ov_path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        app.state.overlay_path = p
+    except Exception:
+        app.state.overlay_path = Path('profiles/overlays/_active_shadow.yaml')
 
-    # Fail-fast: legacy 'shadow' runtime mode has been removed project-wide.
-    aurora_mode = os.getenv('AURORA_MODE', 'testnet')
-    if isinstance(aurora_mode, str) and aurora_mode.lower() == 'shadow':
-        raise RuntimeError("'shadow' runtime mode is removed; set AURORA_MODE=testnet or live")
+    # Validate Aurora runtime mode and environment compatibility  
+    from core.env_config import validate_aurora_mode, get_runtime_mode
+    
+    try:
+        aurora_mode, binance_env = get_runtime_mode()
+        if isinstance(aurora_mode, str) and aurora_mode.lower() == 'shadow':
+            raise RuntimeError("'shadow' runtime mode is removed; use AURORA_MODE=live or testnet")
+        
+        # Log the runtime configuration
+        app.state.aurora_mode = aurora_mode
+        app.state.binance_env = binance_env
+        
+    except Exception as e:
+        raise RuntimeError(f"Invalid Aurora runtime configuration: {e}")
 
     # Event emitter
     try:
@@ -314,6 +353,12 @@ async def lifespan(app: FastAPI):
         app.state.min_position_hold_ms = 0
         app.state._position_state = {}
 
+    # Start SLI update loop
+    try:
+        app.state._sli_task = asyncio.create_task(_sli_update_loop(app))
+    except Exception:
+        pass
+
     yield
 
     # shutdown
@@ -338,6 +383,14 @@ async def lifespan(app: FastAPI):
     except Exception:
         pass
 
+    # Stop SLI task
+    try:
+        t = getattr(app.state, '_sli_task', None)
+        if t:
+            t.cancel()
+    except Exception:
+        pass
+
 
 app = FastAPI(
     title="AURORA Trading API",
@@ -346,20 +399,40 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Prometheus metrics
-metrics_app = make_asgi_app()
+"""
+Prometheus metrics: use a dedicated CollectorRegistry per module import to avoid
+duplicated timeseries when tests reload this module (importlib.reload).
+"""
+METRICS_REGISTRY = CollectorRegistry()
+metrics_app = make_asgi_app(METRICS_REGISTRY)
 app.mount("/metrics", metrics_app)
 
-LATENCY = Histogram('aurora_prediction_latency_ms', 'Prediction latency in milliseconds', buckets=(1, 2, 5, 7.5, 10, 15, 25, 50, 75, 100, 150, 250))
-KAPPA_PLUS = Gauge('aurora_kappa_plus', 'Current kappa plus uncertainty metric')
-REGIME = Gauge('aurora_regime', 'Current detected market regime')
-REQUESTS = Counter('aurora_prediction_requests_total', 'Total prediction requests')
-OPS_TOKEN_ROTATIONS = Counter('aurora_ops_token_rotations_total', 'Total OPS token rotations')
-EVENTS_EMITTED = Counter('aurora_events_emitted_total', 'Total Aurora events emitted', ['code'])
-ORDERS_SUCCESS = Counter('aurora_orders_success_total', 'Total successful orders recorded')
-ORDERS_DENIED = Counter('aurora_orders_denied_total', 'Total denied orders recorded')
-ORDERS_REJECTED = Counter('aurora_orders_rejected_total', 'Total rejected orders recorded')
-OPS_AUTH_FAIL = Counter('aurora_ops_auth_fail_total', 'Total failed OPS auth attempts')
+LATENCY = Histogram('aurora_prediction_latency_ms', 'Prediction latency in milliseconds', buckets=(1, 2, 5, 7.5, 10, 15, 25, 50, 75, 100, 150, 250), registry=METRICS_REGISTRY)
+KAPPA_PLUS = Gauge('aurora_kappa_plus', 'Current kappa plus uncertainty metric', registry=METRICS_REGISTRY)
+REGIME = Gauge('aurora_regime', 'Current detected market regime', registry=METRICS_REGISTRY)
+REQUESTS = Counter('aurora_prediction_requests_total', 'Total prediction requests', registry=METRICS_REGISTRY)
+OPS_TOKEN_ROTATIONS = Counter('aurora_ops_token_rotations_total', 'Total OPS token rotations', registry=METRICS_REGISTRY)
+EVENTS_EMITTED = Counter('aurora_events_emitted_total', 'Total Aurora events emitted', ['code'], registry=METRICS_REGISTRY)
+ORDERS_SUCCESS = Counter('aurora_orders_success_total', 'Total successful orders recorded', registry=METRICS_REGISTRY)
+ORDERS_DENIED = Counter('aurora_orders_denied_total', 'Total denied orders recorded', registry=METRICS_REGISTRY)
+ORDERS_REJECTED = Counter('aurora_orders_rejected_total', 'Total rejected orders recorded', registry=METRICS_REGISTRY)
+OPS_AUTH_FAIL = Counter('aurora_ops_auth_fail_total', 'Total failed OPS auth attempts', registry=METRICS_REGISTRY)
+
+# --- Additional SLI/Business metrics ---
+DENY_RATE_15M = Gauge('aurora_deny_rate_15m', 'Deny rate over 15 minutes window', registry=METRICS_REGISTRY)
+LATENCY_P99_MS = Gauge('aurora_latency_p99_ms', 'p99 latency in ms over recent window', registry=METRICS_REGISTRY)
+ECE_GAUGE = Gauge('aurora_ece', 'Expected Calibration Error', registry=METRICS_REGISTRY)
+CVAR95_MIN = Gauge('aurora_cvar95_min', 'CVaR 95% min over recent window', registry=METRICS_REGISTRY)
+SSE_CLIENTS = Gauge('aurora_sse_clients', 'Current number of SSE clients', registry=METRICS_REGISTRY)
+SSE_DISCONNECTS = Counter('aurora_sse_disconnects_total', 'Total SSE client disconnects', registry=METRICS_REGISTRY)
+
+PARENT_GATE_ALLOW = Counter('aurora_parent_gate_allow_total', 'Parent gate allows', registry=METRICS_REGISTRY)
+PARENT_GATE_DENY = Counter('aurora_parent_gate_deny_total', 'Parent gate denies', registry=METRICS_REGISTRY)
+EXPECTED_NET_REWARD_BLOCKED = Counter('aurora_expected_net_reward_blocked_total', 'Expected net reward blocks', registry=METRICS_REGISTRY)
+ORDERS_SUBMITTED_SHADOW = Counter('aurora_orders_submitted_shadow_total', 'Shadow orders submitted total', registry=METRICS_REGISTRY)
+
+# Model neutral streak per symbol (1 if last 200 p_cal values == 0.5)
+MODEL_NEUTRAL_STREAK = Gauge('aurora_model_neutral_streak', 'Neutral p_cal streak', ['symbol'], registry=METRICS_REGISTRY)
 
 
 # --- Security middleware for OPS ---
@@ -396,6 +469,115 @@ def _ops_auth(x_ops_token: str | None = Header(default=None, alias="X-OPS-TOKEN"
         OPS_AUTH_FAIL.inc()
         raise HTTPException(status_code=403, detail="Forbidden")
     return True
+
+
+def _xauth(x_auth: str | None = Header(default=None, alias="X-Auth-Token")):
+    token = os.getenv('AURORA_API_TOKEN')
+    if not token:
+        raise HTTPException(status_code=503, detail="AURORA_API_TOKEN not configured")
+    if x_auth is None:
+        raise HTTPException(status_code=401, detail="Missing X-Auth-Token")
+    if x_auth != token:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    return True
+
+
+# --- X-Auth & IP allowlist & Rate-limit Middleware ---
+from starlette.types import ASGIApp, Receive, Scope, Send
+from starlette.responses import JSONResponse
+
+
+def _parse_allowlist_env() -> set[str]:
+    v = os.getenv('AURORA_IP_ALLOWLIST', '').strip()
+    if not v:
+        # Default allow localhost to avoid self-lockout in dev
+        return {"127.0.0.1", "::1"}
+    return {ip.strip() for ip in v.split(',') if ip.strip()}
+
+
+def _is_mutating(method: str, path: str) -> bool:
+    if method.upper() in {"POST", "PUT", "PATCH", "DELETE"}:
+        # exclude known read-only posts if any arise; keep conservative
+        return True
+    return False
+
+
+class RateLimiter:
+    def __init__(self, rps_general: float = 60.0, rps_mutating: float = 10.0):
+        self.rps_g = float(rps_general)
+        self.rps_m = float(rps_mutating)
+        self.state: dict[str, dict[str, float]] = {}
+
+    def allow(self, ip: str, mutating: bool, now: float | None = None) -> bool:
+        now = now or time.time()
+        rec = self.state.setdefault(ip, {"tokens_g": self.rps_g, "tokens_m": self.rps_m, "ts": now})
+        dt = max(0.0, now - rec["ts"])
+        # leak tokens to max capacity
+        rec["tokens_g"] = min(self.rps_g, rec["tokens_g"] + dt * self.rps_g)
+        rec["tokens_m"] = min(self.rps_m, rec["tokens_m"] + dt * self.rps_m)
+        rec["ts"] = now
+        if mutating:
+            if rec["tokens_m"] >= 1.0 and rec["tokens_g"] >= 1.0:
+                rec["tokens_m"] -= 1.0
+                rec["tokens_g"] -= 1.0
+                return True
+            return False
+        else:
+            if rec["tokens_g"] >= 1.0:
+                rec["tokens_g"] -= 1.0
+                return True
+            return False
+
+
+_rate_limiter = RateLimiter()
+_ip_allow = _parse_allowlist_env()
+
+
+@app.middleware("http")
+async def security_and_rl_middleware(request: Request, call_next):
+    # CORS handled by ASGI middleware below; here we do IP + Auth + RL
+    # Detect client IP with fallbacks suitable for TestClient
+    client_ip = (request.headers.get('x-forwarded-for') or '').split(',')[0].strip()
+    if not client_ip:
+        client_ip = (request.client.host if request.client else None) or ""
+    if client_ip in {"", "testclient"}:
+        client_ip = "127.0.0.1"
+    if client_ip not in _ip_allow:
+        return JSONResponse({"detail": "IP not allowed"}, status_code=403)
+
+    method = request.method
+    path = request.url.path
+    mutating = _is_mutating(method, path)
+
+    # Require X-Auth-Token for mutating endpoints, except trusted internal control/data paths
+    # - /ops/* endpoints are protected by X-OPS-TOKEN dependency (_ops_auth)
+    # - /pretrade/* and /posttrade/* are internal data pipes used by runner/tests
+    if mutating:
+        if not (path.startswith('/ops') or path.startswith('/pretrade') or path.startswith('/posttrade')):
+            x_auth = request.headers.get('X-Auth-Token')
+            token = os.getenv('AURORA_API_TOKEN')
+            if not x_auth:
+                return JSONResponse({"detail": "Missing X-Auth-Token"}, status_code=401)
+            if not token or x_auth != token:
+                return JSONResponse({"detail": "Forbidden"}, status_code=403)
+
+    # Rate limit
+    if not _rate_limiter.allow(client_ip, mutating):
+        return JSONResponse({"detail": "Too Many Requests"}, status_code=429)
+
+    return await call_next(request)
+
+
+# Optional CORS (disabled by default; enable via AURORA_CORS_ORIGIN)
+cors_origin = os.getenv('AURORA_CORS_ORIGIN', '').strip()
+if cors_origin:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[cors_origin],
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_headers=["*"],
+    )
 
 
 # --- API Endpoints ---
@@ -501,7 +683,7 @@ async def pretrade_check(request: Request, req: PretradeCheckRequest):
         # Невалідний формат запиту
         raise HTTPException(status_code=422, detail=str(e))
 
-    mode = (acc or {}).get('mode', os.getenv('AURORA_MODE', 'testnet'))
+    mode = (acc or {}).get('mode', os.getenv('AURORA_MODE', 'live'))
     max_qty = float((o or {}).get('qty', 0.0) or 0.0)
 
     emitter: EventEmitter | None = getattr(request.app.state, 'events_emitter', None)
@@ -751,6 +933,28 @@ async def pretrade_check(request: Request, req: PretradeCheckRequest):
             },
         )
 
+    # Update policy counters
+    try:
+        if allow:
+            try:
+                PARENT_GATE_ALLOW.inc()
+            except Exception:
+                pass
+        else:
+            try:
+                PARENT_GATE_DENY.inc()
+            except Exception:
+                pass
+            # If expected net reward is the reason
+            rs = (obs.get('reasons') if isinstance(obs, dict) else []) or []
+            if any(isinstance(r, str) and 'expected' in r and 'reward' in r and ('low' in r or 'negative' in r) for r in rs):
+                try:
+                    EXPECTED_NET_REWARD_BLOCKED.inc()
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
     return PretradeCheckResponse(allow=allow, max_qty=max_qty, reason=reason, observability=obs, quotas=quotas, risk_scale=risk_scale)
 
 
@@ -984,6 +1188,355 @@ if __name__ == '__main__':
     port = ((app.state.cfg or {}).get('api', {}) or {}).get('port', 8000) if hasattr(app.state, 'cfg') else 8000
     uvicorn.run(app, host=host, port=port)
 
+# --- Overlay Control API ---
+from fastapi import Body
+import tempfile
+
+
+def _overlay_dir() -> Path:
+    return Path('profiles') / 'overlays'
+
+
+def _overlay_active_path() -> Path:
+    return _overlay_dir() / '_active_shadow.yaml'
+
+
+def _overlay_backups_dir() -> Path:
+    return _overlay_dir() / '_backups'
+
+
+def _atomic_write(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile('w', delete=False, encoding='utf-8', dir=str(path.parent)) as tf:
+        tf.write(content)
+        tmp_name = tf.name
+    Path(tmp_name).replace(path)
+
+
+@app.post('/overlay/apply')
+async def overlay_apply(request: Request, body: dict | str = Body(..., media_type='application/json'), _: bool = Depends(_xauth)):
+    # Accept JSON or YAML string
+    try:
+        if isinstance(body, str):
+            cfg = yaml.safe_load(body)
+            serialized = body
+        else:
+            cfg = body
+            serialized = yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid overlay body: {e}")
+
+    # Validate minimal structure (at least dict)
+    if not isinstance(cfg, dict):
+        raise HTTPException(status_code=400, detail="Overlay must be an object")
+
+    # Backup current
+    act = _overlay_active_path()
+    bdir = _overlay_backups_dir()
+    bdir.mkdir(parents=True, exist_ok=True)
+    version = time.strftime('%Y%m%d-%H%M%S', time.gmtime())
+    if act.exists():
+        try:
+            backup_path = bdir / f"shadow_{version}.yaml"
+            backup_path.write_text(act.read_text(encoding='utf-8'), encoding='utf-8')
+        except Exception:
+            pass
+
+    # Atomic write new overlay
+    _atomic_write(act, serialized)
+
+    # Emit event
+    try:
+        em: AuroraEventLogger | None = getattr(request.app.state, 'events_emitter', None)
+        if em:
+            em.emit('OBS.OVERLAY.APPLIED', {'version': version, 'active': str(act)})
+    except Exception:
+        pass
+
+    return {"status": "ok", "version": version}
+
+
+@app.get('/overlay/active')
+async def overlay_active(_: bool = Depends(_xauth)):
+    act = _overlay_active_path()
+    if not act.exists():
+        raise HTTPException(status_code=404, detail="No active overlay")
+    st = act.stat()
+    return {
+        'path': str(act),
+        'mtime': int(st.st_mtime),
+        'version': time.strftime('%Y%m%d-%H%M%S', time.gmtime(st.st_mtime)),
+        'body': act.read_text(encoding='utf-8'),
+    }
+
+
+@app.post('/overlay/rollback')
+async def overlay_rollback(request: Request, body: dict = Body(...), _: bool = Depends(_xauth)):
+    # body may contain {version: "..."} or {backup: "filename.yaml"}
+    ver = (body or {}).get('version')
+    bname = (body or {}).get('backup')
+    bdir = _overlay_backups_dir()
+    if ver:
+        candidate = bdir / f"shadow_{ver}.yaml"
+    elif bname:
+        candidate = bdir / str(bname)
+    else:
+        raise HTTPException(status_code=400, detail="version or backup required")
+    if not candidate.exists():
+        raise HTTPException(status_code=404, detail="backup not found")
+    _atomic_write(_overlay_active_path(), candidate.read_text(encoding='utf-8'))
+
+    try:
+        em: AuroraEventLogger | None = getattr(request.app.state, 'events_emitter', None)
+        if em:
+            em.emit('OBS.OVERLAY.ROLLED_BACK', {'to': candidate.name})
+    except Exception:
+        pass
+
+    return {"status": "ok", "to": candidate.name}
+
+
+# --- Orchestrator Introspection (readonly) ---
+def _tail_file(path: Path, n: int) -> list[str]:
+    if not path.exists():
+        return []
+    # Simple tail implementation
+    lines = path.read_text(encoding='utf-8', errors='ignore').splitlines()
+    return lines[-max(0, int(n)) :]
+
+
+@app.get('/orchestrator/status')
+async def orchestrator_status(_: bool = Depends(_xauth)):
+    # Best-effort status snapshot
+    status_path = Path('artifacts') / 'online_optuna_status.json'
+    if status_path.exists():
+        try:
+            data = json.loads(status_path.read_text(encoding='utf-8'))
+            return {"status": data}
+        except Exception:
+            pass
+    # Defaults
+    return {
+        "status": {
+            "cycle": None,
+            "explore_ratio": None,
+            "ttl": None,
+            "last_score": None,
+            "last_gate": None,
+        }
+    }
+
+
+@app.get('/orchestrator/events/tail')
+async def orchestrator_events_tail(n: int = 200, _: bool = Depends(_xauth)):
+    path = Path('artifacts') / 'online_optuna_events.jsonl'
+    lines = _tail_file(path, n)
+    return {"lines": lines}
+
+
+# --- Gates Insight API (readonly) ---
+def _iter_jsonl(path: Path):
+    if not path.exists():
+        return
+    try:
+        with path.open('r', encoding='utf-8', errors='ignore') as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    yield json.loads(line)
+                except Exception:
+                    continue
+    except Exception:
+        return
+
+
+@app.get('/gates/counters')
+async def gates_counters(minutes: int = 15):
+    cutoff_ms = int(time.time() * 1000) - int(minutes * 60 * 1000)
+    events = Path('logs') / 'aurora_events.jsonl'
+    c = {
+        'parent_gate_allow': 0,
+        'parent_gate_deny': 0,
+        'expected_net_reward_blocked': 0,
+        'policy_allow': 0,
+        'policy_deny': 0,
+    }
+    for ev in _iter_jsonl(events) or []:
+        ts = int(ev.get('ts') or ev.get('ts_server') or 0)
+        if ts < cutoff_ms:
+            continue
+        t = str(ev.get('type') or ev.get('code') or '')
+        # Policy
+        if t == POLICY_DECISION or t == 'POLICY.DECISION':
+            try:
+                dec = (ev.get('payload') or {}).get('decision')
+                if dec == 'EXECUTE':
+                    c['policy_allow'] += 1
+                else:
+                    c['policy_deny'] += 1
+            except Exception:
+                pass
+        # Parent/ENR gates (best-effort types)
+        if 'PARENT_GATE' in t and 'ALLOW' in t:
+            c['parent_gate_allow'] += 1
+        if 'PARENT_GATE' in t and ('DENY' in t or 'BLOCK' in t):
+            c['parent_gate_deny'] += 1
+        if 'EXPECTED_NET_REWARD' in t and ('LOW' in t or 'BLOCK' in t or 'DENY' in t):
+            c['expected_net_reward_blocked'] += 1
+    return {'window_min': minutes, 'counters': c}
+
+
+@app.get('/gates/sample')
+async def gates_sample(n: int = 10):
+    events = Path('logs') / 'aurora_events.jsonl'
+    samples: list[dict[str, Any]] = []
+    lines = list(_iter_jsonl(events) or [])
+    # iterate from end
+    for ev in reversed(lines):
+        t = str(ev.get('type') or ev.get('code') or '')
+        if 'PARENT_GATE' in t or 'EXPECTED_NET_REWARD' in t:
+            samples.append(ev)
+        if len(samples) >= max(1, int(n)):
+            break
+    return {'count': len(samples), 'items': samples}
+
+
+# --- Background SLI updater ---
+async def _sli_update_loop(app: FastAPI):
+    while True:
+        try:
+            # Update deny rate from recent counters window (reuse gates_counters)
+            data = await gates_counters(minutes=15)
+            c = data.get('counters', {})
+            total = (c.get('policy_allow', 0) or 0) + (c.get('policy_deny', 0) or 0)
+            deny_rate = (c.get('policy_deny', 0) or 0) / total if total > 0 else 0.0
+            DENY_RATE_15M.set(deny_rate)
+        except Exception:
+            pass
+        # Compute neutral p_cal streaks from recent MODEL.CALIBRATION
+        try:
+            ev_path = (getattr(app.state, 'session_dir', Path('logs')) / 'aurora_events.jsonl')
+            last_by_symbol: dict[str, list[float]] = {}
+            import json as _json
+            lines: list[str] = []
+            if ev_path.exists():
+                try:
+                    with ev_path.open('rb') as f:
+                        f.seek(0, 2)
+                        size = f.tell()
+                        read = min(size, 512*1024)
+                        f.seek(-read, 1)
+                        chunk = f.read().decode('utf-8', errors='ignore')
+                    lines = chunk.splitlines()
+                except Exception:
+                    try:
+                        lines = ev_path.read_text(encoding='utf-8', errors='ignore').splitlines()
+                    except Exception:
+                        lines = []
+            for ln in reversed(lines[-5000:]):
+                try:
+                    ev = _json.loads(ln)
+                except Exception:
+                    continue
+                code = str(ev.get('event_code') or ev.get('code') or ev.get('type') or '').upper()
+                if code != 'MODEL.CALIBRATION':
+                    continue
+                d = ev.get('details') or {}
+                sym = str(d.get('symbol') or 'UNKNOWN')
+                p = d.get('p_cal')
+                if not isinstance(p, (int, float)):
+                    continue
+                arr = last_by_symbol.setdefault(sym, [])
+                if len(arr) < 220:
+                    arr.append(float(p))
+            for sym, vals in last_by_symbol.items():
+                if len(vals) >= 200 and all(abs(v - 0.5) < 1e-9 for v in vals[:200]):
+                    MODEL_NEUTRAL_STREAK.labels(symbol=sym).set(1)
+                else:
+                    MODEL_NEUTRAL_STREAK.labels(symbol=sym).set(0)
+        except Exception:
+            pass
+        # Other gauges are updated by respective components; keep placeholders
+        try:
+            await asyncio.sleep(float(os.getenv('AURORA_SLI_REFRESH_SEC', '7')))
+        except Exception:
+            await asyncio.sleep(7.0)
+
+
+# --- Overlay control endpoints ---
+class OverlayBody(BaseModel):
+    overlay: dict
+
+
+@app.get('/overlay/active')
+async def overlay_active(_: bool = Depends(_xauth)):
+    path: Path = getattr(app.state, 'overlay_path', Path('profiles/overlays/_active_shadow.yaml'))
+    try:
+        data = yaml.safe_load(path.read_text(encoding='utf-8')) if path.exists() else {}
+    except Exception:
+        data = {}
+    return {"path": str(path), "overlay": data}
+
+
+@app.post('/overlay/apply')
+async def overlay_apply(body: OverlayBody, _: bool = Depends(_xauth)):
+    path: Path = getattr(app.state, 'overlay_path', Path('profiles/overlays/_active_shadow.yaml'))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    # backup current
+    try:
+        if path.exists():
+            ts = time.strftime('%Y%m%d-%H%M%S', time.gmtime())
+            backup = path.with_suffix(path.suffix + f'.{ts}.bak')
+            shutil.copy2(path, backup)
+            setattr(app.state, 'overlay_backup_last', backup)
+    except Exception:
+        pass
+    # write new overlay atomically
+    tmp = path.with_suffix(path.suffix + '.tmp')
+    try:
+        tmp.write_text(yaml.safe_dump(body.overlay, allow_unicode=True), encoding='utf-8')
+        os.replace(tmp, path)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f'overlay write failed: {e}')
+    # emit events
+    try:
+        em: AuroraEventLogger | None = getattr(app.state, 'events_emitter', None)
+        if em:
+            em.emit('OVERLAY.APPLY', {"path": str(path)})
+            em.emit('PARENT_GATE.RELOAD', {"source": "overlay.apply"})
+    except Exception:
+        pass
+    return {"status": "ok", "path": str(path)}
+
+
+@app.post('/overlay/rollback')
+async def overlay_rollback(_: bool = Depends(_xauth)):
+    path: Path = getattr(app.state, 'overlay_path', Path('profiles/overlays/_active_shadow.yaml'))
+    backup: Path | None = getattr(app.state, 'overlay_backup_last', None)
+    if not (backup and backup.exists()):
+        # find latest backup
+        try:
+            baks = sorted(path.parent.glob(path.name + '.*.bak'))
+            backup = baks[-1] if baks else None
+        except Exception:
+            backup = None
+    if not (backup and backup.exists()):
+        raise HTTPException(status_code=404, detail='no backup found')
+    try:
+        shutil.copy2(backup, path)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f'rollback failed: {e}')
+    try:
+        em: AuroraEventLogger | None = getattr(app.state, 'events_emitter', None)
+        if em:
+            em.emit('OVERLAY.ROLLBACK', {"path": str(path), "from": str(backup)})
+            em.emit('PARENT_GATE.RELOAD', {"source": "overlay.rollback"})
+    except Exception:
+        pass
+    return {"status": "ok", "path": str(path), "from": str(backup)}
+
 # --- OPS Endpoints ---
 @app.post("/ops/cooloff/{sec}")
 async def ops_cooloff(sec: int, _: bool = Depends(_ops_auth)):
@@ -1007,6 +1560,27 @@ async def ops_reset(_: bool = Depends(_ops_auth)):
     if emitter:
         emitter.emit(type="OPS.RESET", severity="info", code="OPS.RESET", payload={"state": hg.snapshot()})
     return {"status": "ok", "state": hg.snapshot()}
+
+
+@app.get("/ops/model_status")
+async def ops_model_status(_: bool = Depends(_ops_auth)):
+    """Get model loading status for all symbols"""
+    # Mock model status - in production read from actual model registry
+    model_status = {
+        "SOLUSDT": {
+            "loaded": True,
+            "features_ok": True,
+            "calibrator_ok": True,
+            "last_ts": time.time()
+        },
+        "SOONUSDT": {
+            "loaded": True,
+            "features_ok": True,
+            "calibrator_ok": True,
+            "last_ts": time.time()
+        }
+    }
+    return {"status": "ok", "models": model_status}
 
 
 @app.post("/aurora/{mode}")

@@ -61,6 +61,9 @@ def vpin_volume_buckets(trades: Sequence[Trade], bucket_volume: float, max_bucke
     bucket imbalance is |B_i − S_i| / V (capped at 1). VPIN is the average over
     the last N=min(max_buckets, #buckets) buckets.
     """
+    if bucket_volume <= 0.0:
+        return 0.0
+
     V = max(1e-9, float(bucket_volume))
     B = 0.0
     S = 0.0
@@ -79,7 +82,7 @@ def vpin_volume_buckets(trades: Sequence[Trade], bucket_volume: float, max_bucke
             vol -= take
             remain -= take
             # bucket complete
-            if remain <= 1e-12:
+            if remain <= 0.0:
                 imbalances.append(min(1.0, abs(B - S) / V))
                 B, S = 0.0, 0.0
                 remain = V
@@ -167,11 +170,18 @@ class _Rolling:
         self._evict(ts)
 
     def _evict(self, now_ts: float) -> None:
-        cutoff = float(now_ts) - self.h
-        while self.q and self.q[0].ts < cutoff:
-            t = self.q.popleft()
-            self.bsum -= t.buy
-            self.ssum -= t.sell
+        if self.h <= 0.0:
+            # Zero or negative horizon means evict everything
+            while self.q:
+                t = self.q.popleft()
+                self.bsum -= t.buy
+                self.ssum -= t.sell
+        else:
+            cutoff = float(now_ts) - self.h
+            while self.q and self.q[0].ts < cutoff:
+                t = self.q.popleft()
+                self.bsum -= t.buy
+                self.ssum -= t.sell
 
     def sums(self, now_ts: float) -> Tuple[float, float]:
         self._evict(now_ts)

@@ -147,7 +147,7 @@ class Router:
         self.exchange_name = exchange_name
         
         # Default values for compatibility
-        self.edge_floor_bps = 1.0
+        self.edge_floor_bps = 1.0  # Keep original backward compatibility default
         self.horizon_ms = 1500
         self.kappa_bps_per_ms = 0.01
         self.max_latency_ms = 250.0
@@ -175,7 +175,45 @@ class Router:
             latency_ms = 10.0  # default
             
         # 1) SLA gate — надмірна латентність
-        if latency_ms > self.max_latency_ms:
+        if hasattr(self, 'slagate') and self.slagate:
+            # Use slagate for latency check in backward compatibility mode
+            slagate_result = self.slagate.gate(edge_bps=edge_bps_estimate, latency_ms=latency_ms)
+            if not slagate_result.allow:
+                decision = Decision(
+                    route="deny",
+                    why_code="WHY_SLA_LATENCY",
+                    scores={
+                        "latency_ms": float(latency_ms),
+                        "max_latency_ms": self.slagate.max_latency_ms,
+                        "edge_after_bps": slagate_result.edge_after_bps
+                    }
+                )
+                
+                # XAI логування
+                self.xai_logger.log_decision("SLA_DENY", {
+                    "why_code": "WHY_SLA_LATENCY",
+                    "latency_ms": latency_ms,
+                    "max_latency_ms": self.slagate.max_latency_ms,
+                    "side": side
+                })
+                
+                # Backward compatibility
+                if hasattr(self, 'hazard_model'):
+                    return Decision(
+                        route='deny',
+                        why_code='WHY_SLA_LATENCY',
+                        scores={
+                            'latency_ms': float(latency_ms),
+                            'max_latency_ms': self.slagate.max_latency_ms
+                        },
+                        e_maker_bps=0.0,
+                        e_taker_bps=0.0,
+                        p_fill=0.0,
+                        reason=slagate_result.reason
+                    )
+
+                return decision
+        elif latency_ms > self.max_latency_ms:
             decision = Decision(
                 route="deny",
                 why_code="WHY_SLA_LATENCY",
@@ -343,8 +381,8 @@ class Router:
                         'maker_spread_ok_bps': self.maker_spread_ok_bps,
                         'edge_after_latency_bps': edge_after_lat
                     },
-                    e_maker_bps=e_maker_base,
-                    e_taker_bps=e_taker_base,
+                    e_maker_bps=e_maker_expected,  # Use expected value, not base
+                    e_taker_bps=e_taker_expected,  # Use expected value, not base
                     p_fill=p_fill,
                     reason='E_maker > E_taker'
                 )
@@ -382,8 +420,8 @@ class Router:
                         'spread_bps': spread_bps,
                         'edge_after_latency_bps': edge_after_lat
                     },
-                    e_maker_bps=e_maker_base,
-                    e_taker_bps=e_taker_base,
+                    e_maker_bps=e_maker_expected,  # Use expected value, not base
+                    e_taker_bps=e_taker_expected,  # Use expected value, not base
                     p_fill=p_fill,
                     reason='E_taker > E_maker'
                 )

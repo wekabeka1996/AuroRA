@@ -37,7 +37,7 @@ def _load_env(dotenv: bool = typer.Option(True, help="Load .env from repo root")
 
 
 @app.command()
-def start_api(port: int = typer.Option(8000), host: str = typer.Option("127.0.0.1")):
+def start_api(port: int = typer.Option(8000), host: str = typer.Option("127.0.0.1"), background: bool = typer.Option(False, help="Start in background without health check")):
     """Start FastAPI with uvicorn, ensuring .env is loaded and port is free."""
     svc = ROOT / "api" / "service.py"
     if not svc.exists():
@@ -85,7 +85,13 @@ def start_api(port: int = typer.Option(8000), host: str = typer.Option("127.0.0.
         "--log-level",
         "info",
     ]
-    subprocess.Popen(cmd, cwd=str(ROOT))
+    # Start in background and keep running
+    process = subprocess.Popen(cmd, cwd=str(ROOT))
+    
+    # If --background flag is set, don't wait for health check
+    if background or os.getenv("AURORA_START_API_BACKGROUND", "").lower() in {"1", "true", "yes"}:
+        typer.echo(f"API started in background (PID: {process.pid})")
+        return
 
     # quick health probe loop (liveness is 200 even while models load)
     import requests

@@ -1,54 +1,366 @@
-# Конфигурации Aurora — структура, приоритеты и overrides
+# Aurora Configuration System — Production Ready
 
-Этот документ описывает:
-- где лежат конфиги сервиса Aurora и раннера (WiseScalp),
-- как они резолвятся и подхватываются при старте,
-- какие переменные окружения переопределяют YAML,
-- как задать SPRT и профиль pre-trade пайплайна,
-- как передать конфиг раннеру удобным способом.
+Aurora використовує багаторівневу систему конфігурацій з підтримкою environments, inheritance та hot reload.
 
-Док соответствует текущей реализации в коде: `common/config.py`, `api/service.py`, `tools/run_canary.py`, `tools/auroractl.py`, `core/config_loader.py`.
+## 📁 Повна структура конфігурацій
+
+```
+configs/                          # 🎯 Основна система конфігурацій
+├── aurora/                       # Core Aurora API configurations
+│   ├── base.yaml                # Базові налаштування (спільні)
+│   ├── development.yaml         # Development environment
+│   ├── testnet.yaml            # Testnet environment
+│   ├── production.yaml         # Production environment
+│   └── README.md               # 📖 Детальна документація Aurora API
+├── runner/                      # Runner (WiseScalp) configurations  
+│   ├── base.yaml               # Базові налаштування runner
+│   ├── test_param.yaml         # Тестові параметри
+│   └── README.md               # 📖 Детальна документація Runner
+├── schema.json                  # JSON схема для валідації
+└── README.md                   # 📖 Цей файл
+
+profiles/                        # 🎲 Торгові стратегії та профілі
+├── aurora_live_canary.yaml     # Live canary профіль
+├── aurora_shadow_best.yaml     # Оптимізований shadow профіль
+├── base.yaml                   # Базовий профіль
+├── sol_soon_base.yaml         # SOL+SOON мульти-символьна стратегія
+├── overlays/                   # Overlay конфігурації
+│   └── _active_shadow.yaml    # Активний shadow overlay
+└── README.md                   # 📖 Детальна документація профілів
+
+archive/configs_legacy/          # 🗂 Архів застарілих конфігурацій
+├── config_old_per_symbol/      # Стара per-symbol система
+├── master_config_v1.yaml       # Застарілий master config v1
+├── master_config_v2.yaml       # Застарілий master config v2
+├── production_ssot.yaml        # Стара SSOT конфігурація
+└── README.md                   # 📖 Документація архіву
+```
+
+## 🎯 Як вибрати правильну конфігурацію
+
+### Для Aurora API (Core System):
+📍 **Місце**: `configs/aurora/`
+📖 **Документація**: [configs/aurora/README.md](aurora/README.md)
+
+```bash
+# Development режим
+export AURORA_MODE=development
+python api/service.py
+
+# Testnet режим  
+export AURORA_MODE=testnet
+python api/service.py
+
+# Production режим
+export AURORA_MODE=production
+python api/service.py
+```
+
+### Для Runner (Trading Bot):
+📍 **Місце**: `configs/runner/`
+📖 **Документація**: [configs/runner/README.md](runner/README.md)
+
+```bash
+# Базова конфігурація runner
+python -m skalp_bot.runner.run_live_aurora --config configs/runner/base.yaml
+
+# Тестові параметри
+python -m skalp_bot.runner.run_live_aurora --config configs/runner/test_param.yaml
+```
+
+### Для торгових стратегій:
+📍 **Місце**: `profiles/`
+📖 **Документація**: [profiles/README.md](../profiles/README.md)
+
+```bash
+# Multi-symbol SOL+SOON стратегія
+python -m skalp_bot.runner.run_live_aurora --config profiles/sol_soon_base.yaml
+
+# З overlay для A/B тестування
+python -m skalp_bot.runner.run_live_aurora \
+  --config profiles/sol_soon_base.yaml \
+  --overlay profiles/overlays/_active_shadow.yaml
+```
 
 ---
 
-## Структура папки configs
+## 🔄 Швидкий старт
 
-- `configs/aurora/` — конфиги сервиса Aurora (API и pre-trade пайплайн)
-  - `base.yaml` — базовый шаблон/профиль
-  - `prod.yaml` — рекомендуемый боевой профиль (опционально, может отсутствовать)
-  - `testnet.yaml` или `testnet.example.yaml` — пример для тестнета/локалки
-- `configs/runner/` — конфиги раннера (скальпер‑бот, отправка ордеров)
-  - `base.yaml` — базовый шаблон для раннера
-  - `test_param.yaml` — совместимый конфиг для быстрых проверок
-- `configs/*.yaml` — легаси‑расположение старых конфигов сервиса (`master_config_v1/v2.yaml`, `aurora_config.template.yaml`)
-- `skalp_bot/configs/*.yaml` — легаси‑расположение конфигов раннера
+### 1. Запуск Aurora API:
+```bash
+# Testnet режим (рекомендовано для початку)
+export AURORA_MODE=testnet
+python api/service.py
+```
 
-Рекомендация: для сервиса используйте `configs/aurora/*.yaml`, для раннера — `configs/runner/*.yaml`. Легаси файлы поддерживаются для обратной совместимости.
+### 2. Запуск Runner з SOL/SOON стратегією:
+```bash
+# Shadow режим (безпечно для тестування)
+export DRY_RUN=true
+python -m skalp_bot.runner.run_live_aurora --config profiles/sol_soon_base.yaml
+```
+
+### 3. Валідація конфігурації:
+```bash
+# Перевірка API конфігурації
+AURORA_MODE=testnet python tools/config_cli.py validate
+
+# Перевірка що все працює
+python tools/config_cli.py status
+```
+
+## ⚙️ Управління конфігураціями
+
+### Validation та діагностика:
+```bash
+# Валідація конкретного environment
+AURORA_MODE=testnet python tools/config_cli.py validate
+
+# Статус поточної конфігурації  
+python tools/config_cli.py status
+
+# Трейсинг завантаження конфігурацій
+python tools/config_cli.py trace
+
+# Переключення між environments
+python tools/config_cli.py switch --environment production
+```
+
+### Environment Variables Override:
+```bash
+# Override будь-який параметр через env змінні
+export AURORA_LATENCY_MS_LIMIT=100
+export AURORA_API_TOKEN=your_secure_token
+export AURORA_SPREAD_BPS_LIMIT=150
+
+# Перевірка effective конфігурації після override
+python tools/config_cli.py status
+```
+
+## 📖 Детальна документація
+
+Кожна папка має власну детальну документацію:
+
+### 🎯 Core System (Aurora API):
+📖 **[configs/aurora/README.md](aurora/README.md)**
+- Environment configurations (dev/test/prod)
+- Security settings та токени
+- Risk management параметри
+- Pretrade gates конфігурація
+- Hot reload налаштування
+
+### 🤖 Trading Bot (Runner):
+📖 **[configs/runner/README.md](runner/README.md)**
+- Runner базові налаштування
+- Integration з Aurora API
+- Multi-symbol торгівля
+- Performance моніторинг
+- Testing конфігурації
+
+### 🎲 Trading Strategies (Profiles):
+📖 **[profiles/README.md](../profiles/README.md)**
+- Multi-symbol профілі
+- Parent-child стратегії
+- Overlay система для A/B тестів
+- Cross-symbol ризик-менеджмент
+- Performance аналіз
+
+### 🗂 Legacy Archive:
+📖 **[archive/configs_legacy/README.md](../archive/configs_legacy/README.md)**
+- Історія розвитку конфігураційної системи
+- Проблеми старих підходів
+- Міграційні скрипти
+- Lessons learned
+
+## 🚨 Важливі зауваження
+
+### ⚠️ Security:
+- **Ніколи не коммітьте production токени** в Git
+- Використовуйте environment variables для sensitive data
+- Регулярно ротуйте API ключі
+- Встановлюйте мінімально необхідні permissions
+
+### ⚠️ Production deployment:
+- Завжди почніть з `testnet` environment
+- Використовуйте `shadow` режим для валідації
+- Налаштуйте моніторинг та alerting
+- Тестуйте конфігурації в staging середовищі
+
+### ⚠️ Архівні файли:
+- **НЕ використовуйте** файли з `archive/configs_legacy/`
+- Ці файли збережені виключно для історичних цілей
+- Вони можуть містити застарілі та небезпечні налаштування
+
+## 🛠 Troubleshooting
+
+### Типові проблеми:
+
+1. **"Configuration validation failed"**
+   ```bash
+   # Перевірте синтаксис та валідність
+   python tools/config_cli.py validate
+   ```
+
+2. **"api_token must be at least 16 characters"**
+   ```bash
+   # Встановіть токен через env змінну
+   export AURORA_API_TOKEN=your_secure_token_here
+   ```
+
+3. **"No environment-specific config found"**
+   ```bash
+   # Перевірте що AURORA_MODE встановлено правильно
+   echo $AURORA_MODE
+   export AURORA_MODE=testnet
+   ```
+
+4. **Конфлікти конфігурацій**
+   ```bash
+   # Використовуйте трейсинг для діагностики
+   python tools/config_cli.py trace
+   ```
+
+### Отримання допомоги:
+```bash
+# CLI довідка
+python tools/config_cli.py --help
+
+# Детальна довідка по командах
+python tools/config_cli.py validate --help
+python tools/config_cli.py trace --help
+```
+
+## 🎯 Наступні кроки
+
+1. **Прочитайте детальну документацію** для вашого use case
+2. **Налаштуйте environment** відповідно до потреб
+3. **Протестуйте в shadow режимі** перед live запуском
+4. **Налаштуйте моніторинг** для production використання
+
+**Aurora має production-ready систему конфігурацій - використовуйте її повний потенціал!** 🚀
 
 ---
 
-## Приоритет загрузки конфигурации сервиса
+## 🎯 Нова структура конфігурацій
 
-Загрузка происходит в `api/service.py` через `common/config.py::load_config_precedence` → `apply_env_overrides` по следующему приоритету:
+### Активні конфігураційні файли:
 
-1) Env `AURORA_CONFIG` (путь или bare‑имя без `.yaml`) — самый высокий приоритет
-2) Env `AURORA_CONFIG_NAME` (bare‑имя без `.yaml`)
-3) Первая существующая из цепочки по умолчанию:
-   - `configs/aurora/base.yaml`
-   - `configs/aurora/prod.yaml`
-   - `configs/aurora/testnet.yaml`
-   - `configs/master_config_v2.yaml` (legacy)
-   - `configs/master_config_v1.yaml` (legacy)
-   - `configs/aurora_config.template.yaml` (legacy)
-   - `skalp_bot/configs/default.yaml` (legacy)
+```
+configs/aurora/          # Production config system
+├── base.yaml           # ✅ Базові налаштування (завжди завантажується)
+├── testnet.yaml        # ✅ Testnet конфігурація  
+├── prod.yaml           # ✅ Production конфігурація
+└── development.yaml    # 🔄 Development конфігурація (опційно)
 
-Bare‑имя резолвится через `common/config.py::resolve_config_path` в следующем порядке:
-- `configs/aurora/<name>.yaml`
-- `configs/<name>.yaml`
-- `configs/runner/<name>.yaml`
-- `skalp_bot/configs/<name>.yaml`
+configs/runner/          # Runner-specific configs
+├── base.yaml           # ✅ Базові налаштування runner
+└── test_param.yaml     # ✅ Тестові параметри
 
-Если по цепочке ничего не найдено — используется пустой словарь (минимальные дефолты из кода).
+archive/configs_legacy/  # 📦 Архівовані файли
+├── master_config_v1.yaml
+├── master_config_v2.yaml
+├── production_ssot.yaml
+├── aurora_config.template.yaml
+├── default.toml
+├── examples/
+└── tests/
+```
+
+### ⚙️ Environment Management
+
+Система автоматично визначає environment на основі `AURORA_MODE`:
+
+- `AURORA_MODE=development` → `configs/aurora/development.yaml`
+- `AURORA_MODE=testnet` → `configs/aurora/testnet.yaml` 
+- `AURORA_MODE=production` → `configs/aurora/prod.yaml`
+
+---
+
+## 🔄 Ієрархія завантаження (Production System)
+
+**Новий ProductionConfigManager** завантажує конфігурацію з чітким пріоритетом:
+
+1. **Environment Variables** (найвищий) — `AURORA_*` overrides
+2. **User Specified** — `AURORA_CONFIG=path/to/config.yaml`
+3. **Environment Name** — `configs/aurora/{environment}.yaml`
+4. **Base Config** (найнижчий) — `configs/aurora/base.yaml`
+
+### 📝 Приклад завантаження для TESTNET:
+
+```bash
+Loading sequence:
+1. ✓ LOADED  configs/aurora/base.yaml      (priority=DEFAULT)
+2. ✓ LOADED  configs/aurora/testnet.yaml   (priority=ENVIRONMENT_NAME)  
+3. ✓ LOADED  <environment_variables>       (priority=ENVIRONMENT)
+```
+
+---
+
+## 🛠 CLI інструменти
+
+Новий `tools/config_cli.py` надає повний набір інструментів:
+
+```bash
+# Статус конфігурації
+python tools/config_cli.py status
+
+# Валідація
+python tools/config_cli.py validate [environment]
+
+# Перемикання між environments
+python tools/config_cli.py switch testnet|production
+
+# Трасування завантаження
+python tools/config_cli.py trace
+
+# Показати ієрархію файлів
+python tools/config_cli.py hierarchy
+
+# Перевірка конфліктів
+python tools/config_cli.py conflicts
+
+# Аудит звіт
+python tools/config_cli.py audit [--save]
+```
+
+---
+
+## 🚀 Використання
+
+### Запуск API:
+
+```bash
+# Testnet
+export AURORA_MODE=testnet
+export AURORA_API_TOKEN=your_testnet_token
+python api/service.py
+
+# Production  
+export AURORA_MODE=production
+export AURORA_API_TOKEN=your_production_token
+python api/service.py
+```
+
+### Запуск Runner:
+
+```bash
+# З базовою конфігурацією
+python -m skalp_bot.runner.run_live_aurora
+
+# З конкретним конфігом
+python -m skalp_bot.runner.run_live_aurora --config configs/runner/test_param.yaml
+```
+
+---
+
+## 📊 Переваги нової системи
+
+- ✅ **Прозорість**: Повне логування джерел конфігурації
+- ✅ **Аудитованість**: Checksums, timestamps, audit trails
+- ✅ **Валідація**: Автоматична перевірка обов'язкових секцій
+- ✅ **CLI Tools**: Управління через командний рядок
+- ✅ **Environment Management**: Чітке розділення dev/test/prod
+- ✅ **Backward Compatibility**: Fallback на legacy систему
 
 ---
 

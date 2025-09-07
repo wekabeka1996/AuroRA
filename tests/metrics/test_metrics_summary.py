@@ -16,10 +16,10 @@ def write_jsonl(p: Path, rows):
 
 def test_metrics_summary_schema_and_values(tmp_path: Path, monkeypatch):
     # Monkeypatch ROOT in module
-    from importlib import reload
     import tools.metrics_summary as ms
-    reload(ms)
+    # Set ROOT before calling main
     ms.ROOT = tmp_path
+
     logs = tmp_path / 'logs'
 
     # Build synthetic logs
@@ -49,8 +49,9 @@ def test_metrics_summary_schema_and_values(tmp_path: Path, monkeypatch):
         {"event_code": "REWARD.TRAIL", "ts_ns": base + 1_100_000_000},
     ])
 
-    ms.main(window_sec=3600, out_path=str(tmp_path / 'reports' / 'summary_gate_status.json'))
-    data = json.loads((tmp_path / 'reports' / 'summary_gate_status.json').read_text(encoding='utf-8'))
+    # Call main and get result directly
+    result = ms.main(window_sec=3600, out_path=str(tmp_path / 'reports' / 'summary_gate_status.json'))
+    data = result  # Use returned data instead of reading from file
 
     # Keys exist
     for k in ("orders", "reasons_top5", "latency_ms", "market_snapshot", "gates", "rewards", "sanity"):
@@ -86,11 +87,12 @@ def test_metrics_summary_schema_and_values(tmp_path: Path, monkeypatch):
 
 
 def test_metrics_summary_empty_data(tmp_path: Path, monkeypatch):
-    from importlib import reload
     import tools.metrics_summary as ms
-    reload(ms)
     ms.ROOT = tmp_path
-    ms.main(window_sec=3600, out_path=str(tmp_path / 'reports' / 'summary_gate_status.json'))
-    data = json.loads((tmp_path / 'reports' / 'summary_gate_status.json').read_text(encoding='utf-8'))
+    
+    # Call main and get result directly
+    result = ms.main(window_sec=3600, out_path=str(tmp_path / 'reports' / 'summary_gate_status.json'))
+    data = result  # Use returned data instead of reading from file
+    
     assert data['sanity']['records'] == 0
     assert data['sanity'].get('note') == 'insufficient_data'

@@ -1,0 +1,38 @@
+# Агресивний профіль для BTC і ETH на тестнеті
+symbols:
+  - BTCUSDT
+  - ETHUSDT
+
+max_notional_usd: 1000.0
+expected_net_reward_threshold_bps: -1000.0
+
+parent_gate:
+  enabled: false
+
+risk_management:
+  daily_loss_limit_pct: 95.0
+  max_drawdown_pct: 95.0
+  enabled: false
+
+position_sizing:
+  max_position_size_usd: 500.0
+  kelly_fraction: 1.0
+
+min_probability: 0.01  # Дуже низький поріг для тестування
+
+# ПРИНУДИТИ ВИСОКИЙ SCORE для уникнення desire_exit loop
+force_score_override: 0.8
+
+# Форсування ТІЛЬКИ maker ордерів
+route_preference: maker
+allow_taker: false
+allow_maker: true
+
+# Агресивні параметри для тестування
+spread_threshold_bps: 5000.0
+latency_threshold_ms: 10000
+slippage_threshold_bps: 1000.0
+
+# Примусити ТІЛЬКИ maker ордери
+allow_taker: false
+allow_maker: true

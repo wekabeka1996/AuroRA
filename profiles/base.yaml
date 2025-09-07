@@ -1,0 +1,20 @@
+sizing:
+  limits:
+    max_notional_usd: 250
+    leverage_max: 2
+  kelly_scaler: 0.1
+universe:
+  ranking:
+    top_n: 10
+execution:
+  router:
+    spread_limit_bps: 8
+  sla:
+    max_latency_ms: 200
+reward:
+  ttl_minutes: 30
+  take_profit_bps: 20
+  stop_loss_bps: 40
+  be_break_even_bps: 6
+tca:
+  adverse_window_s: 20

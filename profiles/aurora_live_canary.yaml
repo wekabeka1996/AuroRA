@@ -1,0 +1,35 @@
+execution:
+  router:
+    spread_limit_bps: 4
+  sla:
+    max_latency_ms: 104
+reward:
+  be_break_even_bps: 2
+  stop_loss_bps: 73
+  take_profit_bps: 38
+  ttl_minutes: 79
+sizing:
+  kelly_scaler: 0.05  # Reduced for canary
+  limits:
+    leverage_max: 5
+    max_notional_usd: 50  # Reduced for canary
+tca:
+  adverse_window_s: 8
+universe:
+  ranking:
+    top_n: 16
+# Kill-switch rules for canary
+# Note: kill_switch keys removed — runner does not support this key. Use existing
+# guards/controls in the runner or implement a separate monitor if needed.
+# Simulation settings for live canary mode
+order_sink:
+  sim_local:
+    post_only: true
+    ioc: true
+    latency_ms_range: [8, 25]
+    slip_bps_range: [0.0, 1.2]
+    ttl_ms: 1500
+    seed: 42
+mock_mid: 50000.0
+mock_spread: 1.0
+symbol: BTC/USDT

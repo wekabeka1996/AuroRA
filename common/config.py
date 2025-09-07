@@ -177,18 +177,8 @@ def load_config_precedence(default_candidates: list[str] | None = None) -> dict:
         data = load_config_any(env_path)
         if data:
             return data
-    # 2) Defaults chain
-    candidates = default_candidates or [
-        # standardized aurora templates first
-        'configs/aurora/base.yaml',
-        'configs/aurora/prod.yaml',
-        'configs/aurora/testnet.yaml',
-        # legacy chain
-        'configs/master_config_v2.yaml',
-        'configs/master_config_v1.yaml',
-        'configs/aurora_config.template.yaml',
-        'skalp_bot/configs/default.yaml',
-    ]
+    # 2) Defaults chain with smart aurora mode detection
+    candidates = default_candidates or _get_default_config_candidates()
     root = Path(__file__).resolve().parents[1]
     for rel in candidates:
         try:
@@ -200,6 +190,41 @@ def load_config_precedence(default_candidates: list[str] | None = None) -> dict:
         except Exception:
             continue
     return {}
+
+
+def _get_default_config_candidates() -> list[str]:
+    """Get default config candidates with aurora mode awareness."""
+    try:
+        aurora_mode = os.getenv('AURORA_MODE', 'live').lower().strip()
+        if aurora_mode == 'testnet':
+            return [
+                'configs/aurora/testnet.yaml',
+                'configs/aurora/base.yaml',
+                'configs/master_config_v2.yaml',
+                'configs/master_config_v1.yaml',
+                'configs/aurora_config.template.yaml',
+                'skalp_bot/configs/default.yaml',
+            ]
+        else:
+            return [
+                'configs/aurora/base.yaml',
+                'configs/aurora/prod.yaml',
+                'configs/aurora/testnet.yaml',
+                'configs/master_config_v2.yaml',
+                'configs/master_config_v1.yaml',
+                'configs/aurora_config.template.yaml',
+                'skalp_bot/configs/default.yaml',
+            ]
+    except Exception:
+        # Fallback to legacy order
+        return [
+            'configs/aurora/base.yaml',
+            'configs/aurora/prod.yaml',
+            'configs/master_config_v2.yaml',
+            'configs/master_config_v1.yaml',
+            'configs/aurora_config.template.yaml',
+            'skalp_bot/configs/default.yaml',
+        ]
 
 
 def _set_nested(cfg: dict, dotted_key: str, value) -> None:

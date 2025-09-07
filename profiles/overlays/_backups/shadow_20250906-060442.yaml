@@ -1,0 +1,33 @@
+execution:
+  broker: shadow
+  router:
+    spread_limit_bps: 14
+  sla:
+    max_latency_ms: 224
+parent_gate:
+  align_sign: true
+  child: SOONUSDT
+  cooloff_s: 30
+  enabled: true
+  lookback_s: 120
+  max_spread_bps: 50
+  parent: SOLUSDT
+  z_threshold: 0.75
+reward:
+  be_break_even_bps: 13
+  expected_net_reward_threshold_bps: 0.0
+  stop_loss_bps: 63
+  take_profit_bps: 35
+  ttl_minutes: 35
+sizing:
+  kelly_scaler: 0.13264791893729339
+  limits:
+    max_notional_usd: 254
+tca:
+  adverse_window_s: 32
+universe:
+  ranking:
+    top_n: 13
+  symbols:
+  - SOLUSDT
+  - SOONUSDT

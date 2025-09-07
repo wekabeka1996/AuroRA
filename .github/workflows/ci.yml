@@ -34,6 +34,21 @@ jobs:
       - name: Run unit tests with coverage
         run: |
           pytest --cov=. --cov-report=term --cov-report=xml --maxfail=1 -q
+      - name: Run integration tests
+        run: |
+          pytest tests/integration/ -v --tb=short
+      - name: Run E2E tests
+        run: |
+          pytest tests/e2e/ -v --tb=short
+      - name: Run order lifecycle tests
+        run: |
+          pytest tests/integration/oms/test_order_lifecycle.py -v
+      - name: Run concurrent order tests
+        run: |
+          pytest tests/integration/oms/test_concurrent_orders.py -v
+      - name: Run trade flow simulator tests
+        run: |
+          pytest tests/e2e/test_trade_flow_simulator.py -v
       - name: Enforce coverage >=70%
         run: |
           coverage xml

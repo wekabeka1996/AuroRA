@@ -1,0 +1,73 @@
+{
+  "session": {
+    "start_ts_ns": "1756858531735224576",
+    "end_ts_ns": "1756910982873760512",
+    "duration_s": 52451.138535936,
+    "symbols": [],
+    "routes": {
+      "maker": 0,
+      "taker": 0,
+      "deny": 0,
+      "cancel": 0
+    },
+    "orders": {
+      "submitted": 16,
+      "ack": 0,
+      "filled": 0,
+      "partially_filled": 0,
+      "cancelled": 0,
+      "denied": 448,
+      "failed": 16
+    }
+  },
+  "governance": {
+    "alpha": {
+      "by_test_id": {},
+      "totals": {
+        "alloc": 0.0,
+        "spent": 0.0,
+        "active": 0,
+        "closed": 0
+      }
+    },
+    "sprt": {
+      "updates": 0,
+      "final": {
+        "accept_h0": 0,
+        "accept_h1": 0,
+        "timeout": 0
+      },
+      "why_codes_top": [
+        [
+          "WHY_NEGATIVE_EDGE",
+          397
+        ],
+        [
+          "WHY_SIZING_TOO_SMALL",
+          5
+        ]
+      ]
+    }
+  },
+  "latency": {
+    "decision_ms_p50": 0.0,
+    "decision_ms_p90": 0.0,
+    "to_first_fill_ms_p50": 0.0,
+    "to_first_fill_ms_p90": 0.0
+  },
+  "sla": {
+    "breaches": 0,
+    "guard_denies": 0
+  },
+  "edge": {
+    "avg_edge_bps": 0.0,
+    "maker_share_pct": 0.0,
+    "taker_share_pct": 0.0
+  },
+  "xai": {
+    "why_code_counts": {
+      "WHY_NEGATIVE_EDGE": 397,
+      "WHY_SIZING_TOO_SMALL": 5
+    }
+  }
+}

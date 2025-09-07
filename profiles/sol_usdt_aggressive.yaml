@@ -1,0 +1,20 @@
+# Агресивний профіль для SOL/USDT
+symbols:
+  - SOL/USDT
+
+max_notional_usd: 1000.0
+expected_net_reward_threshold_bps: -1000.0
+
+parent_gate:
+  enabled: false
+
+risk_management:
+  daily_loss_limit_pct: 95.0
+  max_drawdown_pct: 95.0
+  enabled: false
+
+position_sizing:
+  max_position_size_usd: 500.0
+  kelly_fraction: 1.0
+
+min_probability: 0.1

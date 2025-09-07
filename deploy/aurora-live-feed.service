@@ -1,0 +1,68 @@
+# Aurora Live Feed Systemd Service with Full Hardening
+# Install: cp aurora-live-feed.service /etc/systemd/system/
+# Enable: systemctl enable aurora-live-feed
+# Start: systemctl start aurora-live-feed
+# Status: systemctl status aurora-live-feed
+# Logs: journalctl -u aurora-live-feed -f
+
+[Unit]
+Description=Aurora P3-D SSE Live Feed Server
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=aurora
+Group=aurora
+WorkingDirectory=/opt/aurora
+
+# Environment variables
+Environment=AURORA_SESSION_DIR=/opt/aurora/logs
+Environment=PYTHONPATH=/opt/aurora
+Environment=PYTHONUNBUFFERED=1
+Environment=AURORA_AUTH_TOKEN_FILE=/opt/aurora/secrets/auth_token
+
+# Main command
+ExecStart=/usr/bin/python3 tools/live_feed.py \
+    --session-dir /opt/aurora/logs \
+    --port 8001
+
+# Restart policy
+Restart=always
+RestartSec=3
+
+# Resource limits
+LimitNOFILE=65536
+MemoryMax=512M
+MemoryHigh=400M
+CPUQuota=50%
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+
+# Network restrictions
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+
+# Capability restrictions
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+# File system restrictions
+ReadWritePaths=/opt/aurora/logs /opt/aurora/secrets
+ReadOnlyPaths=/opt/aurora
+InaccessiblePaths=/home /root /boot /sys /proc /dev
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=aurora-live-feed
+
+[Install]
+WantedBy=multi-user.target

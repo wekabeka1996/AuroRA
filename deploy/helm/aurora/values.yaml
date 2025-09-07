@@ -1,0 +1,199 @@
+# Aurora P3-E & P4 Helm Chart Values
+# Default configuration values for Aurora deployment
+
+# Global settings
+global:
+  imageRegistry: ""
+  imagePullSecrets: []
+  storageClass: ""
+
+# Aurora Runner configuration
+runner:
+  enabled: true
+  image:
+    repository: aurora-runner
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  replicaCount: 1
+  port: 8000
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+    requests:
+      cpu: 500m
+      memory: 512Mi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  env:
+    - name: AURORA_ENV
+      value: "production"
+    - name: PROMETHEUS_METRICS_PORT
+      value: "8000"
+
+# Aurora Live Feed configuration
+liveFeed:
+  enabled: true
+  image:
+    repository: aurora-live-feed
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  replicaCount: 1
+  port: 8001
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 250m
+      memory: 256Mi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  env:
+    - name: AURORA_ENV
+      value: "production"
+    - name: SSE_PORT
+      value: "8001"
+
+# Aurora Dashboard/Metrics Exporter configuration
+dashboard:
+  enabled: true
+  image:
+    repository: aurora-dashboard
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  replicaCount: 1
+  port: 8002
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 250m
+      memory: 256Mi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  env:
+    - name: AURORA_ENV
+      value: "production"
+    - name: METRICS_PORT
+      value: "8002"
+
+# Prometheus configuration
+prometheus:
+  enabled: true
+  server:
+    retention: 30d
+    resources:
+      limits:
+        cpu: 1000m
+        memory: 2Gi
+      requests:
+        cpu: 500m
+        memory: 1Gi
+    persistentVolume:
+      enabled: true
+      size: 50Gi
+    service:
+      type: ClusterIP
+      port: 9090
+    configMapOverrideName: "aurora-prometheus-config"
+
+# Grafana configuration
+grafana:
+  enabled: true
+  adminPassword: "aurora123"
+  service:
+    type: ClusterIP
+    port: 3000
+  resources:
+    limits:
+      cpu: 500m
+      memory: 1Gi
+    requests:
+      cpu: 250m
+      memory: 512Mi
+  persistentVolume:
+    enabled: true
+    size: 10Gi
+  dashboardProviders:
+    dashboardproviders.yaml:
+      apiVersion: 1
+      providers:
+      - name: 'aurora'
+        orgId: 1
+        folder: ''
+        type: file
+        disableDeletion: false
+        updateIntervalSeconds: 10
+        allowUiUpdates: true
+        options:
+          path: /var/lib/grafana/dashboards/aurora
+  dashboards:
+    aurora-slo-sli:
+      json: |
+        {
+          "dashboard": {
+            "title": "Aurora P3-E SLO/SLI Dashboard",
+            "tags": ["aurora", "slo", "sli", "monitoring"],
+            "timezone": "UTC"
+          }
+        }
+
+# Node Exporter configuration
+nodeExporter:
+  enabled: true
+
+# ServiceMonitor configuration for Prometheus Operator
+serviceMonitor:
+  enabled: true
+  namespace: monitoring
+  interval: 10s
+  scrapeTimeout: 5s
+
+# Ingress configuration
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: aurora.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+# SLO/SLI Configuration
+slo:
+  sseAvailability:
+    target: 99.9
+    window: 30d
+  latencyP99:
+    target: 300
+    unit: ms
+  policyDenyRate:
+    target: 35
+    unit: percent
+  calibrationECE:
+    target: 0.05
+
+# Alertmanager configuration
+alertmanager:
+  enabled: true
+  config:
+    global:
+      smtp_smarthost: 'smtp.company.com:587'
+      smtp_from: 'aurora-alerts@company.com'
+    route:
+      group_by: ['alertname', 'severity', 'team']
+      group_wait: 10s
+      group_interval: 10s
+      repeat_interval: 1h
+      receiver: 'aurora-alerts'
+    receivers:
+      - name: 'aurora-alerts'
+        email_configs:
+          - to: 'platform-team@company.com'

@@ -1,0 +1,133 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: #0f0f23;
+  color: #cccccc;
+}
+
+.dashboard {
+  min-height: 100vh;
+  padding: 20px;
+}
+
+.dashboard-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 30px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid #333;
+}
+
+.dashboard-title {
+  color: #00d4aa;
+  font-size: 2.5rem;
+  font-weight: 700;
+}
+
+.connection-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-weight: 500;
+}
+
+.status-connected {
+  background-color: rgba(34, 197, 94, 0.1);
+  color: #22c55e;
+  border: 1px solid rgba(34, 197, 94, 0.3);
+}
+
+.status-disconnected {
+  background-color: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.status-connecting {
+  background-color: rgba(245, 158, 11, 0.1);
+  color: #f59e0b;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+  gap: 20px;
+}
+
+.metric-card {
+  background: #1a1a2e;
+  border: 1px solid #333;
+  border-radius: 12px;
+  padding: 20px;
+  transition: all 0.3s ease;
+}
+
+.metric-card:hover {
+  border-color: #00d4aa;
+  box-shadow: 0 4px 20px rgba(0, 212, 170, 0.1);
+}
+
+.metric-card h3 {
+  color: #00d4aa;
+  margin-bottom: 15px;
+  font-size: 1.2rem;
+}
+
+.metric-value {
+  font-size: 2rem;
+  font-weight: 700;
+  margin: 10px 0;
+}
+
+.metric-label {
+  color: #888;
+  font-size: 0.9rem;
+  margin-bottom: 5px;
+}
+
+.gauge-container {
+  position: relative;
+  width: 200px;
+  height: 200px;
+  margin: 20px auto;
+}
+
+.latency-chart {
+  width: 100%;
+  height: 200px;
+  margin: 15px 0;
+}
+
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 15px;
+  margin-top: 15px;
+}
+
+.metric-item {
+  text-align: center;
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+}
+
+.last-updated {
+  color: #666;
+  font-size: 0.8rem;
+  margin-top: 10px;
+  text-align: center;
+}

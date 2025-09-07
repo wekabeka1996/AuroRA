@@ -1,0 +1,44 @@
+# TESTNET AGGRESSIVE PROFILE
+# Мінімальні ризики для тестування execution системи
+# НЕ ВИКОРИСТОВУВАТИ В ПРОДАКШЕНІ!
+
+universe:
+  symbols: [SOLUSDT, SOONUSDT, BTCUSDT, ETHUSDT]  # Додав більше символів
+
+sizing:
+  limits:
+    max_notional_usd: 10000   # Збільшив максимальний розмір позиції 
+    min_notional_usd: 1       # Зменшив мінімальний розмір
+  kelly_scaler: 1.0           # Максимальний scaler
+
+execution:
+  broker: shadow              # Безпечний shadow режим
+  router:
+    spread_limit_bps: 1000    # Дуже високий spread limit
+  sla:
+    max_latency_ms: 5000      # Дуже високий latency limit
+
+reward:
+  ttl_minutes: 180            # Довгий TTL
+  take_profit_bps: 5          # Дуже низький TP - швидше закриття
+  stop_loss_bps: 200          # Високий SL - рідше закриття
+  be_break_even_bps: 1        # Дуже низький BE
+  expected_net_reward_threshold_bps: -1000.0  # ПОВНЕ ВИМКНЕННЯ ER gate
+
+tca:
+  adverse_window_s: 300       # Довге вікно для TCA
+
+parent_gate:
+  enabled: false              # Вимкнути parent gate для більшої активності
+
+# Додаткові параметри для агресивного тестування
+risk_overrides:
+  disable_all_guards: true    # Концептуально вимкнути всі обмеження
+  allow_negative_expected_return: true
+  ignore_spread_limits: true
+  ignore_latency_limits: true
+
+# Коментарі для безпеки
+# УВАГА: Цей профіль створений виключно для тестування execution системи
+# Він має мінімальні обмеження ризику і НЕ ПРИЗНАЧЕНИЙ для live торгівлі
+# Використовувати тільки в testnet з DRY_RUN=true або shadow broker

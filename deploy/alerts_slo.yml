@@ -1,0 +1,61 @@
+groups:
+  - name: aurora-slo
+    rules:
+      - alert: AuroraHighDenyRate
+        expr: aurora_deny_rate_15m > 0.5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High deny rate over last 15m"
+          description: "Deny rate is {{ $value }} (> 0.5). Check gates thresholds and market conditions."
+
+      - alert: AuroraLatencyP99High
+        expr: aurora_latency_p99_ms > 100
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "p99 latency exceeded 100ms"
+          description: "Aurora online latency p99 is {{ $value }}ms (> 100ms)."
+
+      - alert: AuroraNoSSEClients
+        expr: aurora_sse_clients == 0
+        for: 30m
+        labels:
+          severity: info
+        annotations:
+          summary: "No SSE clients connected"
+          description: "No SSE clients connected for 30 minutes; verify dashboard subscriptions if expected."
+groups:
+- name: aurora.slo
+  rules:
+  - alert: SSEAvailabilityLow
+    expr: (100 - (increase(aurora_sse_disconnects_total[5m]) * 100 / clamp_min(aurora_sse_clients,1))) > 0 and avg_over_time(aurora_sse_clients[5m]) < 1
+    for: 10m
+    labels: {severity: warning}
+    annotations: {summary: "SSE clients dropped", description: "No active SSE clients for >10m"}
+
+  - alert: HighDenyRateP90
+    expr: aurora_deny_rate_15m > 0.35
+    for: 15m
+    labels: {severity: warning}
+    annotations: {summary: "Policy deny-rate high", description: ">35% for 15m"}
+
+  - alert: LatencyP99High
+    expr: aurora_latency_p99_ms > 300
+    for: 10m
+    labels: {severity: critical}
+    annotations: {summary: "Latency p99 high", description: ">300ms for 10m"}
+
+  - alert: CalibrationECEHigh
+    expr: aurora_ece > 0.05
+    for: 30m
+    labels: {severity: warning}
+    annotations: {summary: "Model calibration off", description: "ECE > 5%"}
+
+  - alert: RiskCVaRBreaches
+    expr: aurora_cvar95_min < -0.02
+    for: 15m
+    labels: {severity: critical}
+    annotations: {summary: "CVaR_95 breach", description: "< -2% in last window"}

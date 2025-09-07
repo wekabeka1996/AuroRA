@@ -1,0 +1,15 @@
+# Aurora P3-D Automated Backup Cron Job
+# Install with: sudo cp aurora-backup /etc/cron.d/
+# Verify with: sudo crontab -l
+
+# Run automated backup daily at 2:00 AM
+0 2 * * * aurora /opt/aurora/scripts/automated_backup.sh >> /var/log/aurora_backup.log 2>&1
+
+# Run log rotation daily at 3:00 AM (after backup)
+0 3 * * * aurora /opt/aurora/scripts/log_rotate.sh >> /var/log/aurora_logrotate.log 2>&1
+
+# Run health check every 4 hours
+0 */4 * * * aurora /opt/aurora/scripts/health_check.sh >> /var/log/aurora_health.log 2>&1
+
+# Run disk space monitoring every hour
+0 * * * * aurora /opt/aurora/scripts/disk_monitor.sh >> /var/log/aurora_disk.log 2>&1

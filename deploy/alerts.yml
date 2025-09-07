@@ -1,0 +1,448 @@
+# Aurora P3-E & P4 R1.3-draft SLO/SLI Monitoring Alerts
+# Comprehensive SLO/SLI monitoring with error budgets and early warning alerts
+
+# SLO Targets (Service Level Objectives):
+# - SSE Availability: 99.9% (8.77 hours downtime/month allowed)
+# - Execution Latency P99: ≤300ms
+# - Policy Deny Rate: <35%
+# - Calibration ECE: ≤0.05
+
+# SLI Metrics (Service Level Indicators):
+# - availability_sse: SSE stream uptime percentage
+# - latency_execution_p99: 99th percentile execution latency
+# - policy_deny_rate: Percentage of orders denied by policy
+# - calibration_ece: Expected Calibration Error
+
+---
+groups:
+  - name: aurora.slo_sli_alerts
+    rules:
+
+      # === CRITICAL SLO VIOLATIONS ===
+
+      - alert: AuroraSSEAvailabilitySLOViolation
+        expr: aurora_sli_availability_sse < 0.999
+        for: 5m
+        labels:
+          severity: critical
+          slo: sse_availability
+          team: platform
+        annotations:
+          summary: "SSE Availability SLO Violated (99.9% target)"
+          description: "SSE availability dropped below 99.9% for 5+ minutes. Current: {{ $value | humanizePercentage }}"
+          runbook_url: "docs/RUNBOOK_P3E.md#sse-availability-slo"
+          error_budget_remaining: "{{ (aurora_sli_availability_sse - 0.999) * 100 | printf \"%.2f%%\" }}"
+
+      - alert: AuroraLatencySLOViolation
+        expr: aurora_sli_latency_execution_p99 > 300
+        for: 3m
+        labels:
+          severity: critical
+          slo: execution_latency
+          team: platform
+        annotations:
+          summary: "Execution Latency SLO Violated (300ms P99 target)"
+          description: "Execution latency P99 exceeded 300ms for 3+ minutes. Current: {{ $value }}ms"
+          runbook_url: "docs/RUNBOOK_P3E.md#latency-slo"
+          impact: "Trading decisions may be delayed, affecting market timing"
+
+      - alert: AuroraPolicyDenyRateSLOViolation
+        expr: aurora_sli_policy_deny_rate > 0.35
+        for: 5m
+        labels:
+          severity: critical
+          slo: policy_deny_rate
+          team: risk
+        annotations:
+          summary: "Policy Deny Rate SLO Violated (<35% target)"
+          description: "Policy deny rate exceeded 35% for 5+ minutes. Current: {{ $value | humanizePercentage }}"
+          runbook_url: "docs/RUNBOOK_P3E.md#policy-deny-rate-slo"
+          impact: "Excessive order rejections may indicate market or system issues"
+
+      - alert: AuroraCalibrationECESLOViolation
+        expr: aurora_sli_calibration_ece > 0.05
+        for: 10m
+        labels:
+          severity: critical
+          slo: calibration_ece
+          team: quant
+        annotations:
+          summary: "Calibration ECE SLO Violated (≤0.05 target)"
+          description: "Calibration Expected Calibration Error exceeded 0.05 for 10+ minutes. Current: {{ $value }}"
+          runbook_url: "docs/RUNBOOK_P3E.md#calibration-ece-slo"
+          impact: "Model calibration degraded, predictions may be unreliable"
+
+      # === EARLY WARNING ALERTS (SLO APPROACHING VIOLATION) ===
+
+      - alert: AuroraSSEAvailabilitySLOWarning
+        expr: aurora_sli_availability_sse < 0.9995
+        for: 2m
+        labels:
+          severity: warning
+          slo: sse_availability
+          team: platform
+        annotations:
+          summary: "SSE Availability Approaching SLO (99.95% threshold)"
+          description: "SSE availability below 99.95% for 2+ minutes. Current: {{ $value | humanizePercentage }}"
+          runbook_url: "docs/RUNBOOK_P3E.md#sse-availability-slo"
+          action: "Monitor closely, prepare incident response if continues"
+
+      - alert: AuroraLatencySLOWarning
+        expr: aurora_sli_latency_execution_p99 > 250
+        for: 2m
+        labels:
+          severity: warning
+          slo: execution_latency
+          team: platform
+        annotations:
+          summary: "Execution Latency Approaching SLO (250ms threshold)"
+          description: "Execution latency P99 exceeded 250ms for 2+ minutes. Current: {{ $value }}ms"
+          runbook_url: "docs/RUNBOOK_P3E.md#latency-slo"
+          action: "Investigate performance degradation, optimize if possible"
+
+      - alert: AuroraPolicyDenyRateSLOWarning
+        expr: aurora_sli_policy_deny_rate > 0.25
+        for: 3m
+        labels:
+          severity: warning
+          slo: policy_deny_rate
+          team: risk
+        annotations:
+          summary: "Policy Deny Rate Approaching SLO (25% threshold)"
+          description: "Policy deny rate exceeded 25% for 3+ minutes. Current: {{ $value | humanizePercentage }}"
+          runbook_url: "docs/RUNBOOK_P3E.md#policy-deny-rate-slo"
+          action: "Review governance rules, check market conditions"
+
+      - alert: AuroraCalibrationECESLOWarning
+        expr: aurora_sli_calibration_ece > 0.04
+        for: 5m
+        labels:
+          severity: warning
+          slo: calibration_ece
+          team: quant
+        annotations:
+          summary: "Calibration ECE Approaching SLO (0.04 threshold)"
+          description: "Calibration ECE exceeded 0.04 for 5+ minutes. Current: {{ $value }}"
+          runbook_url: "docs/RUNBOOK_P3E.md#calibration-ece-slo"
+          action: "Monitor calibration drift, consider model retraining"
+
+      # === SYSTEM HEALTH ALERTS ===
+
+      - alert: AuroraSSEStreamDown
+        expr: aurora_sse_client_count == 0
+        for: 5m
+        labels:
+          severity: critical
+          component: sse
+          team: platform
+        annotations:
+          summary: "SSE Stream Has No Active Clients"
+          description: "No dashboard clients connected to SSE stream for 5+ minutes"
+          runbook_url: "docs/RUNBOOK_P3E.md#sse-stream-down"
+          impact: "Dashboard unable to receive real-time updates"
+
+      - alert: AuroraServiceDown
+        expr: up{job="aurora"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          component: service
+          team: platform
+        annotations:
+          summary: "Aurora Service is Down"
+          description: "Aurora service has been down for 2+ minutes"
+          runbook_url: "docs/RUNBOOK_P3E.md#service-down"
+          impact: "Complete system outage, no trading decisions possible"
+
+      - alert: AuroraHighMemoryUsage
+        expr: (aurora_memory_usage_bytes / aurora_memory_limit_bytes) > 0.85
+        for: 5m
+        labels:
+          severity: warning
+          component: memory
+          team: platform
+        annotations:
+          summary: "High Memory Usage (>85%)"
+          description: "Memory usage above 85% of limit for 5+ minutes"
+          runbook_url: "docs/RUNBOOK_P3E.md#high-memory-usage"
+          action: "Monitor for memory leaks, consider scaling resources"
+
+      - alert: AuroraHighCPUUsage
+        expr: rate(aurora_cpu_usage_seconds[5m]) > 0.8
+        for: 3m
+        labels:
+          severity: warning
+          component: cpu
+          team: platform
+        annotations:
+          summary: "High CPU Usage (>80%)"
+          description: "CPU usage above 80% for 3+ minutes"
+          runbook_url: "docs/RUNBOOK_P3E.md#high-cpu-usage"
+          action: "Investigate CPU-intensive operations, consider optimization"
+
+      # === ERROR RATE ALERTS ===
+
+      - alert: AuroraHighLogCorruptionRate
+        expr: increase(aurora_tailer_malformed_lines[5m]) > 10
+        for: 2m
+        labels:
+          severity: high
+          component: logging
+          team: platform
+        annotations:
+          summary: "High Log Corruption Rate"
+          description: "More than 10 malformed JSON lines in last 5 minutes"
+          runbook_url: "docs/RUNBOOK_P3E.md#log-corruption"
+          impact: "Log parsing issues may affect monitoring and debugging"
+
+      - alert: AuroraHighOversizedLinesRate
+        expr: increase(aurora_tailer_oversized_lines[5m]) > 5
+        for: 2m
+        labels:
+          severity: warning
+          component: logging
+          team: platform
+        annotations:
+          summary: "High Oversized Lines Rate"
+          description: "More than 5 oversized lines (>1MB) in last 5 minutes"
+          runbook_url: "docs/RUNBOOK_P3E.md#oversized-lines"
+          action: "Review log format, check for runaway logging"
+
+      # === CIRCUIT BREAKER ALERTS ===
+
+      - alert: AuroraCircuitBreakerOpen
+        expr: aurora_circuit_breaker_state == 1
+        for: 30s
+        labels:
+          severity: high
+          component: circuit_breaker
+          team: platform
+        annotations:
+          summary: "Circuit Breaker Tripped (OPEN)"
+          description: "Circuit breaker activated for 30+ seconds"
+          runbook_url: "docs/RUNBOOK_P3E.md#circuit-breaker-open"
+          impact: "System in protection mode, trading temporarily suspended"
+
+      - alert: AuroraCircuitBreakerHalfOpen
+        expr: aurora_circuit_breaker_state == 2
+        for: 10s
+        labels:
+          severity: info
+          component: circuit_breaker
+          team: platform
+        annotations:
+          summary: "Circuit Breaker Testing (HALF-OPEN)"
+          description: "Circuit breaker in testing phase"
+          runbook_url: "docs/RUNBOOK_P3E.md#circuit-breaker-half-open"
+          action: "Monitor recovery progress"
+
+      # === DASHBOARD ALERTS ===
+
+      - alert: AuroraDashboardHighReconnectionRate
+        expr: increase(aurora_dashboard_reconnects[5m]) > 50
+        for: 3m
+        labels:
+          severity: warning
+          component: dashboard
+          team: frontend
+        annotations:
+          summary: "High Dashboard Reconnection Rate"
+          description: "More than 50 dashboard reconnections in last 5 minutes"
+          runbook_url: "docs/RUNBOOK_P3E.md#dashboard-reconnections"
+          action: "Check network stability, nginx configuration, client issues"
+
+      - alert: AuroraDashboardSlowResponseTime
+        expr: aurora_dashboard_response_time_p95 > 2000
+        for: 2m
+        labels:
+          severity: warning
+          component: dashboard
+          team: frontend
+        annotations:
+          summary: "Slow Dashboard Response Time"
+          description: "Dashboard P95 response time > 2s for 2+ minutes"
+          runbook_url: "docs/RUNBOOK_P3E.md#dashboard-performance"
+          action: "Optimize dashboard queries, check database performance"
+
+      # === ERROR BUDGET BURNOUT ALERTS ===
+
+      - alert: AuroraSSEAvailabilityErrorBudgetBurn
+        expr: (1 - aurora_sli_availability_sse) / (1 - 0.999) > 0.1
+        for: 1h
+        labels:
+          severity: warning
+          slo: sse_availability
+          team: platform
+        annotations:
+          summary: "SSE Availability Error Budget Burning Fast (>10%/hour)"
+          description: "Error budget burning at >10% per hour. {{ $value | humanizePercentage }} of monthly budget"
+          runbook_url: "docs/RUNBOOK_P3E.md#error-budget-burn"
+          action: "Review recent incidents, assess reliability improvements needed"
+
+      - alert: AuroraLatencyErrorBudgetBurn
+        expr: aurora_sli_latency_execution_p99 > 200
+        for: 30m
+        labels:
+          severity: warning
+          slo: execution_latency
+          team: platform
+        annotations:
+          summary: "Latency Error Budget at Risk"
+          description: "Latency consistently above 200ms for 30+ minutes"
+          runbook_url: "docs/RUNBOOK_P3E.md#error-budget-burn"
+          action: "Monitor latency trends, prepare performance optimization"
+
+---
+
+# Alertmanager Configuration Template
+# Place this in alertmanager.yml
+
+global:
+  smtp_smarthost: 'smtp.company.com:587'
+  smtp_from: 'aurora-alerts@company.com'
+  smtp_auth_username: 'aurora-alerts@company.com'
+  smtp_auth_password: 'your-smtp-password'
+
+route:
+  group_by: ['alertname', 'severity', 'team']
+  group_wait: 10s
+  group_interval: 10s
+  repeat_interval: 1h
+  receiver: 'aurora-alerts'
+  routes:
+    - match:
+        severity: critical
+      receiver: 'aurora-critical'
+      continue: true
+    - match:
+        team: quant
+      receiver: 'quant-team'
+    - match:
+        team: risk
+      receiver: 'risk-team'
+
+receivers:
+  - name: 'aurora-alerts'
+    email_configs:
+      - to: 'platform-team@company.com'
+        subject: '[{{ .GroupLabels.severity | upper }}] Aurora: {{ .GroupLabels.alertname }}'
+        body: |
+          {{ range .Alerts }}
+          Alert: {{ .Annotations.summary }}
+          Description: {{ .Annotations.description }}
+          Runbook: {{ .Annotations.runbook_url }}
+          {{ if .Annotations.impact }}Impact: {{ .Annotations.impact }}{{ end }}
+          {{ if .Annotations.action }}Action: {{ .Annotations.action }}{{ end }}
+          {{ end }}
+
+  - name: 'aurora-critical'
+    pagerduty_configs:
+      - service_key: 'your-pagerduty-service-key'
+    slack_configs:
+      - api_url: 'your-slack-webhook-url'
+        channel: '#aurora-critical'
+        title: '[CRITICAL] Aurora Alert'
+        text: |
+          {{ range .Alerts }}
+          🚨 *{{ .Annotations.summary }}*
+          {{ .Annotations.description }}
+          🔗 <{{ .Annotations.runbook_url }}|Runbook>
+          {{ if .Annotations.impact }}💥 Impact: {{ .Annotations.impact }}{{ end }}
+          {{ end }}
+
+  - name: 'quant-team'
+    slack_configs:
+      - api_url: 'your-quant-slack-webhook'
+        channel: '#quant-alerts'
+
+  - name: 'risk-team'
+    slack_configs:
+      - api_url: 'your-risk-slack-webhook'
+        channel: '#risk-alerts'
+
+---
+
+# Dashboard Template (Grafana)
+# Import this JSON into Grafana for SLO/SLI monitoring dashboard
+
+{
+  "dashboard": {
+    "title": "Aurora P3-E SLO/SLI Dashboard",
+    "tags": ["aurora", "slo", "sli", "monitoring"],
+    "timezone": "UTC",
+    "panels": [
+      {
+        "title": "SSE Availability SLO",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "aurora_sli_availability_sse * 100",
+            "legendFormat": "Availability %"
+          }
+        ],
+        "thresholds": {
+          "mode": "absolute",
+          "steps": [
+            { "value": null, "color": "red" },
+            { "value": 99.9, "color": "orange" },
+            { "value": 99.95, "color": "green" }
+          ]
+        }
+      },
+      {
+        "title": "Execution Latency P99",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "aurora_sli_latency_execution_p99",
+            "legendFormat": "P99 Latency (ms)"
+          }
+        ],
+        "thresholds": {
+          "mode": "absolute",
+          "steps": [
+            { "value": null, "color": "green" },
+            { "value": 250, "color": "orange" },
+            { "value": 300, "color": "red" }
+          ]
+        }
+      },
+      {
+        "title": "Policy Deny Rate",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "aurora_sli_policy_deny_rate * 100",
+            "legendFormat": "Deny Rate %"
+          }
+        ],
+        "thresholds": {
+          "mode": "absolute",
+          "steps": [
+            { "value": null, "color": "green" },
+            { "value": 25, "color": "orange" },
+            { "value": 35, "color": "red" }
+          ]
+        }
+      },
+      {
+        "title": "Calibration ECE",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "aurora_sli_calibration_ece",
+            "legendFormat": "ECE"
+          }
+        ],
+        "thresholds": {
+          "mode": "absolute",
+          "steps": [
+            { "value": null, "color": "green" },
+            { "value": 0.04, "color": "orange" },
+            { "value": 0.05, "color": "red" }
+          ]
+        }
+      }
+    ]
+  }
+}

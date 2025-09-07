@@ -29,13 +29,13 @@ def run_cfg(toml: str) -> int:
 
 def test_unknown_top_level():
     code = run_cfg("""
+        foobar = 1
         [risk.cvar]
         limit = 0.95
         [sizing]
         default = "x"
         [execution.sla]
         max_latency_ms = 50
-        foobar = 1  # топ-левел неизвестная секция
         [order_sink.sim_local]
         latency_ms = 5
         [timescale]

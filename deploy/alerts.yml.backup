@@ -1,0 +1,311 @@
+# Aurora P3-D Monitoring Alerts
+# Basic alert configurations for production monitoring
+
+# These alerts should be configured in your monitoring system
+# (Prometheus, DataDog, New Relic, CloudWatch, etc.)
+
+---
+
+## 🚨 Critical Alerts
+
+### SSE Stream Down
+**Condition**: `client_count == 0` for > 5 minutes
+**Severity**: CRITICAL
+**Description**: No dashboard clients connected to SSE stream
+**Action**: Check live_feed service status, network connectivity, dashboard configuration
+
+### Log Corruption
+**Condition**: `tailer.malformed_lines` increases rapidly (>10 in 5 min)
+**Severity**: HIGH
+**Description**: High rate of malformed JSON in log files
+**Action**: Check logger configuration, JSON schema, disk corruption
+
+### File Size Issues
+**Condition**: `tailer.oversized_lines` increases rapidly (>5 in 5 min)
+**Severity**: HIGH
+**Description**: Large lines in log files exceeding 1MB limit
+**Action**: Review log format, check for runaway logging
+
+---
+
+## ⚡ Performance Alerts
+
+### Slow Decision Making
+**Condition**: `latency.decision_ms.p90 > 50` for 3 consecutive minutes
+**Severity**: WARNING
+**Description**: Decision latency above acceptable threshold
+**Action**: Check system resources, optimize decision algorithms
+
+### High Order Denial Rate
+**Condition**: `orders.deny_rate > 50%` for 10 consecutive minutes
+**Severity**: WARNING
+**Description**: Excessive order denials may indicate market issues
+**Action**: Review governance rules, check market conditions
+
+### Circuit Breaker Tripped
+**Condition**: `circuit_breaker.state == "OPEN"` for > 30 seconds
+**Severity**: HIGH
+**Description**: Circuit breaker activated, system in protection mode
+**Action**: Check adapter connectivity, review error rates
+
+---
+
+## 🔧 System Health Alerts
+
+### Service Down
+**Condition**: Live feed service HTTP status != 200
+**Severity**: CRITICAL
+**Description**: SSE live feed service is not responding
+**Action**: Restart service, check logs, verify dependencies
+
+### High Memory Usage
+**Condition**: Memory usage > 80% of limit (512MB)
+**Severity**: WARNING
+**Description**: Service approaching memory limits
+**Action**: Monitor for leaks, consider increasing limits
+
+### SSE Availability SLO
+**SLO**: `availability_sse >= 99.9%` (successful connections/total time)
+**Description**: SSE stream availability target
+**Action**: Investigate connection failures, check auth issues, verify network stability
+
+### Disk Space Alert
+**Condition**: `disk_usage > 85%` for log directory
+**Severity**: HIGH
+**Description**: Insufficient disk space for logs
+**Action**: Run log rotation, clean old archives, increase disk space if needed
+
+### Reconnection Rate Alert
+**Condition**: `reconnects_per_minute > 10` sustained for 5 minutes
+**Severity**: WARNING
+**Description**: High reconnection rate indicates network/proxy issues
+**Action**: Check nginx configuration, network stability, client connectivity
+
+---
+
+## 📊 Prometheus Alert Rules
+
+```yaml
+# prometheus/alert_rules.yml
+groups:
+  - name: aurora.alerts
+    rules:
+
+      # Critical alerts
+      - alert: AuroraSSEStreamDown
+        expr: aurora_sse_client_count == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "No SSE clients connected"
+          description: "SSE stream has no active clients for 5+ minutes"
+
+      - alert: AuroraLogCorruption
+        expr: increase(aurora_tailer_malformed_lines[5m]) > 10
+        labels:
+          severity: high
+        annotations:
+          summary: "High malformed JSON rate"
+          description: "More than 10 malformed lines in last 5 minutes"
+
+      # Performance alerts
+      - alert: AuroraSlowDecisions
+        expr: aurora_latency_decision_ms_p90 > 50
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Slow decision latency"
+          description: "Decision P90 latency > 50ms for 3+ minutes"
+
+      - alert: AuroraHighDenialRate
+        expr: aurora_orders_deny_rate > 0.5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High order denial rate"
+          description: "Order denial rate > 50% for 10+ minutes"
+```
+
+---
+
+## 📈 Grafana Dashboard Panels
+
+### Key Metrics to Monitor
+
+```json
+// SSE Connection Health
+{
+  "title": "SSE Client Connections",
+  "targets": [
+    {
+      "expr": "aurora_sse_client_count",
+      "legendFormat": "Active Clients"
+    }
+  ]
+}
+
+// Performance Metrics
+{
+  "title": "Decision Latency",
+  "targets": [
+    {
+      "expr": "aurora_latency_decision_ms_p50",
+      "legendFormat": "P50"
+    },
+    {
+      "expr": "aurora_latency_decision_ms_p90",
+      "legendFormat": "P90"
+    }
+  ]
+}
+
+// Error Rates
+{
+  "title": "Error Counters",
+  "targets": [
+    {
+      "expr": "increase(aurora_tailer_malformed_lines[5m])",
+      "legendFormat": "Malformed Lines"
+    },
+    {
+      "expr": "increase(aurora_tailer_oversized_lines[5m])",
+      "legendFormat": "Oversized Lines"
+    }
+  ]
+}
+```
+
+---
+
+## 🔍 Health Check Script
+
+```bash
+#!/bin/bash
+# Aurora health check script for monitoring systems
+
+HEALTH_URL="http://localhost:8001/health"
+HEALTHZ_URL="http://localhost:8001/healthz"
+
+# Check healthz (simple check)
+if ! curl -s --max-time 5 "$HEALTHZ_URL" | grep -q '"status":"ok"'; then
+    echo "CRITICAL: Healthz check failed"
+    exit 2
+fi
+
+# Check detailed health
+HEALTH_DATA=$(curl -s --max-time 10 "$HEALTH_URL")
+if [ $? -ne 0 ]; then
+    echo "CRITICAL: Health endpoint unreachable"
+    exit 2
+fi
+
+# Parse key metrics
+CLIENT_COUNT=$(echo "$HEALTH_DATA" | jq -r '.sse_clients // 0')
+MALFORMED=$(echo "$HEALTH_DATA" | jq -r '.tailer_stats.malformed_lines // 0')
+OVERSIZED=$(echo "$HEALTH_DATA" | jq -r '.tailer_stats.oversized_lines // 0')
+
+# Alert thresholds
+if [ "$CLIENT_COUNT" -eq 0 ]; then
+    echo "WARNING: No SSE clients connected"
+    exit 1
+fi
+
+if [ "$MALFORMED" -gt 100 ]; then
+    echo "WARNING: High malformed lines count: $MALFORMED"
+    exit 1
+fi
+
+if [ "$OVERSIZED" -gt 50 ]; then
+    echo "WARNING: High oversized lines count: $OVERSIZED"
+    exit 1
+fi
+
+echo "OK: All health checks passed"
+exit 0
+```
+
+---
+
+## 📧 Alert Notification Templates
+
+### Email Template
+```
+Subject: [ALERT] Aurora P3-D: {alert_name}
+
+Alert: {alert_name}
+Severity: {severity}
+Description: {description}
+
+Details:
+- Service: Aurora Live Feed
+- Environment: Production
+- Time: {timestamp}
+
+Immediate Actions:
+{action_steps}
+
+Metrics:
+{relevant_metrics}
+
+Please investigate immediately.
+```
+
+### Slack Template
+```json
+{
+  "channel": "#alerts",
+  "username": "Aurora Monitor",
+  "icon_emoji": ":warning:",
+  "attachments": [
+    {
+      "color": "danger",
+      "title": "Aurora P3-D Alert",
+      "text": "{alert_name}: {description}",
+      "fields": [
+        {
+          "title": "Severity",
+          "value": "{severity}",
+          "short": true
+        },
+        {
+          "title": "Service",
+          "value": "Live Feed SSE",
+          "short": true
+        }
+      ],
+      "footer": "Aurora Monitoring",
+      "ts": {timestamp}
+    }
+  ]
+}
+```
+
+---
+
+## 🔧 Alert Response Playbook
+
+### SSE Stream Down
+1. Check service status: `systemctl status aurora-live-feed`
+2. Check logs: `journalctl -u aurora-live-feed -f`
+3. Verify network connectivity
+4. Check nginx configuration
+5. Restart service if needed
+
+### High Error Rates
+1. Check log file integrity
+2. Review recent changes to logging format
+3. Check disk space and permissions
+4. Verify JSON schema compliance
+
+### Performance Degradation
+1. Check system resources (CPU, memory)
+2. Review recent code changes
+3. Check database/adapter performance
+4. Consider scaling resources
+
+---
+
+*Configure these alerts in your monitoring system and test them during the smoke test phase.*

@@ -1,0 +1,170 @@
+# Aurora P3-E & P4 Log Rotation Configuration
+# Logrotate configuration for managing Aurora application logs
+
+# SSE Live Feed Logs
+/app/logs/live_feed.log {
+    daily
+    rotate 30
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 0644 aurora aurora
+    postrotate
+        docker-compose exec aurora-live-feed kill -HUP 1 || true
+    endscript
+}
+
+# Runner Application Logs
+/app/logs/runner.log {
+    daily
+    rotate 30
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 0644 aurora aurora
+    postrotate
+        docker-compose exec aurora-runner kill -HUP 1 || true
+    endscript
+}
+
+# Dashboard/Metrics Logs
+/app/logs/dashboard.log {
+    daily
+    rotate 30
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 0644 aurora aurora
+    postrotate
+        docker-compose exec aurora-dashboard kill -HUP 1 || true
+    endscript
+}
+
+# Error Logs
+/app/logs/*.error.log {
+    daily
+    rotate 60
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 0644 aurora aurora
+}
+
+# Access Logs
+/app/logs/*.access.log {
+    daily
+    rotate 90
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 0644 aurora aurora
+}
+
+# JSON Log Files
+/app/logs/*.jsonl {
+    daily
+    rotate 30
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 0644 aurora aurora
+    maxsize 100M
+}
+
+# Prometheus Metrics Logs
+/app/logs/prometheus.log {
+    weekly
+    rotate 12
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 0644 prometheus prometheus
+    postrotate
+        docker-compose exec prometheus kill -HUP 1 || true
+    endscript
+}
+
+# Grafana Logs
+/app/logs/grafana.log {
+    weekly
+    rotate 12
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 0644 grafana grafana
+}
+
+# Alertmanager Logs
+/app/logs/alertmanager.log {
+    weekly
+    rotate 12
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 0644 alertmanager alertmanager
+    postrotate
+        docker-compose exec alertmanager kill -HUP 1 || true
+    endscript
+}
+
+# System Logs
+/var/log/aurora/*.log {
+    daily
+    rotate 30
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 0644 root root
+    postrotate
+        systemctl reload rsyslog || true
+    endscript
+}
+
+# Audit Logs (keep longer)
+/app/logs/audit.log {
+    monthly
+    rotate 24
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 0644 aurora aurora
+}
+
+# Performance Logs
+/app/logs/performance.log {
+    daily
+    rotate 30
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 0644 aurora aurora
+    maxsize 50M
+}
+
+# Debug Logs (if enabled)
+/app/logs/debug.log {
+    daily
+    rotate 7
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 0644 aurora aurora
+    postrotate
+        docker-compose exec aurora-runner kill -HUP 1 || true
+        docker-compose exec aurora-live-feed kill -HUP 1 || true
+        docker-compose exec aurora-dashboard kill -HUP 1 || true
+    endscript
+}

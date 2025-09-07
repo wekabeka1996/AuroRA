@@ -48,11 +48,19 @@ class SPRTConfig:
     
     @property
     def threshold_h0(self) -> float:
-        return math.log(self.beta / (1 - self.alpha))
+        # Захист від math domain error
+        denominator = 1 - self.alpha
+        if denominator <= 0 or self.beta <= 0:
+            return -10.0  # Безпечне значення для testnet
+        return math.log(self.beta / denominator)
     
     @property
     def threshold_h1(self) -> float:
-        return math.log((1 - self.beta) / self.alpha)
+        # Захист від math domain error
+        numerator = 1 - self.beta
+        if numerator <= 0 or self.alpha <= 0:
+            return 10.0  # Безпечне значення для testnet
+        return math.log(numerator / self.alpha)
 
 
 @dataclass
@@ -76,7 +84,16 @@ class SPRTState:
     
     @property
     def std_error(self) -> float:
-        return math.sqrt(self.variance / self.n_samples) if self.n_samples > 0 else 1.0
+        # Захист від math domain error
+        if self.n_samples <= 0:
+            return 1.0
+        var_val = self.variance
+        if var_val <= 0:
+            return 1.0
+        try:
+            return math.sqrt(var_val / self.n_samples)
+        except (ValueError, OverflowError):
+            return 1.0  # Безпечне значення у випадку помилки
 
 
 @dataclass
@@ -200,7 +217,13 @@ class CompositeSPRT:
         return max(0.0, min(1.0, p_value))
     
     def _normal_cdf(self, z: float) -> float:
-        return 0.5 * (1 + math.erf(z / math.sqrt(2)))
+        # Захист від math domain error
+        try:
+            if math.isnan(z) or math.isinf(z):
+                return 0.5
+            return 0.5 * (1 + math.erf(z / math.sqrt(2)))
+        except (ValueError, OverflowError):
+            return 0.5  # Безпечне значення у випадку помилки
     
     def reset(self) -> None:
         self.state = SPRTState()
@@ -231,18 +254,18 @@ class CompositeSPRT:
 SPRTResult = SPRTDecision  # compat alias
 
 
-def create_sprt_pocock(alpha: float = 0.05, mu0: float = 0.0, mu1: float = 0.1) -> "CompositeSPRT":
-    cfg = SPRTConfig(mu0=mu0, mu1=mu1, alpha=alpha)
+def create_sprt_pocock(alpha: float = 0.05, mu0: float = 0.0, mu1: float = 0.1, beta: float = 0.2, min_samples: int = 5, max_samples: Optional[int] = None) -> "CompositeSPRT":
+    cfg = SPRTConfig(mu0=mu0, mu1=mu1, alpha=alpha, beta=beta, min_samples=min_samples, max_samples=max_samples)
     return CompositeSPRT(cfg)
 
 
-def create_sprt_obf(alpha: float = 0.05, mu0: float = 0.0, mu1: float = 0.1) -> "CompositeSPRT":
-    cfg = SPRTConfig(mu0=mu0, mu1=mu1, alpha=alpha)
+def create_sprt_obf(alpha: float = 0.05, mu0: float = 0.0, mu1: float = 0.1, beta: float = 0.2, min_samples: int = 5, max_samples: Optional[int] = None) -> "CompositeSPRT":
+    cfg = SPRTConfig(mu0=mu0, mu1=mu1, alpha=alpha, beta=beta, min_samples=min_samples, max_samples=max_samples)
     return CompositeSPRT(cfg)
 
 
-def create_sprt_bh_fdr(alpha: float = 0.05, mu0: float = 0.0, mu1: float = 0.1) -> "CompositeSPRT":
-    cfg = SPRTConfig(mu0=mu0, mu1=mu1, alpha=alpha)
+def create_sprt_bh_fdr(alpha: float = 0.05, mu0: float = 0.0, mu1: float = 0.1, beta: float = 0.2, min_samples: int = 5, max_samples: Optional[int] = None) -> "CompositeSPRT":
+    cfg = SPRTConfig(mu0=mu0, mu1=mu1, alpha=alpha, beta=beta, min_samples=min_samples, max_samples=max_samples)
     return CompositeSPRT(cfg)
 
 

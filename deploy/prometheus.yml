@@ -1,0 +1,71 @@
+# Aurora P3-E & P4 Prometheus Configuration
+# Service discovery and metrics collection configuration
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - "alerts.yml"
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          - alertmanager:9093
+
+scrape_configs:
+  # Aurora Runner Service
+  - job_name: 'aurora-runner'
+    static_configs:
+      - targets: ['aurora-runner:8000']
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+    scrape_timeout: 5s
+
+  # Aurora Live Feed Service
+  - job_name: 'aurora-live-feed'
+    static_configs:
+      - targets: ['aurora-live-feed:8001']
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+    scrape_timeout: 5s
+
+  # Aurora Dashboard/Metrics Exporter
+  - job_name: 'aurora-dashboard'
+    static_configs:
+      - targets: ['aurora-dashboard:8002']
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+    scrape_timeout: 5s
+
+  # Prometheus itself
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+    scrape_interval: 30s
+
+  # Node Exporter (System Metrics)
+  - job_name: 'node-exporter'
+    static_configs:
+      - targets: ['node-exporter:9100']
+    scrape_interval: 30s
+
+  # Alertmanager
+  - job_name: 'alertmanager'
+    static_configs:
+      - targets: ['alertmanager:9093']
+    scrape_interval: 30s
+
+# Remote write configuration (optional - for long-term storage)
+# remote_write:
+#   - url: "http://cortex:9009/api/v1/push"
+#     write_relabel_configs:
+#       - source_labels: [__name__]
+#         regex: 'aurora_.*'
+#         action: keep
+
+# Remote read configuration (optional - for long-term storage)
+# remote_read:
+#   - url: "http://cortex:9009/api/v1/read"
+#     read_recent: true

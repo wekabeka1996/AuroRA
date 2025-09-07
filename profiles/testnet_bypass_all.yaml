@@ -1,0 +1,51 @@
+# Максимально агресивний профіль для тестування виконання
+# Відключає всі можливі гейти та фільтри
+
+symbols:
+  - SOL
+  - SOON
+
+max_notional_usd: 10000.0
+
+# Відключити батьківський гейт
+parent_gate:
+  enabled: false
+
+# Мінімальна межа очікуваної винагороди (дуже негативна)
+expected_net_reward_threshold_bps: -10000.0
+
+# Агресивні параметри спреду
+spread_threshold_bps: 10000.0
+
+# Відключити латентність гейт
+latency_gate:
+  enabled: false
+  max_latency_ms: 50000
+
+# Відключити слиппедж гейт  
+slippage_gate:
+  enabled: false
+  max_slippage_bps: 10000
+
+# Відключити волатильність гейт
+volatility_gate:
+  enabled: false
+  max_vol_std_bps: 50000
+
+# Відключити трап гейт
+trap_guard:
+  enabled: false
+
+# Мінімальна ймовірність
+min_probability: 0.1
+
+# Агресивний розмір позицій
+position_sizing:
+  max_position_size_usd: 5000.0
+  kelly_fraction: 2.0
+
+# Відключити всі ризик-менеджмент контролі
+risk_management:
+  daily_loss_limit_pct: 95.0
+  max_drawdown_pct: 95.0
+  enabled: false

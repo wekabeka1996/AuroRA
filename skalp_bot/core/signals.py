@@ -226,6 +226,55 @@ def compute_alpha_score(features: Dict[str, float], rp: Dict[str, tuple], weight
     """Compute weighted alpha score from normalized features using robust percentiles.
     Missing features default to 0. Features expected: OBI, TFI, ABSORB, MICRO_BIAS, OFI, TREND_ALIGN.
     """
+    # --- PRE-SIGNAL DIAGNOSTICS (non-fatal, console print) ---
+    try:
+        # Try common keys for EMA/RSI/price (case-insensitive fallback)
+        def _get_any(d: Dict[str, float], keys: list[str]):
+            for k in keys:
+                if k in d:
+                    return d.get(k)
+            # case-insensitive fallback
+            kl = {str(x).lower(): x for x in d.keys()}
+            for k in keys:
+                x = kl.get(k.lower())
+                if x is not None:
+                    return d.get(x)
+            return None
+
+        ema_fast = _get_any(features, ["EMA_FAST", "ema_fast", "ema_fast_" , "ema_short", "ema_fast_price"])
+        ema_slow = _get_any(features, ["EMA_SLOW", "ema_slow", "ema_long", "ema_slow_price"])
+        ema_trend = _get_any(features, ["EMA_TREND", "ema_trend", "ema_mid", "ema_mid_price"])
+        rsi = _get_any(features, ["RSI", "rsi", "rsi_14", "rsi_21"])
+        price = _get_any(features, ["PRICE", "price", "mid", "last_price", "close"])
+
+        print("\n" + "-" * 50)
+        print("--- PRE-SIGNAL DIAGNOSTICS ---")
+        print(f"  EMA fast: {ema_fast}")
+        print(f"  EMA slow: {ema_slow}")
+        print(f"  EMA trend: {ema_trend}")
+        print(f"  RSI: {rsi}")
+        print(f"  Price: {price}")
+        # Also print core features used below (if present)
+        for k in ["OBI", "TFI", "ABSORB", "MICRO_BIAS", "OFI", "TREND_ALIGN"]:
+            if k in features or k.lower() in {kk.lower() for kk in features.keys()}:
+                v = _get_any(features, [k])
+                print(f"  {k}: {v}")
+        # Dump any other factors that might affect score
+        extra_keys = sorted([k for k in features.keys() if k.upper() not in {"OBI","TFI","ABSORB","MICRO_BIAS","OFI","TREND_ALIGN","EMA_FAST","EMA_SLOW","EMA_TREND","RSI","PRICE"}])
+        if extra_keys:
+            print("  Other features:")
+            for k in extra_keys:
+                try:
+                    print(f"    - {k}: {features.get(k)}")
+                except Exception:
+                    pass
+        print("-" * 50 + "\n")
+    except Exception as _sig_dbg_e:
+        try:
+            print(f"Signal diagnostics error: {_sig_dbg_e}")
+        except Exception:
+            pass
+
     if weights is None:
         weights = {
             'OBI': 0.30,
