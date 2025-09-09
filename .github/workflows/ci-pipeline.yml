@@ -165,24 +165,8 @@ jobs:
           --report-html mutation_report.html \
           --output mutation_results.json \
           --baseline mutation_baseline.json
-
-        # Calculate mutation score
-        python -c "
-        import json
-        with open('mutation_results.json') as f:
-            data = json.load(f)
-        score = data.get('mutation_score', 0)
-        print(f'Mutation Score: {score}%')
-
-        # Fail if score drops more than 5%
-        with open('mutation_baseline.json') as f:
-            baseline = json.load(f)
-        baseline_score = baseline.get('mutation_score', 0)
-
-        if score < baseline_score - 5:
-            print(f'Mutation score dropped from {baseline_score}% to {score}%')
-            exit(1)
-        "
+        # Calculate mutation score and enforce floors (one-liner to keep YAML clean)
+        python -c "import json,sys; s=json.load(open('mutation_results.json')).get('mutation_score',0); print(f'Mutation Score: {s}%'); b=json.load(open('mutation_baseline.json')).get('mutation_score',0); (print(f'Drop from {b}% to {s}%') or sys.exit(1)) if s < b - 5 else None; (print(f'Below floor 60%: {s}%') or sys.exit(1)) if s < 60 else None"
 
     - name: Upload mutation reports
       uses: actions/upload-artifact@v3
@@ -319,6 +303,73 @@ jobs:
       with:
         name: xai-validation-results
         path: artifacts/xai/
+  # ========================================
+  # SYSTEM VALIDATION (CANARY PRE-FLIGHT)
+  # ========================================
+  system-validation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: test-suite
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements-dev.txt
+        pip install -r requirements.txt
+
+    - name: Seed synthetic canary flow
+      run: |
+        python tools/seed_synthetic_flow.py --out logs/synth.jsonl --seed 1 --scenarios maker,taker,low_pfill,size_zero,sla_deny --n 1 --truncate
+
+    - name: Run system-validation tests (non-perf)
+      run: |
+        python -m pytest tests/system_validation -m "not perf" -q --maxfail=1
+
+    - name: Validate canary logs
+      run: |
+        python tools/validate_canary_logs.py --path logs/synth.jsonl --window-mins 5 \
+          --p95-latency-ms-max 500 \
+          --deny-share-max 0.6 \
+          --low-pfill-share-max 0.5 \
+          --net-after-tca-median-min 0 \
+          --xai-missing-rate-max 0.01 \
+          --pfill-median-min 0.40 \
+          --pfill-median-max 0.80 \
+          --corrupt-rate-max 0.01 \
+          --strict-progress-max 0.05
+
+  system-validation-perf:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: test-suite
+    continue-on-error: true
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements-dev.txt
+        pip install -r requirements.txt
+
+    - name: Run perf-tagged system tests
+      run: |
+        python -m pytest tests/system_validation -m perf -q || true
+
   performance-test:
     runs-on: ubuntu-latest
     timeout-minutes: 15

@@ -1,0 +1,44 @@
+# Продакшн профіль для BTC на тестнеті з кредитним плечем x25
+symbols:
+  - BTCUSDT
+
+# Збільшений розмір позиції до 2% від балансу (для x25 плеча це ~50% капіталу)
+max_notional_usd: 5000.0
+min_notional_usd: 100.0  # Мінімальний ордер ~2% від 5000 USDT баланса
+
+# Налаштування кредитного плеча
+leverage: 25
+exchange_use_futures: true
+
+# Консервативні ризикові параметри для продакшену (ПОСЛАБЛЕНІ ДЛЯ TESTNET)
+expected_net_reward_threshold_bps: -500.0  # Блокувати тільки якщо очікуваний збиток > 5%
+
+parent_gate:
+  enabled: true
+  zscore_threshold: 2.5  # Консервативний поріг
+
+risk_management:
+  daily_loss_limit_pct: 5.0  # Максимум 5% втрат на день
+  max_drawdown_pct: 10.0     # Максимум 10% просадки
+  enabled: true
+
+position_sizing:
+  max_position_size_usd: 2500.0  # 50% від max_notional при x25 плечі
+  kelly_fraction: 0.25           # Консервативне kelly для продакшену
+
+min_probability: 0.45  # Помірна впевненість для testnet (замість 0.65)
+
+# Збалансовані параметри для продакшену
+route_preference: maker
+allow_taker: true
+allow_maker: true
+
+# Послаблені пороги для testnet (більше торгових можливостей)
+spread_threshold_bps: 200.0    # 2% спред
+latency_threshold_ms: 1000     # 1000ms максимум
+slippage_threshold_bps: 100.0  # 1% slippage
+
+# Додаткові параметри для стабільності
+retry_attempts: 3
+order_timeout_seconds: 30
+health_check_interval: 60

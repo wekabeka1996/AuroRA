@@ -56,6 +56,15 @@ class AuroraEventLogger:
     AURORA_EXPECTED_RETURN_ACCEPT, AURORA_EXPECTED_RETURN_LOW, AURORA_SLIPPAGE_GUARD,
     # SPRT decisions
     "SPRT.DECISION_H0", "SPRT.DECISION_H1", "SPRT.CONTINUE", "SPRT.ERROR",
+        # --- Execution / Routing v2 additions ---
+        # Intent ingress
+        "ORDER.INTENT.RECEIVED",
+        # Validation & plan lifecycle
+        "ROUTER.VALIDATION.FAIL", "ROUTER.DECISION", "ORDER.PLAN.BUILD", "ORDER.DENY",
+        # SLA
+        "SLA.CHECK", "SLA.DENY",
+        # Risk sizing / CVaR adjustments
+        "CVAR.SHIFT",
     }
 
     def __init__(

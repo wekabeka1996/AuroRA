@@ -1,4 +1,6 @@
 from __future__ import annotations
+import warnings
+warnings.warn("core.execution.router_backup is archived; reference only. Use router_v2 for new code.", DeprecationWarning, stacklevel=2)
 
 """
 Execution — Router (maker/taker decision with TCA gate)

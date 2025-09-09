@@ -1,0 +1,14 @@
+{
+  "result": "OK",
+  "violations": [],
+  "params": {
+    "window_sec": 120
+  },
+  "computed": {
+    "expected_return_accepts": 0,
+    "latency_p95_alerts": 0,
+    "spread_trips": 0,
+    "risk_denies": 0
+  },
+  "timestamp": 1757257585
+}

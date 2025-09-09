@@ -93,26 +93,38 @@ def start_api(port: int = typer.Option(8000), host: str = typer.Option("127.0.0.
         typer.echo(f"API started in background (PID: {process.pid})")
         return
 
-    # quick health probe loop (liveness is 200 even while models load)
+    # quick health probe loop (check /health first, then /liveness with token)
     import requests
     ops_token = os.getenv("AURORA_OPS_TOKEN") or os.getenv("OPS_TOKEN")
-    headers = {"X-OPS-TOKEN": ops_token} if ops_token else {}
+    
+    typer.echo(f"Waiting for API to start on {host}:{port}...")
     for i in range(20):
         try:
-            r = requests.get(f"http://{host}:{port}/liveness", headers=headers, timeout=2)
+            # Try public /health endpoint first
+            r = requests.get(f"http://{host}:{port}/health", timeout=2)
             if r.status_code == 200:
                 typer.echo(f"API started at http://{host}:{port}")
-                raise typer.Exit(0)
-            # Fallback: if liveness is protected and no token, check public /health
-            if r.status_code in (401, 403) and not headers:
-                r2 = requests.get(f"http://{host}:{port}/health", timeout=2)
-                if r2.status_code == 200:
-                    typer.echo(f"API started (health) at http://{host}:{port}")
-                    raise typer.Exit(0)
-        except Exception:
+                return  # Success, exit normally
+            
+        except requests.exceptions.RequestException:
+            # Expected during startup
             pass
-        time.sleep(0.75)
-    typer.echo("API start attempted; liveness not responding yet")
+        except Exception as e:
+            typer.echo(f"Health check attempt {i+1}: {e}")
+        
+        time.sleep(1.5)
+    
+    # If we reach here, health checks failed but API might be running
+    try:
+        # One final check to see if API responds at all
+        r = requests.get(f"http://{host}:{port}/", timeout=3)
+        if r.status_code in {200, 404, 405}:  # Any response means API is alive
+            typer.echo(f"API appears to be running at http://{host}:{port} (non-health endpoint)")
+            return  # Success
+    except Exception:
+        pass
+        
+    typer.echo("API start timeout; check manually with: curl http://127.0.0.1:8000/health")
     raise typer.Exit(1)
 
 

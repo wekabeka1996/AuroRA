@@ -1,3 +1,5 @@
+import warnings
+warnings.warn("core.execution.router_new is deprecated; use core.execution.router_v2.RouterV2", DeprecationWarning, stacklevel=2)
 from dataclasses import dataclass
 from typing import Optional, Dict, Any
 

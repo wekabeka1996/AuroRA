@@ -1,46 +1,58 @@
-# Aurora testnet config
-env: testnet  # Changed from live to testnet
+# Aurora testnet config with production settings
+env: testnet
 api:
   host: 127.0.0.1
   port: 8080
 
 aurora:
-  latency_guard_ms: 10000   # Very high - almost no latency blocking
-  latency_window_sec: 3600  # Very long window
-  cooloff_base_sec: 1       # Very short cooloff
-  halt_threshold_repeats: 100  # Very high - almost never halt
+  latency_guard_ms: 500     # Production-level latency limits
+  latency_window_sec: 300   # 5-minute window
+  cooloff_base_sec: 30      # 30-second cooloff
+  halt_threshold_repeats: 5 # Conservative halt threshold
 
-# Guards/gates for pretrade checks (EXTREMELY AGGRESSIVE for execution testing)
+# Exchange settings for leverage trading
+exchange:
+  leverage: 25              # x25 leverage
+  use_futures: true         # Enable futures trading
+  testnet: true            # Ensure testnet mode
+
+# Guards/gates for pretrade checks (PRODUCTION SETTINGS)
 guards:
-  spread_bps_limit: 5000    # Very high - almost no spread limits
-  latency_ms_limit: 10000   # Very high - almost no latency limits
-  vol_guard_std_bps: 10000  # Very high - almost no volatility limits
-  trap_guard_enabled: false # Disable trap guard completely
+  spread_bps_limit: 100      # 1% spread limit (production-level)
+  latency_ms_limit: 500      # 500ms latency limit
+  vol_guard_std_bps: 200     # 2% volatility limit
+  trap_guard_enabled: true   # Enable trap guard
 
 risk:
-  pi_min_bps: 0.1           # Very low - accept almost any expected profit
-  dd_day_pct: 95.0          # Very high - allow huge drawdowns
-  max_concurrent: 50        # Very high - many concurrent positions
-  size_scale: 10.0          # Very high - large position sizes
+  pi_min_bps: -500.0        # Дозволити навіть невеликі збитки для testnet  
+  dd_day_pct: 10.0          # Максимум 10% daily drawdown
+  max_concurrent: 5         # Max 5 concurrent positions
+  size_scale: 1.0           # Conservative sizing
 
 slippage:
-  eta_fraction_of_b: 0.10   # Lower slippage estimation
+  eta_fraction_of_b: 0.25   # Conservative slippage estimation
 
 trap:
-  window_s: 0.1             # Very short window - less restrictive
-  levels: 20                # More levels - less restrictive  
-  z_threshold: 10.0         # Very high z - almost never triggers
-  cancel_pctl: 10           # Very low cancel percentile
+  window_s: 60              # 1-minute window for trap detection
+  levels: 10                # Reasonable number of levels
+  z_threshold: 2.5          # Conservative z-score threshold
+  cancel_pctl: 50           # Median cancel percentile
 
 pretrade:
   order_profile: er_before_slip
 
 sprt:
-  enabled: false
+  enabled: true             # Enable sequential testing
   alpha: 0.05
   beta: 0.05
   sigma: 1.0
   max_obs: 100
+
+# Position sizing parameters for 2% portfolio allocation
+sizing:
+  target_allocation_pct: 2.0  # 2% of portfolio per trade
+  min_notional_usd: 100.0     # Minimum order size
+  max_notional_usd: 5000.0    # Maximum order size
 
 security:
   ops_token: aurora_dev_ops_token_abcdef0123456789
