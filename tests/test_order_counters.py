@@ -19,9 +19,6 @@ def test_orders_counters_increment_on_log_writes(tmp_path):
     app = svc.app
     client = TestClient(app)
 
-    # Set OPS token for protected endpoints used elsewhere
-    app.state.ops_token = "t" * 32
-
     # Baseline metrics
     before = client.get("/metrics").text
     b_filled = get_metric_value(before, "aurora_orders_success_total")

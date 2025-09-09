@@ -15,6 +15,9 @@ from .router_v2 import OrderIntent, RoutedOrderPlan, DenyDecision, RouterV2, Mar
 from .latency_predictor import LatencyPredictor
 from core.execution.sla import SLAMonitor  # existing SLA monitor
 from core.risk.sizing_orchestrator import SizingOrchestrator
+from tools.metrics_exporter import METRICS
+from src.aurora.governance.gate import GovernanceGate
+from src.aurora.governance.models import PerfSnapshot
 
 class ExecutionService:
     def __init__(self, *, config: Dict[str, Any], event_logger: AuroraEventLogger | None = None):
@@ -30,6 +33,11 @@ class ExecutionService:
         self.latency_predictor = LatencyPredictor()
         # sizing orchestrator (pass same event logger for CVaR shift events)
         self.sizing = SizingOrchestrator(self.cfg, event_logger=self.logger)
+        # governance
+        try:
+            self.governance = GovernanceGate(self.cfg, event_logger=self.logger)
+        except Exception:
+            self.governance = None
 
     # ---- public API ----
     def place(self, intent: OrderIntent, market: MarketSpec, features: Dict[str, Any], *, measured_latency_ms: float) -> Union[RoutedOrderPlan, DenyDecision]:
@@ -46,6 +54,11 @@ class ExecutionService:
         edge_after_pred = edge - kappa * pred_dec
         if pred_dec > self.router.max_latency_ms or edge_after_pred <= self.router.edge_floor_bps:
             self.logger.emit('SLA.DENY', { 'phase': 'predict', 'latency_ms': pred, 'edge_after_pred': edge_after_pred, 'intent_id': intent.intent_id })
+            try:
+                METRICS.aurora.inc_order_deny('SLA_PREDICT')
+                METRICS.aurora.observe_latency_tick_submit_ms(float(pred))
+            except Exception:
+                pass
             return DenyDecision(code='SLA_PREDICT', stage='sla_predict', reason='Predicted latency or edge floor breach', diagnostics={'pred_latency_ms': pred, 'edge_after_pred': edge_after_pred}, validations=[])
         self.logger.emit('SLA.CHECK', { 'phase': 'predict', 'latency_ms': pred, 'edge_after_pred': edge_after_pred, 'intent_id': intent.intent_id })
 
@@ -54,6 +67,10 @@ class ExecutionService:
         # 3.1 Deny on zero size
         if kelly.qty_final <= Decimal('0'):
             self.logger.emit('ORDER.DENY', { 'intent_id': intent.intent_id, 'code': 'SIZE_ZERO.DENY', 'stage': 'sizing' })
+            try:
+                METRICS.aurora.inc_order_deny('SIZE_ZERO.DENY')
+            except Exception:
+                pass
             return DenyDecision(code='SIZE_ZERO.DENY', stage='sizing', reason='final sized qty is zero', diagnostics={'qty_final': str(kelly.qty_final)}, validations=[])
         # 4. Route
         features = dict(features or {})
@@ -63,20 +80,67 @@ class ExecutionService:
         decision = self.router.route(intent, market, measured_latency_ms, features)
         if isinstance(decision, DenyDecision):
             self.logger.emit('ORDER.DENY', { 'intent_id': intent.intent_id, 'code': decision.code, 'stage': decision.stage })
+            try:
+                METRICS.aurora.inc_order_deny(decision.code)
+            except Exception:
+                pass
             return decision
 
         # 4. Actual SLA check
         sla_res = self.sla_monitor.check(edge_bps=float(edge), latency_ms=measured_latency_ms)
         if not sla_res.allow:
             self.logger.emit('SLA.DENY', { 'phase': 'actual', 'latency_ms': measured_latency_ms, 'edge_after_bps': sla_res.edge_after_bps, 'intent_id': intent.intent_id })
+            try:
+                METRICS.aurora.inc_order_deny('SLA_ACTUAL')
+                METRICS.aurora.observe_latency_tick_submit_ms(float(measured_latency_ms))
+            except Exception:
+                pass
             return DenyDecision(code='SLA_ACTUAL', stage='sla_actual', reason=sla_res.reason, diagnostics={'latency_ms': measured_latency_ms, 'edge_after_bps': sla_res.edge_after_bps}, validations=[])
         self.logger.emit('SLA.CHECK', { 'phase': 'actual', 'latency_ms': measured_latency_ms, 'edge_after_bps': sla_res.edge_after_bps, 'intent_id': intent.intent_id })
+        try:
+            METRICS.aurora.observe_latency_tick_submit_ms(float(measured_latency_ms))
+        except Exception:
+            pass
 
         # 5. Enrich plan with sizing
         if isinstance(decision, RoutedOrderPlan):
             decision.qty = str(kelly.qty_final)
             decision.sizing = kelly
             self.logger.emit('ORDER.PLAN.BUILD', { 'intent_id': intent.intent_id, 'mode': decision.mode, 'qty': decision.qty, 'price': decision.price })
+        # Gauge: CVaR (if available)
+        try:
+            cvar_curr = float(intent.risk_ctx.get('cvar_curr_usd', 0.0)) if intent.risk_ctx else 0.0
+            METRICS.aurora.set_cvar_current_usd(cvar_curr)
+        except Exception:
+            pass
+        # Governance evaluation at the end
+        try:
+            if self.governance is not None:
+                rc = intent.risk_ctx or {}
+                perf = PerfSnapshot(
+                    trades=int(rc.get('trades', 0)),
+                    window_ms=int(rc.get('window_ms', 0)),
+                    sr=float(rc.get('sr', 0.0)),
+                    pvalue_glr=float(rc.get('pvalue_glr', 1.0)),
+                    sprt_pass=bool(rc.get('sprt_pass', False)),
+                    edge_mean_bps=float(rc.get('edge_mean_bps', 0.0)),
+                    latency_p95_ms=int(rc.get('latency_p95_ms', 0)),
+                    xai_missing_rate=float(rc.get('xai_missing_rate', 0.0)),
+                    cvar_breach=bool(rc.get('cvar_breach', False)),
+                    sla_breach_rate=float(rc.get('sla_breach_rate', 0.0)),
+                )
+                state = intent.regime_ctx.get('governance', 'shadow') if intent.regime_ctx else 'shadow'
+                now_ms = int(intent.timestamp_ms)
+                g = self.governance.evaluate(perf, state, now_ms)
+                self.logger.emit('GOVERNANCE.EVAL', { 'state': state, 'perf': perf.__dict__, 'decision': g.__dict__ })
+                if g.mode != state:
+                    self.logger.emit('GOVERNANCE.TRANSITION', { 'from': state, 'to': g.mode, 'reason': g.reason, 'alpha': g.alpha_spent })
+                    try:
+                        if hasattr(METRICS,'aurora'): METRICS.aurora.inc_route_decision(g.mode)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
         return decision
 
 __all__ = ['ExecutionService']

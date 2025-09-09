@@ -64,7 +64,9 @@ class AuroraEventLogger:
         # SLA
         "SLA.CHECK", "SLA.DENY",
         # Risk sizing / CVaR adjustments
-        "CVAR.SHIFT",
+    "CVAR.SHIFT", "CVAR.EVT.FIT", "CVAR.GATE", "LAMBDA.UPDATE", "KELLY.APPLIED",
+        # Governance / Alpha ledger
+    "GOVERNANCE.EVAL", "GOVERNANCE.TRANSITION", "ALPHA.LEDGER.UPDATE",
     }
 
     def __init__(

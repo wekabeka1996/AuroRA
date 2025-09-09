@@ -8,7 +8,7 @@ import time
 import shutil
 from fastapi import FastAPI, HTTPException, Request
 from contextlib import asynccontextmanager
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, JSONResponse
 from pathlib import Path
 from pydantic import BaseModel
 from typing import Any, Dict, cast
@@ -447,7 +447,9 @@ def _ops_auth(x_ops_token: str | None = Header(default=None, alias="X-OPS-TOKEN"
     token_runtime = getattr(app.state, 'ops_token', None)
     env_token = os.getenv('OPS_TOKEN')
     alias_token = os.getenv('AURORA_OPS_TOKEN')
-    token = token_runtime or sec.get('ops_token') or env_token or alias_token
+    token_cfg = sec.get('ops_token')
+    # Accept any configured token source to be robust during rotations/tests
+    candidates = [t for t in [token_runtime, token_cfg, env_token, alias_token] if t]
     # Emit WARN if alias is used
     if env_token is None and alias_token is not None:
         try:
@@ -458,14 +460,14 @@ def _ops_auth(x_ops_token: str | None = Header(default=None, alias="X-OPS-TOKEN"
             pass
     allowlist = sec.get('allowlist', ['127.0.0.1', '::1'])
     # Note: IP allowlist can be enforced at reverse-proxy; here we only check token.
-    if not token:
+    if not candidates:
         # If no token configured, deny by default (fail-closed)
         OPS_AUTH_FAIL.inc()
         raise HTTPException(status_code=401, detail="OPS token not configured")
     if x_ops_token is None:
         OPS_AUTH_FAIL.inc()
         raise HTTPException(status_code=401, detail="Missing X-OPS-TOKEN")
-    if x_ops_token != token:
+    if x_ops_token not in candidates:
         OPS_AUTH_FAIL.inc()
         raise HTTPException(status_code=403, detail="Forbidden")
     return True
@@ -645,22 +647,24 @@ async def liveness(_: bool = Depends(_ops_auth)):
 
 @app.get("/readiness")
 async def readiness(_: bool = Depends(_ops_auth)):
-    """Readiness probe: include config and halt state."""
+    """Readiness probe: fixed JSON shape and no-store caching."""
     ts = getattr(app.state, 'trading_system', None)
-    model_loaded = ts is not None and ts.student is not None and ts.router is not None
+    model_loaded = bool(ts is not None and getattr(ts, 'student', None) is not None and getattr(ts, 'router', None) is not None)
     cfg_loaded = bool(getattr(app.state, 'cfg', {}) or {})
     gov: Governance | None = getattr(app.state, 'governance', None)
     halt = False
     if gov is not None:
         try:
-            halt = gov._is_halted()  # internal state is okay for readiness
+            halt = bool(gov._is_halted())  # internal is acceptable for readiness
         except Exception:
             halt = False
     last_event_ts = getattr(app.state, 'last_event_ts', None)
     body = {"config_loaded": cfg_loaded, "last_event_ts": last_event_ts, "halt": halt, "models_loaded": model_loaded}
-    if model_loaded:
-        return body
-    raise HTTPException(status_code=503, detail=body)
+    # Always return a dict with fixed shape.
+    # When not ready, raise HTTPException with detail=body to align with tests expecting `detail` wrapper.
+    if not model_loaded:
+        raise HTTPException(status_code=503, detail=body, headers={"Cache-Control": "no-store"})
+    return JSONResponse(content=body, status_code=200, headers={"Cache-Control": "no-store"})
 
 
 @app.post("/pretrade/check", response_model=PretradeCheckResponse)

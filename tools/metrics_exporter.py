@@ -135,6 +135,74 @@ class _Risk:
         self._cvar_breach_counter.labels(symbol=symbol).inc()
 
 
+class _Aurora:
+    """Aurora core metrics (routing/sizing/execution hooks)."""
+    def __init__(self, reg: CollectorRegistry):
+        # Counters
+        self._route_decisions = Counter(
+            "aurora_route_decisions_total", "Total route decisions by mode", ["mode"], registry=reg
+        )
+        self._order_denies = Counter(
+            "aurora_order_denies_total", "Total order denies by reason", ["reason"], registry=reg
+        )
+        # Histograms
+        self._latency_tick_submit_ms = Histogram(
+            "aurora_latency_tick_submit_ms", "Latency from tick to submit (ms)",
+            buckets=(1,2,5,10,20,50,75,100,150,200,300,500,750,1000,1500,2000), registry=reg
+        )
+        self._edge_net_after_tca_bps = Histogram(
+            "aurora_edge_net_after_tca_bps", "Net edge after TCA (bps)",
+            buckets=(-200, -100, -50, -20, -10, -5, -1, 0, 1, 5, 10, 20, 50, 100, 200), registry=reg
+        )
+        # Gauges
+        self._lambda_m = Gauge("aurora_lambda_m", "Kelly lambda M", registry=reg)
+        self._cvar_current_usd = Gauge("aurora_cvar_current_usd", "Current CVaR (USD)", registry=reg)
+        self._f_port = Gauge("aurora_f_port", "Portfolio-adjusted Kelly fraction", registry=reg)
+
+    # API
+    def inc_route_decision(self, mode: str):
+        try:
+            self._route_decisions.labels(mode=mode).inc()
+        except Exception:
+            pass
+
+    def inc_order_deny(self, reason: str):
+        try:
+            self._order_denies.labels(reason=reason or "UNKNOWN").inc()
+        except Exception:
+            pass
+
+    def observe_latency_tick_submit_ms(self, v: float):
+        try:
+            self._latency_tick_submit_ms.observe(float(v))
+        except Exception:
+            pass
+
+    def observe_edge_net_after_tca_bps(self, v: float):
+        try:
+            self._edge_net_after_tca_bps.observe(float(v))
+        except Exception:
+            pass
+
+    def set_lambda_m(self, m: float):
+        try:
+            self._lambda_m.set(float(m))
+        except Exception:
+            pass
+
+    def set_cvar_current_usd(self, v: float):
+        try:
+            self._cvar_current_usd.set(float(v))
+        except Exception:
+            pass
+
+    def set_f_port(self, v: float):
+        try:
+            self._f_port.set(float(v))
+        except Exception:
+            pass
+
+
 class _Governance:
     def __init__(self, reg: CollectorRegistry):
         # Counter per governance deny reason
@@ -144,6 +212,14 @@ class _Governance:
         # Remaining alpha gauge per test id
         self.alpha_remaining_g = Gauge(
             "governance_alpha_remaining", "Remaining alpha budget per test id", ["test_id"], registry=reg
+        )
+        # Transition counter
+        self.transitions = Counter(
+            "governance_transitions_total", "Governance transitions", ["from", "to", "reason"], registry=reg
+        )
+        # Alpha spent total gauge
+        self.alpha_spent_total = Gauge(
+            "governance_alpha_spent_total", "Total alpha spent (global)", registry=reg
         )
 
     def on_deny(self, reason_code: str):
@@ -156,6 +232,18 @@ class _Governance:
             # Defensive: ignore label errors / bad conversion
             pass
 
+    def on_transition(self, from_state: str, to_state: str, reason: str):
+        try:
+            self.transitions.labels(**{"from": from_state or "", "to": to_state or "", "reason": reason or ""}).inc()
+        except Exception:
+            pass
+
+    def set_alpha_spent_total(self, v: float):
+        try:
+            self.alpha_spent_total.set(float(v))
+        except Exception:
+            pass
+
 
 class _Metrics:
     def __init__(self):
@@ -166,8 +254,21 @@ class _Metrics:
         self.calibration = _Calibration(self.reg)
         self.cb = _CB(self.reg)
         self.risk = _Risk(self.reg)
+        self.aurora = _Aurora(self.reg)
         self.governance = _Governance(self.reg)
         self._started = False
+        # Optional pfill histogram for routing diagnostics
+        try:
+            self.aurora_pfill = Histogram(
+                "aurora_pfill_predicted", "Predicted maker fill probability",
+                buckets=(0.0, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 1.0), registry=self.reg
+            )
+        except Exception:
+            # Fallback attribute to avoid AttributeError if Histogram ctor fails
+            class _Noop:
+                def observe(self, *_args, **_kwargs):
+                    pass
+            self.aurora_pfill = _Noop()
 
     def start_http(self, port: int = 9000, addr: str = "0.0.0.0"):
         if not self._started:

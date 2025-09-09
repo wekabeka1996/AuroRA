@@ -10,6 +10,8 @@ from typing import Optional, List, Dict, Any, Literal, Union
 import hashlib
 
 from core.aurora_event_logger import AuroraEventLogger
+from core.tca.fill_prob import p_fill_at_T
+from tools.metrics_exporter import METRICS
 
 # --- Data Contracts (mirror of agreed v1.0) ---
 @dataclass
@@ -109,6 +111,38 @@ class RouterV2:
         # legacy threshold kept for backward compat but superseded by pfill_min
         self.pi_fill_min = self.pfill_min
         self.event_logger = event_logger or AuroraEventLogger()
+        # p_fill parameters from config (optional)
+        try:
+            pfill_cfg = (self.cfg.get('pfill') or {}) | ((self.cfg.get('execution', {}) or {}).get('pfill') or {})
+        except Exception:
+            pfill_cfg = (self.cfg.get('pfill') or {})
+        beta_cfg = (pfill_cfg.get('beta') or {}) if isinstance(pfill_cfg, dict) else {}
+        # Normalize keys to expected names b0..b4 if provided differently
+        if isinstance(beta_cfg, dict) and beta_cfg:
+            # allow aliases like beta0..beta4
+            beta_norm = {}
+            for k, v in beta_cfg.items():
+                k2 = str(k).lower().strip()
+                if k2 in {'b0','b1','b2','b3','b4'}:
+                    beta_norm[k2] = float(v)
+                elif k2 in {'beta0','beta_0'}:
+                    beta_norm['b0'] = float(v)
+                elif k2 in {'beta1','beta_1'}:
+                    beta_norm['b1'] = float(v)
+                elif k2 in {'beta2','beta_2'}:
+                    beta_norm['b2'] = float(v)
+                elif k2 in {'beta3','beta_3'}:
+                    beta_norm['b3'] = float(v)
+                elif k2 in {'beta4','beta_4'}:
+                    beta_norm['b4'] = float(v)
+            self._pfill_beta: Dict[str, float] | None = beta_norm or None
+        else:
+            self._pfill_beta = None
+        try:
+            eps_val = pfill_cfg.get('eps') if isinstance(pfill_cfg, dict) else None
+            self._pfill_eps: float | None = (float(eps_val) if eps_val is not None else None)
+        except Exception:
+            self._pfill_eps = None
 
     # ---- helpers ----
     @staticmethod
@@ -138,15 +172,42 @@ class RouterV2:
         return -int((-x).to_integral_value(rounding=ROUND_FLOOR))
 
     def _p_fill(self, features: Dict[str, Any], spread_bps: Decimal) -> Decimal:
-        # hazard model hook (не реалізовано) -> fallback logistic-esque
-        obi = Decimal(str(features.get('obi', 0)))  # expected in [-1,1]
-        # p = 0.5 + 0.5*obi - 0.05*spread_bps  (spread_bps Decimal)
-        p = Decimal('0.5') + Decimal('0.5') * obi - Decimal('0.05') * spread_bps
-        if p < 0:
-            p = Decimal('0')
-        if p > 1:
-            p = Decimal('1')
-        return p
+        """Compute maker fill probability using hazard-style v1 model.
+
+        Expected feature keys (with fallbacks):
+        - 'obi' in [-1,1]
+        - 'queue_pos' >=0
+        - 'T_ms' or fallback to 'pred_latency_ms' or provided caller latency
+        """
+        try:
+            side = features.get('side_override')  # optional for testing; else infer later
+            # We don't have direct side here; will be set at call site via features if needed.
+            # For backward compat, treat unknown side as BUY symmetry.
+            if side not in ('BUY', 'SELL'):
+                side = 'BUY'
+            queue_pos = float(features.get('queue_pos', 0.0))
+            depth_at_price = float(features.get('depth_at_price', features.get('depth', 1.0)))
+            obi = float(features.get('obi', 0.0))
+            T_ms = float(features.get('T_ms', features.get('pred_latency_ms', 0.0)))
+            p = p_fill_at_T(
+                side=side,
+                queue_pos=queue_pos,
+                depth_at_price=depth_at_price,
+                obi=obi,
+                spread_bps=float(spread_bps),
+                T_ms=T_ms,
+                beta=self._pfill_beta,
+                eps=(self._pfill_eps if self._pfill_eps is not None else 1e-4),
+            )
+            # Clip and convert to Decimal deterministically
+            if p < 0.0:
+                p = 0.0
+            elif p > 1.0:
+                p = 1.0
+            return Decimal(str(p))
+        except Exception:
+            # robust fallback to conservative small probability
+            return Decimal('0.0')
 
     # ---- main API ----
     def route(self, intent: OrderIntent, market: MarketSpec, latency_ms: float, features: Dict[str, Any]) -> Union[RoutedOrderPlan, DenyDecision]:
@@ -249,9 +310,10 @@ class RouterV2:
                 return DenyDecision(code='EDGE_DENY', stage='decide', reason='both expected <=0', diagnostics={'E_m': e_m_int, 'E_t': e_t_int, 'p_fill': float(p_fill)}, validations=[])
             # if post_only requested but maker not viable => explicit denial
             if intent.exec_prefs.get('post_only', False) and not maker_viable:
-                if E_t > 0:
-                    return DenyDecision(code='POST_ONLY_UNAVAILABLE', stage='decide', reason='post_only requested but maker not viable', diagnostics={'p_fill': float(p_fill), 'spread_bps': self._int_bps(spread_bps)}, validations=[])
-                # if taker also not positive we'll fall through to edge deny below
+                # If post_only but maker not viable: deny when taker isn't clearly better; otherwise allow taker fallback
+                if E_t <= 0:
+                    return DenyDecision(code='LOW_PFILL.DENY', stage='decide', reason='post_only requested but maker not viable (low p_fill or spread)', diagnostics={'p_fill': float(p_fill), 'pfill_min': float(self.pi_fill_min), 'spread_bps': self._int_bps(spread_bps)}, validations=[])
+                # If taker positive, proceed to taker route selection below
             if maker_viable and E_m > 0 and (E_m - E_t) >= self.switch_margin_bps:
                 route = 'maker'
                 why_code = 'MAKER_SELECTED'
@@ -320,6 +382,17 @@ class RouterV2:
                 net_after_tca=self._int_bps(net_sum),
                 reason=why_code
             )
+            # Metrics: observe net_after_tca and route decision
+            try:
+                METRICS.aurora.observe_edge_net_after_tca_bps(edge_budget.net_after_tca)
+                METRICS.aurora.inc_route_decision(route)
+                # Optional: observe p_fill histogram if available in metrics
+                try:
+                    METRICS.aurora_pfill.observe(float(p_fill))  # if added
+                except Exception:
+                    pass
+            except Exception:
+                pass
             if edge_budget.net_after_tca <= 0:
                 return DenyDecision(code='EDGE_DENY', stage='final', reason='net_after_tca<=0', diagnostics={'net_after_tca': edge_budget.net_after_tca}, validations=[])
 

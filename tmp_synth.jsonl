@@ -1,0 +1,4 @@
+{"event_code": "ORDER.INTENT.RECEIVED", "details": {"intent_id": "i1"}}
+{"event_code": "KELLY.APPLIED", "details": {"intent_id": "i1", "qty_final": "1"}}
+{"event_code": "ROUTER.DECISION", "details": {"intent_id": "i1", "p_fill": 0.8, "net_after_tca": 10}}
+{"event_code": "ORDER.DENY", "details": {"intent_id": "i2", "code": "LOW_PFILL.DENY"}}

@@ -14,10 +14,15 @@ All monetary/price math uses Decimal for precision.
 from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal, ROUND_FLOOR
-from typing import Dict, Any
+from typing import Dict, Any, List
 
 from core.execution.router_v2 import OrderIntent, MarketSpec, KellyApplied
 from core.aurora_event_logger import AuroraEventLogger
+from .multipliers import LambdaOrchestrator
+from .evtcvar import EVTCVaR
+from .cvar_gate import delta_cvar_position, allow_trade
+from .portfolio_kelly import compute_portfolio_fraction
+from tools.metrics_exporter import METRICS
 
 
 def _floor_lot(q: Decimal, lot: Decimal) -> Decimal:
@@ -52,6 +57,10 @@ class SizingOrchestrator:
         self.m_max = Decimal(str(bounds.get('m_max', 1.25)))
         self.f_max = Decimal(str(bounds.get('f_max', 0.03)))  # portfolio max fraction risk (unused now)
         self.mult_defaults = self.kelly_cfg.get('multipliers', {}) or { 'cal':1.0,'reg':1.0,'liq':1.0,'dd':1.0,'lat':1.0 }
+        self.lambda_orchestrator = LambdaOrchestrator(self.cfg)
+        cvar_cfg = (self.risk_cfg or {}).get('cvar', {})
+        self.cvar_alpha = float(cvar_cfg.get('alpha', 0.95))
+        self.min_exceedances = int(cvar_cfg.get('min_exceedances', 500))
 
     def compute(self, intent: OrderIntent, market: MarketSpec) -> KellyApplied:
         # Extract risk ctx values (some may be strings)
@@ -86,19 +95,29 @@ class SizingOrchestrator:
         else:
             q_base = Decimal('0')
 
-        # Multipliers product (placeholders =1.0 now)
-        mults: Dict[str, Decimal] = {}
+        # Compute micro context for multipliers
+        micro_ctx = {
+            'half_spread_bps': (Decimal(str(market.spread_bps)) / Decimal('2')),
+            'latency_p95_ms': Decimal(str((self.cfg.get('execution', {}).get('sla', {}) or {}).get('p95_ms', 0))),
+            'ece': Decimal(str(rc.get('ece', 0))),
+            'regime': rc.get('regime', 'trend'),
+        }
+        lambdas = self.lambda_orchestrator.compute(intent.__dict__, rc, micro_ctx)
+        # Build multipliers map and product
+        mults: Dict[str, Decimal] = {k: Decimal(str(v)) for k, v in lambdas.items()}
         prod = Decimal('1')
-        for k, v in self.mult_defaults.items():
-            dv = Decimal(str(v))
-            mults[k] = dv
+        for dv in mults.values():
             prod *= dv
-
         M = prod
         if M < self.m_min:
             M = self.m_min
         if M > self.m_max:
             M = self.m_max
+        self.logger.emit('LAMBDA.UPDATE', {'cal': float(mults.get('cal', Decimal('1'))), 'reg': float(mults.get('reg', Decimal('1'))), 'liq': float(mults.get('liq', Decimal('1'))), 'dd': float(mults.get('dd', Decimal('1'))), 'lat': float(mults.get('lat', Decimal('1'))), 'M': float(M)})
+        try:
+            METRICS.aurora.set_lambda_m(float(M))
+        except Exception:
+            pass
 
         q_adj = q_base * M
 
@@ -114,80 +133,115 @@ class SizingOrchestrator:
         if q_final <= 0:
             q_final = Decimal('0')
 
-        # min notional guard
-        if q_final * mid < market.min_notional:
-            # attempt bump to min notional boundary
-            needed = (market.min_notional / mid) if mid > 0 else market.min_notional
-            q_final = _floor_lot(needed, market.lot_size)
-            if q_final * mid < market.min_notional:
-                # still below — set zero
+        # min notional guard with bump (ceil to required qty then quantize)
+        if q_final * mid < market.min_notional and mid > 0:
+            needed = (market.min_notional / mid)
+            # ceil to lot: add small epsilon to ensure bump up
+            steps = (needed / market.lot_size).to_integral_value(rounding=ROUND_FLOOR)
+            if steps * market.lot_size < needed:
+                steps = steps + 1
+            q_bumped = steps * market.lot_size
+            if q_bumped * mid >= market.min_notional:
+                q_final = q_bumped
+            else:
                 q_final = Decimal('0')
 
-        # --- CVaR scaling stub ---
-        # risk_ctx may provide current_cvar_usd and est_increment_per_unit_usd
+        # --- Portfolio-Kelly adjustment (LW shrink) before CVaR ---
+        f_port = None
         try:
-            cvar_curr = Decimal(str(rc.get('cvar_curr_usd', '0')))
+            # Read portfolio context (support both flat and nested keys)
+            port = rc.get('portfolio', {}) if isinstance(rc.get('portfolio', {}), dict) else {}
+            symbols = rc.get('portfolio_symbols') or port.get('symbols')
+            cov = rc.get('portfolio_cov') or port.get('cov')
+            pv_usd = rc.get('portfolio_pv_usd') or port.get('pv_usd')
+            if symbols is not None and cov is not None and pv_usd is not None and len(symbols) == len(pv_usd):
+                # Candidate PV for this trade
+                dir_sign = Decimal('1') if intent.side.upper() == 'BUY' else Decimal('-1')
+                pv_new = (q_final * mid * dir_sign)
+                # Build weights including candidate
+                import numpy as _np  # local import to avoid hard dep at load time
+                pv_vec = _np.asarray([float(x) for x in pv_usd], dtype=float)
+                # If symbol exists, add PV to it; else skip adjustment to avoid cov expansion
+                if intent.symbol in symbols and float(equity_usd) > 0:
+                    idx = symbols.index(intent.symbol)
+                    pv_vec = pv_vec.copy()
+                    pv_vec[idx] += float(pv_new)
+                    w_vec = pv_vec / float(equity_usd)
+                    f_raw_frac = float(r) if r <= 1 else 1.0
+                    f_port_val = compute_portfolio_fraction(
+                        f_raw=f_raw_frac,
+                        symbols=symbols,
+                        w_vec=w_vec,
+                        cov=_np.asarray(cov, dtype=float),
+                        f_max=float(self.f_max),
+                        min_var_eps=float((self.cfg.get('portfolio', {}) or {}).get('cov', {}).get('min_var_eps', 1e-8)),
+                    )
+                    f_port = float(f_port_val)
+                    # Scale qty by f_port/f_raw and re-apply quantization and caps/bump
+                    scale = Decimal(str(f_port)) / (r if r <= 1 else Decimal('1')) if (r if r <= 1 else Decimal('1')) > 0 else Decimal('1')
+                    q_scaled = q_final * scale
+                    # re-apply caps
+                    q_cap2 = min(q_scaled, q_max_lev, q_max_exp)
+                    q_final = _floor_lot(q_cap2, market.lot_size)
+                    if q_final * mid < market.min_notional and mid > 0:
+                        needed = (market.min_notional / mid)
+                        steps = (needed / market.lot_size).to_integral_value(rounding=ROUND_FLOOR)
+                        if steps * market.lot_size < needed:
+                            steps = steps + 1
+                        q_bumped2 = steps * market.lot_size
+                        q_final = q_bumped2 if q_bumped2 * mid >= market.min_notional else Decimal('0')
         except Exception:
-            cvar_curr = Decimal('0')
+            # Portfolio adjustment is optional; ignore errors
+            pass
+
+        # --- CVaR gate using EVT or fallback ---
         try:
-            cvar_limit = Decimal(str(rc.get('cvar_limit_usd', self.cvar_limit_usd)))
+            cvar_curr = float(Decimal(str(rc.get('cvar_curr_usd', '0'))))
         except Exception:
-            cvar_limit = self.cvar_limit_usd
+            cvar_curr = 0.0
         try:
-            d_cvar_per_unit = Decimal(str(rc.get('delta_cvar_per_unit_usd', '0')))
+            cvar_limit = float(Decimal(str(rc.get('cvar_limit_usd', self.cvar_limit_usd))))
         except Exception:
-            d_cvar_per_unit = Decimal('0')
-        if d_cvar_per_unit < 0:
-            d_cvar_per_unit = abs(d_cvar_per_unit)
-        # projected cvar after placing q_final
-        projected = cvar_curr + d_cvar_per_unit * q_final
-        gamma = Decimal('1')
-        if cvar_limit > 0 and d_cvar_per_unit > 0:
-            if projected > cvar_limit:
-                # Target remaining headroom (may be negative)
-                headroom = cvar_limit - cvar_curr
-                if headroom <= 0:
-                    # No capacity; force zero
-                    if q_final > 0:
-                        self.logger.emit('CVAR.SHIFT', {
-                            'gamma': 0.0,
-                            'q_before': str(q_final),
-                            'q_after': '0',
-                            'cvar_curr_usd': float(cvar_curr),
-                            'cvar_limit_usd': float(cvar_limit),
-                            'delta_cvar_per_unit_usd': float(d_cvar_per_unit)
-                        })
-                    q_final = Decimal('0')
-                else:
-                    # Solve gamma so cvar_curr + d_cvar_per_unit*(gamma*q_final) <= cvar_limit
-                    try:
-                        gamma = headroom / (d_cvar_per_unit * q_final) if q_final > 0 else Decimal('0')
-                    except Exception:
-                        gamma = Decimal('0')
-                    if gamma < 0:
-                        gamma = Decimal('0')
-                    if gamma > 1:
-                        gamma = Decimal('1')
-                    scaled = _floor_lot(q_final * gamma, market.lot_size)
-                    # Recompute projected after scaling
-                    if scaled < q_final:
-                        self.logger.emit('CVAR.SHIFT', {
-                            'gamma': float(gamma),
-                            'q_before': str(q_final),
-                            'q_after': str(scaled),
-                            'cvar_curr_usd': float(cvar_curr),
-                            'cvar_limit_usd': float(cvar_limit),
-                            'delta_cvar_per_unit_usd': float(d_cvar_per_unit)
-                        })
-                    q_final = scaled
+            cvar_limit = float(self.cvar_limit_usd)
+
+        # EVT fit if losses provided; else fallback
+        losses: List[float] = []
+        raw_losses = rc.get('losses', None)
+        if isinstance(raw_losses, list):
+            try:
+                losses = [float(x) for x in raw_losses]
+            except Exception:
+                losses = []
+
+        delta = 0.0
+        if losses:
+            evt = EVTCVaR(min_exceedances=self.min_exceedances)
+            fit = evt.fit(losses, u_quantile=self.cvar_alpha)
+            self.logger.emit('CVAR.EVT.FIT', fit)
+            # Use fallback delta as conservative contribution from current position size
+            delta = delta_cvar_position(int(stop_dist_bps), mid, q_final)
+        else:
+            delta = delta_cvar_position(int(stop_dist_bps), mid, q_final)
+
+        allow = allow_trade(cvar_curr, delta, cvar_limit)
+        self.logger.emit('CVAR.GATE', {'cvar_curr': cvar_curr, 'delta': float(delta), 'limit': cvar_limit, 'allow': bool(allow)})
+        if not allow:
+            if q_final > 0:
+                self.logger.emit('CVAR.SHIFT', {'gamma': 0.0, 'q_before': str(q_final), 'q_after': '0', 'cvar_curr_usd': cvar_curr, 'cvar_limit_usd': cvar_limit, 'delta_cvar_usd': float(delta)})
+            q_final = Decimal('0')
 
         kelly = KellyApplied(
             f_raw=float(r),
-            f_portfolio=float(r),
+            f_portfolio=float(f_port if f_port is not None else r),
             multipliers={k: float(v) for k,v in mults.items()},
-            f_final=float(r * M if r <= 1 else M),
+            f_final=float(min(self.f_max, (r if r <= 1 else Decimal('1')) * M)),
             qty_final=q_final
         )
+        self.logger.emit('KELLY.APPLIED', {'f_raw': float(r), 'f_port': float(f_port if f_port is not None else (float(r))), 'M': float(M), 'f_final': kelly.f_final, 'qty_final': str(q_final)})
+        try:
+            METRICS.aurora.set_f_port(float(f_port if f_port is not None else (float(r))))
+        except Exception:
+            pass
         return kelly
 
 __all__ = ['SizingOrchestrator','RiskCtx']

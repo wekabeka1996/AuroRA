@@ -25,21 +25,20 @@ def test_low_pfill_deny_post_only():
     r=_router()
     intent=_intent(post_only=True)
     m=_market()
-    features={'obi':-0.2,'pred_latency_ms':5.0}  # will reduce p_fill
+    # Set low p_fill via small T and moderate negative OBI, and deep queue
+    features={'obi':-0.3,'pred_latency_ms':5.0,'queue_pos':5.0,'depth_at_price':5.0}
     dec=r.route(intent,m,latency_ms=5.0,features=features)
     assert isinstance(dec, DenyDecision)
-    assert dec.code=='POST_ONLY_UNAVAILABLE' or dec.code.startswith('LOW_PFILL')
+    assert dec.code.startswith('LOW_PFILL')
 
 
 def test_low_pfill_taker_fallback():
     r=_router()
-    intent=_intent(post_only=False)
+    # Increase expected edge to make taker EV positive
+    intent=_intent(post_only=False, edge=12)
     m=_market()
-    features={'obi':-0.2,'pred_latency_ms':5.0}
+    features={'obi':-0.3,'pred_latency_ms':5.0,'queue_pos':5.0,'depth_at_price':5.0}
     dec=r.route(intent,m,latency_ms=5.0,features=features)
     # Should allow via taker if taker EV positive
-    if isinstance(dec, DenyDecision):
-        # if p_fill too low and maker positive but not viable we expect LOW_PFILL.DENY
-        assert dec.code in ('LOW_PFILL.DENY','EDGE_DENY')
-    else:
-        assert dec.mode=='taker'
+    assert not isinstance(dec, DenyDecision)
+    assert dec.mode=='taker'
