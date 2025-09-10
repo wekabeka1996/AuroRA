@@ -16,7 +16,7 @@ No external dependencies; NumPy is optional. Compatible with `core/types.py` if 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable, List, Optional, Sequence, Tuple, Dict
+from typing import List, Optional, Sequence, Tuple
 import math
 import random
 
