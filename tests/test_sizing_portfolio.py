@@ -8,7 +8,6 @@ Test PortfolioOptimizer for Step 2: Sizing/Portfolio.
 from __future__ import annotations
 
 import pytest
-import math
 
 from core.sizing.portfolio import PortfolioOptimizer
 

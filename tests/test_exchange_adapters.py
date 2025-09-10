@@ -7,14 +7,11 @@ Tests quantization, validation, and idempotency key generation.
 """
 
 import pytest
-from unittest.mock import Mock
 
 from core.execution.exchange.common import (
     OrderRequest,
     OrderType,
     Side,
-    TimeInForce,
-    SymbolInfo,
     ValidationError,
     make_idempotency_key,
 )

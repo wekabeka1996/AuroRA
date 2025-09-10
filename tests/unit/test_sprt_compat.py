@@ -1,6 +1,5 @@
 """Quick smoke test for CompositeSPRT compatibility layer."""
 
-import pytest
 from core.governance.sprt_glr import (
     CompositeSPRT, SPRTConfig, SPRTOutcome,
     create_sprt_pocock, create_sprt_obf, create_sprt_bh_fdr,

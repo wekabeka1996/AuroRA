@@ -3,9 +3,8 @@ Tests for enhanced exchange circuit breaker implementation.
 Tests the recovery timeout logic, adaptive timeout, health checks, and state management.
 """
 
-import time
 import pytest
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 from core.execution.exchange.error_handling import (
     ExchangeCircuitBreaker,
     CircuitBreakerConfig,

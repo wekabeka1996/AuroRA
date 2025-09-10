@@ -6,7 +6,7 @@ Tests for Router v1.1 with Decision interface, SLA gates, edge_floor after laten
 and WHY codes for XAI tracing.
 """
 
-from core.execution.router import Router, Decision
+from core.execution.router import Router
 
 BASE_CFG = {
     "execution": {

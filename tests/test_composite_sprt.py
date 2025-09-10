@@ -8,9 +8,8 @@ import pytest
 from unittest.mock import Mock, patch
 
 from core.governance.composite_sprt import (
-    CompositeSPRT, AlphaSpendingLedger, GaussianKnownVarModel,
-    StudentTModel, SubexponentialModel, SPRTResult,
-    create_gaussian_sprt, create_t_test_sprt, create_subexponential_sprt
+    AlphaSpendingLedger, SubexponentialModel, SPRTResult,
+    create_gaussian_sprt
 )
 
 

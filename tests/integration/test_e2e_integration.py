@@ -21,15 +21,10 @@ All tests validate complete XAI event chains from SIZING_DECISION to POSITION_CL
 
 import pytest
 import time
-import threading
-from unittest.mock import Mock, patch, MagicMock
-from dataclasses import dataclass
-from typing import Dict, List, Optional
+from unittest.mock import patch
 
 from core.execution.execution_router_v1 import ExecutionRouter, ExecutionContext, RouterConfig
-from core.tca.tca_analyzer import FillEvent, OrderExecution
-from common.events import EventEmitter
-from core.config.loader import get_config
+from core.tca.tca_analyzer import FillEvent
 
 
 @pytest.fixture

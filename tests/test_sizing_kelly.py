@@ -8,7 +8,6 @@ Test Kelly sizing functions for Step 2: Sizing/Portfolio.
 from __future__ import annotations
 
 import pytest
-import math
 
 from core.sizing.kelly import (
     kelly_binary,
@@ -224,7 +223,7 @@ class TestKellySizing:
     def test_dd_haircut_factor(self):
         """Test DD haircut factor calculation."""
         from decimal import Decimal
-        from core.sizing.kelly import dd_haircut_factor, apply_dd_haircut_to_kelly
+        from core.sizing.kelly import dd_haircut_factor
 
         # No drawdown
         haircut = dd_haircut_factor(Decimal("0"))
@@ -394,7 +393,6 @@ class TestKellySizing:
     def test_portfolio_psd_projection(self):
         """Test PSD projection for invalid covariance matrices."""
         from core.sizing.portfolio import PortfolioOptimizer
-        import math
 
         optimizer = PortfolioOptimizer()
 

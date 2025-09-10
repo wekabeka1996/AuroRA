@@ -10,18 +10,12 @@ and end-to-end order flow with fake exchanges.
 from __future__ import annotations
 
 import pytest
-import asyncio
-import json
-import tempfile
-from pathlib import Path
-from unittest.mock import patch, AsyncMock, MagicMock
-from datetime import datetime, timedelta
+from unittest.mock import patch, MagicMock
 
 from skalp_bot.runner.run_live_aurora import AuroraGate
-from tests.fixtures.exchange_fakes import FakeExchange, FakeOrderResponse, FakeFill
+from tests.fixtures.exchange_fakes import FakeExchange
 from core.execution.router import Router, RouteDecision, QuoteSnapshot
 from core.execution.idempotency import IdempotencyStore
-from common.events import EventEmitter
 
 
 class TestFullB2B7Pipeline:

@@ -9,12 +9,8 @@ Tests maker/taker routing, SLA gates, idempotency, and order lifecycle.
 from __future__ import annotations
 
 import pytest
-import tempfile
-import time
-from pathlib import Path
-from unittest.mock import Mock, patch
 
-from tests.fixtures.exchange_fakes import FakeExchange, FakeOrderResponse
+from tests.fixtures.exchange_fakes import FakeExchange
 from core.execution.exchange.common import Fees
 from core.tca.hazard_cox import CoxPH
 from core.tca.latency import SLAGate

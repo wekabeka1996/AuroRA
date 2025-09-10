@@ -11,7 +11,7 @@ import tempfile
 import json
 from pathlib import Path
 
-from core.governance.reward_manager import RewardManager, Decision, create_enhanced_decision
+from core.governance.reward_manager import RewardManager, create_enhanced_decision
 
 
 class TestRewardManagerTrail:

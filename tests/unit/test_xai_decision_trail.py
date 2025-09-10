@@ -10,14 +10,11 @@ from __future__ import annotations
 
 import pytest
 import json
-import tempfile
 from pathlib import Path
-from unittest.mock import patch, mock_open
 
-from core.execution.router import Router, QuoteSnapshot, RouteDecision
+from core.execution.router import Router, QuoteSnapshot
 from core.tca.hazard_cox import CoxPH
 from core.tca.latency import SLAGate
-from core.execution.exchange.common import Fees
 
 
 class TestXaiDecisionTrail:

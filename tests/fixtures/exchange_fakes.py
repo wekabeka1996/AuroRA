@@ -14,7 +14,7 @@ import random
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass
 
-from core.execution.exchange.common import OrderRequest, OrderType, Side, Fees
+from core.execution.exchange.common import Fees
 
 
 @dataclass

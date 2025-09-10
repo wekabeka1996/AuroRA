@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 import pytest
-from unittest.mock import Mock
-from core.reward_manager import RewardManager, PositionState, RewardDecision
+from core.reward_manager import RewardManager, PositionState
 from core.config_loader import RewardCfg
 
 

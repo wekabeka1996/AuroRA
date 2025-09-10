@@ -1,5 +1,4 @@
 import json
-import os
 from core.execution.sim_local_sink import SimLocalSink
 
 

@@ -7,8 +7,6 @@ duplicate signature line) and cannot be imported. These tests are marked xfail a
 will activate once the module is repaired, serving as an executable spec.
 """
 
-import os
-import types
 import pytest
 
 

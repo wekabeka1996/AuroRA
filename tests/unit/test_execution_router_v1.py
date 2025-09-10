@@ -19,12 +19,10 @@ Total tests: 30+ covering all DoD invariants
 
 import pytest
 import time
-from unittest.mock import Mock, patch
-from dataclasses import dataclass
+from unittest.mock import patch
 
 from core.execution.execution_router_v1 import (
-    ExecutionRouter, ExecutionContext, RouterConfig, ChildOrder,
-    OrderState, RejectReason
+    ExecutionRouter, ExecutionContext, RouterConfig, OrderState, RejectReason
 )
 from core.tca.tca_analyzer import FillEvent
 

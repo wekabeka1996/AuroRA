@@ -1,7 +1,6 @@
 import json
 import subprocess
 import sys
-from pathlib import Path
 
 def test_rotation_retention_and_lastline(tmp_path):
     # Run rotation script with retention=2
