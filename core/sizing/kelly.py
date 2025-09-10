@@ -9,6 +9,7 @@ Implements the specified API contracts for Step 2: Sizing/Portfolio.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 from typing import Dict, Optional, Any, Tuple, List, Callable
 import math
 import time
@@ -297,7 +298,11 @@ def edge_to_pwin(
     return p_win
 
 
-def dd_haircut_factor(current_dd_bps: float, dd_max_bps: float = 300.0, beta: float = 2.0) -> float:
+def dd_haircut_factor(
+    current_dd_bps: Decimal,
+    dd_max_bps: Decimal = Decimal("300"),
+    beta: Decimal = Decimal("2"),
+) -> Decimal:
     """
     Calculate DD haircut factor for Kelly sizing.
 
@@ -308,16 +313,16 @@ def dd_haircut_factor(current_dd_bps: float, dd_max_bps: float = 300.0, beta: fl
 
     Parameters
     ----------
-    current_dd_bps : float
+    current_dd_bps : Decimal
         Current drawdown in basis points
-    dd_max_bps : float
+    dd_max_bps : Decimal
         Maximum allowed drawdown in basis points
-    beta : float
+    beta : Decimal
         Haircut steepness parameter
 
     Returns
     -------
-    float
+    Decimal
         Haircut factor ∈ [0, 1], where 1 = no haircut, 0 = full haircut
 
     Notes
@@ -326,56 +331,53 @@ def dd_haircut_factor(current_dd_bps: float, dd_max_bps: float = 300.0, beta: fl
     reducing position sizes to protect capital during losses.
     """
     try:
-        current_dd_bps = float(current_dd_bps)
-        dd_max_bps = float(dd_max_bps)
-        beta = float(beta)
-    except Exception:
-        return 1.0
+        current_dd_bps = Decimal(current_dd_bps)
+        dd_max_bps = Decimal(dd_max_bps)
+        beta = Decimal(beta)
+    except (InvalidOperation, TypeError):
+        return Decimal("1")
 
-    # Input validation
-    if dd_max_bps <= 0.0 or beta <= 0.0:
-        return 1.0
+    if dd_max_bps <= 0 or beta <= 0:
+        return Decimal("1")
 
-    # Calculate normalized drawdown
     d_norm = current_dd_bps / dd_max_bps
 
-    # Apply haircut formula
-    if d_norm >= 1.0:
-        return 0.0  # Full haircut when DD exceeds limit
-    elif d_norm <= 0.0:
-        return 1.0  # No haircut when no DD
-    else:
-        haircut = 1.0 - d_norm
-        return max(0.0, haircut ** beta)
+    if d_norm >= Decimal("1"):
+        return Decimal("0")
+    if d_norm <= Decimal("0"):
+        return Decimal("1")
+
+    haircut = Decimal("1") - d_norm
+    return max(Decimal("0"), haircut ** beta)
 
 
 def apply_dd_haircut_to_kelly(
-    kelly_fraction: float,
-    current_dd_bps: float,
-    dd_max_bps: float = 300.0,
-    beta: float = 2.0
-) -> float:
+    kelly_fraction: Decimal,
+    current_dd_bps: Decimal,
+    dd_max_bps: Decimal = Decimal("300"),
+    beta: Decimal = Decimal("2"),
+) -> Decimal:
     """
     Apply DD haircut to Kelly fraction.
 
     Parameters
     ----------
-    kelly_fraction : float
+    kelly_fraction : Decimal
         Raw Kelly fraction
-    current_dd_bps : float
+    current_dd_bps : Decimal
         Current drawdown in basis points
-    dd_max_bps : float
+    dd_max_bps : Decimal
         Maximum allowed drawdown in basis points
-    beta : float
+    beta : Decimal
         Haircut steepness parameter
 
     Returns
     -------
-    float
+    Decimal
         Haircut-adjusted Kelly fraction
     """
     haircut = dd_haircut_factor(current_dd_bps, dd_max_bps, beta)
-    return kelly_fraction * haircut
+    return Decimal(kelly_fraction) * haircut
 
 
 # Legacy compatibility - keep existing functions

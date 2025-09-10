@@ -223,44 +223,50 @@ class TestKellySizing:
 
     def test_dd_haircut_factor(self):
         """Test DD haircut factor calculation."""
+        from decimal import Decimal
         from core.sizing.kelly import dd_haircut_factor, apply_dd_haircut_to_kelly
 
         # No drawdown
-        haircut = dd_haircut_factor(0.0)
-        assert haircut == 1.0
+        haircut = dd_haircut_factor(Decimal("0"))
+        assert haircut == Decimal("1")
 
         # Full drawdown
-        haircut = dd_haircut_factor(300.0)  # DD_max = 300
-        assert haircut == 0.0
+        haircut = dd_haircut_factor(Decimal("300"))  # DD_max = 300
+        assert haircut == Decimal("0")
 
         # Partial drawdown: D=150, DD_max=300, β=2
         # g = (1 - 150/300)^2 = (1 - 0.5)^2 = 0.5^2 = 0.25
-        haircut = dd_haircut_factor(150.0, dd_max_bps=300.0, beta=2.0)
-        assert abs(haircut - 0.25) < 1e-10
+        haircut = dd_haircut_factor(
+            Decimal("150"), dd_max_bps=Decimal("300"), beta=Decimal("2")
+        )
+        assert haircut == Decimal("0.25")
 
         # Test monotonicity: higher DD → lower haircut
-        h1 = dd_haircut_factor(100.0)
-        h2 = dd_haircut_factor(200.0)
+        h1 = dd_haircut_factor(Decimal("100"))
+        h2 = dd_haircut_factor(Decimal("200"))
         assert h2 < h1
 
     def test_dd_haircut_application(self):
         """Test DD haircut application to Kelly fraction."""
+        from decimal import Decimal
         from core.sizing.kelly import apply_dd_haircut_to_kelly
 
-        kelly_raw = 0.1
+        kelly_raw = Decimal("0.1")
 
         # No DD
-        adjusted = apply_dd_haircut_to_kelly(kelly_raw, 0.0)
+        adjusted = apply_dd_haircut_to_kelly(kelly_raw, Decimal("0"))
         assert adjusted == kelly_raw
 
         # Partial DD
-        adjusted = apply_dd_haircut_to_kelly(kelly_raw, 150.0, dd_max_bps=300.0, beta=2.0)
-        expected = kelly_raw * 0.25  # From previous test
-        assert abs(adjusted - expected) < 1e-10
+        adjusted = apply_dd_haircut_to_kelly(
+            kelly_raw, Decimal("150"), dd_max_bps=Decimal("300"), beta=Decimal("2")
+        )
+        expected = kelly_raw * Decimal("0.25")  # From previous test
+        assert adjusted == expected
 
         # Full DD
-        adjusted = apply_dd_haircut_to_kelly(kelly_raw, 300.0)
-        assert adjusted == 0.0
+        adjusted = apply_dd_haircut_to_kelly(kelly_raw, Decimal("300"))
+        assert adjusted == Decimal("0")
 
     def test_fraction_to_qty_exchange_compliance(self):
         """Test fraction_to_qty with full exchange compliance."""
