@@ -28,12 +28,9 @@ except Exception:
 
 # Lazy import TradingSystem to avoid heavy deps (e.g., torch) at module import time.
 # We'll attempt to import it during app lifespan and fall back gracefully if unavailable.
-from core.aurora.pretrade import gate_latency, gate_slippage, gate_expected_return, gate_trap
-from core.scalper.calibrator import IsotonicCalibrator, CalibInput
-from core.scalper.sprt import SPRT, SprtConfig
 from core.scalper.trap import TrapWindow
 from core.aurora.pipeline import PretradePipeline
-from common.config import load_sprt_cfg, load_config_any, load_config_precedence, apply_env_overrides
+from common.config import load_sprt_cfg, load_config_precedence, apply_env_overrides
 from common.events import EventEmitter
 from core.aurora_event_logger import AuroraEventLogger
 from core.order_logger import OrderLoggers
@@ -42,10 +39,7 @@ from risk.manager import RiskManager
 from aurora.health import HealthGuard
 from tools.build_version import build_version_record
 from aurora.governance import Governance
-from observability.codes import (
-    POLICY_DECISION, AURORA_RISK_WARN, AURORA_EXPECTED_RETURN_ACCEPT,
-    AURORA_EXPECTED_RETURN_LOW, AURORA_SLIPPAGE_GUARD, POSTTRADE_LOG
-)
+from observability.codes import POLICY_DECISION, POSTTRADE_LOG
 
 # Read version from VERSION file
 def get_version():
