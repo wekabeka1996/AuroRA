@@ -15,15 +15,9 @@ Features:
 
 import time
 import threading
-import logging
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Callable
 from enum import Enum
-from pathlib import Path
-import json
-
-from core.execution.execution_router_v1 import ExecutionRouter, ExecutionContext
-from core.tca.tca_analyzer import TCAMetrics
 from common.events import EventEmitter
 
 
@@ -98,7 +92,6 @@ class CanarySystem:
         self.metrics = CanaryMetrics(start_time_ns=time.time_ns())
 
         # Components
-        self.execution_router = ExecutionRouter()
         self.event_logger = EventEmitter()
         self.kill_switches = {}
 
@@ -177,7 +170,7 @@ class CanarySystem:
         if self.on_kill_switch:
             self.on_kill_switch(switch_type, details)
 
-    def process_sizing_decision(self, context: ExecutionContext, market_data: Dict) -> bool:
+    def process_sizing_decision(self, context, market_data: Dict) -> bool:
         """Process sizing decision with canary modifications"""
         if self.state != CanaryState.CANARY:
             return False
@@ -193,15 +186,9 @@ class CanarySystem:
             self.config.max_position_usd / (context.micro_price * (1 + context.edge_bps / 10000))
         )
 
-        # Execute decision
-        start_time = time.time_ns()
-        children = self.execution_router.execute_sizing_decision(context, market_data)
-        end_time = time.time_ns()
-
-        # Record metrics
-        latency_ms = (end_time - start_time) / 1e6
+        # Record metrics placeholder (execution disabled)
+        latency_ms = 0.0
         self.metrics.decision_latencies_ms.append(latency_ms)
-        self.metrics.orders_placed += len(children)
 
         # Log decision
         self._log_event("CANARY_DECISION", {
@@ -209,10 +196,10 @@ class CanarySystem:
             "original_qty": original_qty,
             "canary_qty": context.target_qty,
             "latency_ms": latency_ms,
-            "orders_created": len(children)
+            "orders_created": 0
         })
 
-        return len(children) > 0
+        return False
 
     def _evaluate_kill_switches(self, market_data: Dict) -> bool:
         """Evaluate all kill switches"""
