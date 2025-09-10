@@ -1,5 +1,8 @@
-import argparse, json, re, sys
+import argparse
+import json
 from pathlib import Path
+import re
+import sys
 
 ISOZ = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$")
 

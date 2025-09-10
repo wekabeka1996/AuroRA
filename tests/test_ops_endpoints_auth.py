@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import os
-import types
 import importlib
+import os
+
 import pytest
 
 
@@ -111,7 +111,6 @@ def test_events_prom_counter_increments(app_client, tmp_path):
     # Get baseline metrics
     baseline = app_client.get("/metrics").text
     # Count occurrences for ORDER.SUBMIT line; if absent, treat as zero
-    import re
     def get_counter_val(metrics_text: str) -> int:
         # rough parse: find any line with aurora_events_emitted_total and code="ORDER.SUBMIT"
         total = 0

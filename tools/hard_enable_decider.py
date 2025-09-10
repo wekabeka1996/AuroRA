@@ -18,18 +18,24 @@ Exit codes:
   3 - fatal error (schema / IO)
 """
 from __future__ import annotations
-import argparse, json, sys, statistics, math, hashlib, time
+
+import argparse
+import json
+import math
 from pathlib import Path
-from typing import Dict, List, Any
+import sys
+import time
+from typing import Any
+
 import yaml
 
 # ---------------- Helpers ----------------
 
-def load_yaml(path: Path) -> Dict[str, Any]:
+def load_yaml(path: Path) -> dict[str, Any]:
     with path.open('r', encoding='utf-8') as f:
         return yaml.safe_load(f)
 
-def write_yaml(path: Path, data: Dict[str, Any]):
+def write_yaml(path: Path, data: dict[str, Any]):
     tmp = path.with_suffix('.tmp')
     with tmp.open('w', encoding='utf-8') as f:
         yaml.safe_dump(data, f, sort_keys=True)
@@ -37,7 +43,7 @@ def write_yaml(path: Path, data: Dict[str, Any]):
 
 # ---------------- Core logic ----------------
 
-def quantiles(values: List[float]):
+def quantiles(values: list[float]):
     if not values:
         return float('nan'), float('nan')
     vs = sorted(values)
@@ -52,7 +58,7 @@ def quantiles(values: List[float]):
     return q(0.95), q(0.10)
 
 
-def analyze_metric(entries: List[Dict[str, Any]], metric_key: str):
+def analyze_metric(entries: list[dict[str, Any]], metric_key: str):
     values = [e['metrics'][metric_key]['value'] for e in entries if metric_key in e.get('metrics', {}) and isinstance(e['metrics'][metric_key].get('value'), (int,float))]
     states = [e['metrics'][metric_key].get('state') for e in entries if metric_key in e.get('metrics', {})]
     n = len(values)
@@ -69,7 +75,7 @@ def analyze_metric(entries: List[Dict[str, Any]], metric_key: str):
     }
 
 
-def decide(args, thresholds: Dict[str, Any], gating_entries: List[Dict[str, Any]], audit: Dict[str, Any]):
+def decide(args, thresholds: dict[str, Any], gating_entries: list[dict[str, Any]], audit: dict[str, Any]):
     decisions = []
     hard_meta = thresholds.setdefault('hard_meta', {})
     meta = thresholds.setdefault('meta', {})
@@ -110,12 +116,12 @@ def decide(args, thresholds: Dict[str, Any], gating_entries: List[Dict[str, Any]
         changed = (enable != prev)
         if enable:
             hard_meta[thr_key] = {
-                **hard_meta.get(thr_key, {}), 
-                'hard_enabled': True, 
+                **hard_meta.get(thr_key, {}),
+                'hard_enabled': True,
                 'hard_reason': ';'.join(reasons),
                 'schema_version': 1,
                 'window_n': stats['n'],
-                'warn_rate_k': stats['warn_rate'], 
+                'warn_rate_k': stats['warn_rate'],
                 'p95_p10_delta': stats['delta_p95_p10'],
                 'var_ratio_rb': var_ratio_rb,
                 'hard_candidate': True,
@@ -127,13 +133,13 @@ def decide(args, thresholds: Dict[str, Any], gating_entries: List[Dict[str, Any]
             # do not forcibly disable unless existed
             if prev and not enable:
                 hard_meta[thr_key] = {
-                    **hard_meta.get(thr_key, {}), 
-                    'hard_enabled': False, 
+                    **hard_meta.get(thr_key, {}),
+                    'hard_enabled': False,
                     'hard_reason': ';'.join(reasons),
                     'schema_version': 1,
                     'window_n': stats['n'],
                     'warn_rate_k': stats['warn_rate'],
-                    'p95_p10_delta': stats['delta_p95_p10'], 
+                    'p95_p10_delta': stats['delta_p95_p10'],
                     'var_ratio_rb': var_ratio_rb,
                     'hard_candidate': True,
                     'reasons': reasons,
@@ -177,7 +183,7 @@ def main():
     args = parse_args()
     try:
         gating_entries = []
-        with open(args.gating_log, 'r', encoding='utf-8') as f:
+        with open(args.gating_log, encoding='utf-8') as f:
             for line in f:
                 line=line.strip()
                 if not line: continue
@@ -186,7 +192,7 @@ def main():
                 except json.JSONDecodeError:
                     continue
         audit = {}
-        with open(args.audit_json,'r',encoding='utf-8') as f:
+        with open(args.audit_json,encoding='utf-8') as f:
             audit = json.load(f)
         thresholds = load_yaml(Path(args.thresholds))
         decisions = decide(args, thresholds, gating_entries, audit)

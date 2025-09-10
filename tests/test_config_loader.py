@@ -3,8 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from core.config.loader import ConfigManager, ConfigError, HotReloadViolation
-
+from core.config.loader import ConfigError, ConfigManager, HotReloadViolation
 
 # -------------------- Helpers --------------------
 

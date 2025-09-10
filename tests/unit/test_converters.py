@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any
 
-from core.converters import api_order_to_denied_schema
 from api.models import OrderInfo
+from core.converters import api_order_to_denied_schema
 
 
 def test_api_order_to_denied_schema_minimal():
     order = OrderInfo(symbol="BTCUSDT", side="BUY", qty=0.01)
-    obs: Dict[str, Any] = {"gate_state": "BLOCK", "reasons": ["spread_bps_too_wide:120.0"], "ts_iso": "2025-08-28T00:00:00Z"}
+    obs: dict[str, Any] = {"gate_state": "BLOCK", "reasons": ["spread_bps_too_wide:120.0"], "ts_iso": "2025-08-28T00:00:00Z"}
     d = api_order_to_denied_schema(
         decision_id="abc-123",
         order=order,

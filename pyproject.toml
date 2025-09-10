@@ -1,0 +1,49 @@
+[tool.ruff]
+line-length = 120
+# Target only modern Python features used in repo
+# (adjust if CI uses different version)
+target-version = "py311"
+# Exclude heavy/legacy and generated dirs from lint
+exclude = [
+  ".venv", "venv", "build", "dist", "htmlcov", "reports",
+  "notebooks", "artifacts", "logs", "runs", "tmp_debug_cancel",
+  "archive", "__pycache__", "tools", "research", "scripts", "tests",
+]
+
+[tool.ruff.lint]
+select = [
+  "E",  # pycodestyle errors
+  "F",  # pyflakes
+]
+# Soften initial adoption: ignore complexity, naming, docs, annotations, and some noisy style rules for now
+ignore = [
+  "E501", # line too long
+  "E402", # module import not at top of file (common in path-injection tools/tests)
+  "E702", # multiple statements on one line
+  "E722", # bare except
+  "E731", # do not assign lambda
+  "E741", # ambiguous variable name
+  "C90",  # mccabe complexity
+  "N8",   # pep8-naming
+  "D",    # pydocstyle
+  "ANN",  # flake8-annotations
+  "PLR",  # pylint refactor suggestions
+  "B905", # zip strict
+  "F401", # unused imports
+  "F821", # undefined name (softened for legacy modules; tests guard)
+  "F841", # local variable assigned but never used
+]
+
+[tool.ruff.lint.isort]
+# Keep third-party before first-party, add known first-party roots
+known-first-party = ["core", "aurora", "skalp_bot", "tools", "src", "api"]
+combine-as-imports = true
+force-sort-within-sections = true
+
+[tool.ruff.lint.pyupgrade]
+keep-runtime-typing = true
+
+[tool.ruff.format]
+quote-style = "preserve"
+indent-style = "space"
+line-ending = "auto"

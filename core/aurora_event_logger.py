@@ -1,24 +1,30 @@
 from __future__ import annotations
 
-from observability.codes import (
-    POLICY_DECISION, POLICY_TRAP_GUARD, POLICY_TRAP_BLOCK,
-    POSTTRADE_LOG, DQ_EVENT_STALE_BOOK, DQ_EVENT_CROSSED_BOOK,
-    DQ_EVENT_ABNORMAL_SPREAD, DQ_EVENT_CYCLIC_SEQUENCE,
-    AURORA_HALT, AURORA_RESUME, AURORA_EXPECTED_RETURN_ACCEPT,
-    AURORA_EXPECTED_RETURN_LOW, AURORA_SLIPPAGE_GUARD,
-    # Step 3 events
-    EXEC_DECISION, ORDER_ACK, ORDER_CXL, ORDER_REPLACE, FILL_EVENT,
-    REWARD_UPDATE, POSITION_CLOSED, TCA_ANALYSIS
-)
 import json
-import time
-from collections import deque
+import os
 from pathlib import Path
-from typing import Any, Dict, Optional, Deque, Tuple
+import time
+from typing import Any
 
 # Reuse robust JSONL writer and small LRU from order logger
 from core.order_logger import _JsonlWriter, _LRUSet  # type: ignore
-import os
+from observability.codes import (
+    AURORA_EXPECTED_RETURN_ACCEPT,
+    AURORA_EXPECTED_RETURN_LOW,
+    AURORA_HALT,
+    AURORA_RESUME,
+    AURORA_SLIPPAGE_GUARD,
+    get_all_event_codes,
+    DQ_EVENT_ABNORMAL_SPREAD,
+    DQ_EVENT_CROSSED_BOOK,
+    DQ_EVENT_CYCLIC_SEQUENCE,
+    DQ_EVENT_STALE_BOOK,
+    # Step 3 events
+    POLICY_DECISION,
+    POLICY_TRAP_BLOCK,
+    POLICY_TRAP_GUARD,
+    POSTTRADE_LOG,
+)
 
 
 class AuroraEventLogger:
@@ -62,7 +68,7 @@ class AuroraEventLogger:
     "SLA.CHECK", "SLA.DENY", "GOVERNANCE.TRANSITION",
     # Alpha ledger updates
     "ALPHA.LEDGER.UPDATE",
-    }
+    } | set(get_all_event_codes())
 
     def __init__(
         self,
@@ -88,11 +94,11 @@ class AuroraEventLogger:
             compress=compress,
             retention_files=retention_files,
         )
-        self._last_health_emit_ts: Dict[str, float] = {}
+        self._last_health_emit_ts: dict[str, float] = {}
         self._seen: _LRUSet = _LRUSet(32768)
         self._run_id = time.strftime("%Y%m%d-%H%M%S", time.gmtime())
         # Optional Prometheus Counter hook: set via set_counter()
-        self._prom_counter: Optional[Any] = None
+        self._prom_counter: Any | None = None
         # Monotonic guard for generated ts_ns to avoid duplicates when clock resolution is coarse
         self._last_emit_ns: int = 0
 
@@ -107,10 +113,10 @@ class AuroraEventLogger:
 
     def emit(
         self,
-        event_code: Optional[str] = None,
-        details: Optional[Dict[str, Any]] = None,
-        position_id: Optional[str] = None,
-        src: Optional[str] = None,
+        event_code: str | None = None,
+        details: dict[str, Any] | None = None,
+        position_id: str | None = None,
+        src: str | None = None,
         **kwargs: Any,
     ) -> None:
         """Emit an event record.

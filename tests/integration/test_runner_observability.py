@@ -2,10 +2,8 @@ from __future__ import annotations
 
 import json
 import os
-import time
 from pathlib import Path
-
-import types
+import time
 
 
 class FakeAdapter:
@@ -126,11 +124,11 @@ def test_exchange_denial_logged_to_failed(tmp_path):
     # But currently there's an issue with the setup - orders get denied for min_notional instead
     # Let's verify that the denial mechanism works (since that's what's actually happening)
     _run_runner_with_mocks(tmp_path, allow_gate=True, fail_exchange=True)
-    
+
     denied = _read_jsonl(Path(tmp_path) / "orders_denied.jsonl")
     # Should have denied orders due to risk guard
     assert len(denied) >= 1
-    
+
     # Look for the specific denial reason we're getting
     deny_reasons = {rec.get("deny_reason") for rec in denied}
     assert "WHY_RISK_GUARD_MIN_NOTIONAL" in deny_reasons
@@ -141,11 +139,11 @@ def test_open_and_close_flow_emits_events(tmp_path):
     _run_runner_with_mocks(tmp_path, allow_gate=True, fail_exchange=False, scores=[1.0, 0.0, 0.0])
     events = _read_jsonl(Path(tmp_path) / "aurora_events.jsonl")
     denied = _read_jsonl(Path(tmp_path) / "orders_denied.jsonl")
-    
+
     print(f"DEBUG: Events: {len(events)}, Denied: {len(denied)}")
     event_codes = [ev.get("event_code") for ev in events]
     print(f"DEBUG: Event codes: {set(event_codes)}")
-    
+
     # Since orders are being denied due to min_notional, this test needs to be adjusted
     # The min_notional issue prevents any orders from being placed
     # Let's test what actually happens instead of what we wish would happen

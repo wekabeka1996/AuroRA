@@ -1,7 +1,7 @@
 import json
 import subprocess
 import sys
-from pathlib import Path
+
 
 def test_rotation_retention_and_lastline(tmp_path):
     # Run rotation script with retention=2
@@ -15,11 +15,11 @@ def test_rotation_retention_and_lastline(tmp_path):
     ]
     result = subprocess.run(cmd, capture_output=True, text=True)
     assert result.returncode == 0
-    
+
     # Check that gz files exist
     gz_files = list(tmp_path.glob("test_retention*.gz"))
     assert len(gz_files) > 0
-    
+
     # Check last line of each gz is valid JSON
     import gzip
     for gz in gz_files:

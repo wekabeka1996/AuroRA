@@ -1,6 +1,5 @@
 import pytest
 
-
 ssot = pytest.importorskip("tools.ssot_validate", reason="ssot_validate not available")
 
 

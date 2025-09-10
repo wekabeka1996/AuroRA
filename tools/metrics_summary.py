@@ -2,12 +2,12 @@
 from __future__ import annotations
 
 import argparse
-import json
-import time
 from collections import Counter
-from pathlib import Path
 import gzip
-from typing import Any, Dict, List
+import json
+from pathlib import Path
+import time
+from typing import Any
 
 from core.lifecycle_correlation import LifecycleCorrelator
 
@@ -46,7 +46,7 @@ def load_jsonl(path: Path):
     return out
 
 
-def nearest_rank(arr: List[float], p: int) -> float:
+def nearest_rank(arr: list[float], p: int) -> float:
     if not arr:
         return 0.0
     import math
@@ -65,7 +65,7 @@ def main(window_sec: int = 3600, out_path: str | None = None):
     orders_f = load_jsonl(ROOT / 'logs' / 'orders_failed.jsonl')
     orders_d = load_jsonl(ROOT / 'logs' / 'orders_denied.jsonl')
 
-    def _ts_ok(obj: Dict[str, Any]) -> bool:
+    def _ts_ok(obj: dict[str, Any]) -> bool:
         # For events: prefer ts_ns as nanoseconds; for orders_* prefer ts_ns/ts_ms; include if no timestamp provided.
         if 'ts_ns' in obj and obj.get('ts_ns') is not None:
             try:
@@ -271,6 +271,6 @@ def main(window_sec: int = 3600, out_path: str | None = None):
 if __name__ == '__main__':
     p = argparse.ArgumentParser()
     p.add_argument('--window-sec', type=int, default=3600)
-    p.add_argument('--out', type=str, default=str((ROOT / 'reports' / 'summary_gate_status.json')))
+    p.add_argument('--out', type=str, default=str(ROOT / 'reports' / 'summary_gate_status.json'))
     args = p.parse_args()
     main(window_sec=args.window_sec, out_path=args.out)

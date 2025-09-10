@@ -1,6 +1,5 @@
-import math
 
-from core.tca.hawkes import HawkesParams, simulate, fit_em, loglik
+from core.tca.hawkes import HawkesParams, fit_em, loglik, simulate
 
 
 def test_em_increases_loglik_on_simulated_hawkes():

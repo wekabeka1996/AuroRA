@@ -17,12 +17,12 @@ No external dependencies; NumPy optional.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Deque, Dict, Iterable, List, Optional, Sequence, Tuple
 import bisect
+from collections import deque
+from collections.abc import Sequence
+from dataclasses import dataclass
 import math
 import random
-from collections import deque
 
 try:
     import numpy as np  # type: ignore
@@ -43,7 +43,7 @@ def _quantile(sorted_vals: Sequence[float], alpha: float) -> float:
     return float(sorted_vals[k])
 
 
-def var_cvar_from_losses(losses: Sequence[float], alpha: float = 0.99, *, method: str = "empirical", **kwargs) -> Tuple[float, float]:
+def var_cvar_from_losses(losses: Sequence[float], alpha: float = 0.99, *, method: str = "empirical", **kwargs) -> tuple[float, float]:
     """Compute empirical VaRα and CVaRα given **losses** (higher = worse).
 
     VaRα is the α-quantile of the loss distribution. CVaRα is the mean of the
@@ -68,7 +68,7 @@ def var_cvar_from_losses(losses: Sequence[float], alpha: float = 0.99, *, method
         except ImportError:
             # Fallback to empirical if evt_pot not available
             pass
-    
+
     # Default empirical method
     x = sorted(float(z) for z in losses)
     if not x:
@@ -79,7 +79,7 @@ def var_cvar_from_losses(losses: Sequence[float], alpha: float = 0.99, *, method
     return var, cvar
 
 
-def var_cvar_from_pnl(pnl: Sequence[float], alpha: float = 0.99) -> Tuple[float, float]:
+def var_cvar_from_pnl(pnl: Sequence[float], alpha: float = 0.99) -> tuple[float, float]:
     """Convenience wrapper when inputs are **PnL/returns** (negative = loss).
 
     Converts to losses via L = max(0, −PnL) and applies `var_cvar_from_losses`.
@@ -88,7 +88,7 @@ def var_cvar_from_pnl(pnl: Sequence[float], alpha: float = 0.99) -> Tuple[float,
     return var_cvar_from_losses(losses, alpha)
 
 
-def var_with_ci(losses: Sequence[float], alpha: float = 0.99, *, method: str = "empirical", **kwargs) -> Tuple[float, float, float]:
+def var_with_ci(losses: Sequence[float], alpha: float = 0.99, *, method: str = "empirical", **kwargs) -> tuple[float, float, float]:
     """Compute VaRα with confidence interval given **losses** (higher = worse).
 
     Args:
@@ -111,7 +111,7 @@ def var_with_ci(losses: Sequence[float], alpha: float = 0.99, *, method: str = "
         except ImportError:
             # Fallback to empirical if evt_pot not available
             pass
-    
+
     # Default empirical method with simple bootstrap CI
     x = sorted(float(z) for z in losses)
     if not x:
@@ -141,8 +141,8 @@ class RollingCVaR:
     def __init__(self, window_n: int = 2000, alpha: float = 0.99) -> None:
         self.N = int(window_n)
         self.alpha = float(alpha)
-        self.q: Deque[_Item] = deque()
-        self.sorted: List[Tuple[float, int]] = []  # (loss, uid)
+        self.q: deque[_Item] = deque()
+        self.sorted: list[tuple[float, int]] = []  # (loss, uid)
         self._uid = 0
         self._sum = 0.0
 
@@ -168,7 +168,7 @@ class RollingCVaR:
                         self.sorted.pop(j)
                         break
 
-    def metrics(self) -> Tuple[float, float]:
+    def metrics(self) -> tuple[float, float]:
         if not self.sorted:
             return 0.0, 0.0
         var = _quantile([v for (v, _) in self.sorted], self.alpha)
@@ -185,7 +185,7 @@ class RollingCVaR:
 # Portfolio CVaR
 # =============================
 
-def portfolio_cvar(weights: Sequence[float], returns: Sequence[Sequence[float]], alpha: float = 0.99) -> Tuple[float, float]:
+def portfolio_cvar(weights: Sequence[float], returns: Sequence[Sequence[float]], alpha: float = 0.99) -> tuple[float, float]:
     """Portfolio VaR/CVaR from scenario **returns** (PnL), using losses L = −R·w.
 
     - `weights`: portfolio weights (can be long/short). No normalization enforced here.
@@ -210,7 +210,7 @@ def portfolio_cvar(weights: Sequence[float], returns: Sequence[Sequence[float]],
 # CVaR-Min optimization (projected subgradient)
 # =============================
 
-def _proj_simplex(v: Sequence[float], z: float = 1.0) -> List[float]:
+def _proj_simplex(v: Sequence[float], z: float = 1.0) -> list[float]:
     """Project vector onto the probability simplex {w ≥ 0, ∑w = z}."""
     x = [max(0.0, float(t)) for t in v]
     s = sum(x)
@@ -232,7 +232,7 @@ def _proj_simplex(v: Sequence[float], z: float = 1.0) -> List[float]:
     return [max(0.0, xi - tau) for xi in x]
 
 
-def _proj_l1_ball(v: Sequence[float], c: float) -> List[float]:
+def _proj_l1_ball(v: Sequence[float], c: float) -> list[float]:
     """Project onto L1 ball {∑|w| ≤ c}. Duchi et al. (2008)."""
     c = max(1e-12, float(c))
     u = [abs(float(t)) for t in v]
@@ -263,7 +263,7 @@ def cvar_minimize(
     sum_to_one: bool = True,
     leverage_cap: float = 1.0,
     seed: int = 7,
-) -> List[float]:
+) -> list[float]:
     """Minimize CVaRα of portfolio **returns** via projected subgradient.
 
     - If `long_only` and `sum_to_one`: project to simplex (∑w=1, w≥0).
@@ -279,9 +279,9 @@ def cvar_minimize(
     # init weights uniform on simplex
     w = [1.0 / m] * m if long_only and sum_to_one else [rnd.uniform(-0.1, 0.1) for _ in range(m)]
 
-    def tail_grad(weights: Sequence[float]) -> Tuple[float, List[float]]:
+    def tail_grad(weights: Sequence[float]) -> tuple[float, list[float]]:
         # compute portfolio pnl for each scenario
-        pnl: List[float] = []
+        pnl: list[float] = []
         for scen in returns:
             pnl.append(sum(float(a) * float(b) for a, b in zip(scen, weights)))
         # losses
@@ -319,12 +319,12 @@ def cvar_minimize(
 # Self-tests
 # =============================
 
-def _make_scenarios(n: int = 3000, m: int = 3, seed: int = 3) -> List[List[float]]:
+def _make_scenarios(n: int = 3000, m: int = 3, seed: int = 3) -> list[list[float]]:
     rnd = random.Random(seed)
-    R: List[List[float]] = []
+    R: list[list[float]] = []
     for i in range(n):
         # heavy-ish tails: mix of Gaussians
-        row: List[float] = []
+        row: list[float] = []
         for j in range(m):
             s = 0.01 + 0.02 * (j + 1)
             # with small prob, draw from wider tail

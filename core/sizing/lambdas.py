@@ -19,8 +19,8 @@ No external deps; NumPy optional. Standalone (fallback ProbabilityMetrics provid
 """
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Dict, Mapping, Optional
 import math
 
 try:
@@ -30,7 +30,6 @@ except Exception:  # pragma: no cover
 
 # -------- Imports from core.types (SSOT) ------
 from core.types import ProbabilityMetrics
-
 
 # =============================
 # Core λ functions (each returns a value in [0,1])
@@ -67,7 +66,7 @@ class LambdaRegConfig:
     off_regime_penalty: float = 0.2       # λ when regime not allowed but tradeable
 
 
-def lambda_reg(*, tradeable: bool, regime: Optional[str], cfg: LambdaRegConfig = LambdaRegConfig()) -> float:
+def lambda_reg(*, tradeable: bool, regime: str | None, cfg: LambdaRegConfig = LambdaRegConfig()) -> float:
     """Regime multiplier.
 
     - If not tradeable: 0.
@@ -89,7 +88,7 @@ class LambdaLiqConfig:
     b_ttd: float = 1.50           # penalty slope for TTD shortfall (relative to ref)
 
 
-def lambda_liq(*, spread_bps: Optional[float], ttd_s: Optional[float], cfg: LambdaLiqConfig = LambdaLiqConfig()) -> float:
+def lambda_liq(*, spread_bps: float | None, ttd_s: float | None, cfg: LambdaLiqConfig = LambdaLiqConfig()) -> float:
     """Liquidity multiplier from spread & time-to-depletion (best-quote).
 
     λ_liq = exp(-a·max(0, spread−s₀)) · exp(-b·max(0, (t₀−TTD)/t₀))
@@ -161,14 +160,14 @@ class LambdaPolicy:
 
     def compute(self,
                 *,
-                metrics: Optional[ProbabilityMetrics],
+                metrics: ProbabilityMetrics | None,
                 tradeable: bool,
-                regime: Optional[str],
-                spread_bps: Optional[float],
-                ttd_s: Optional[float],
+                regime: str | None,
+                spread_bps: float | None,
+                ttd_s: float | None,
                 dd_ratio: float,
                 latency_ms: float,
-                sla_ms: float) -> Dict[str, float]:
+                sla_ms: float) -> dict[str, float]:
         l_cal = lambda_cal(metrics, self.cal) if metrics is not None else 1.0
         l_reg = lambda_reg(tradeable=tradeable, regime=regime, cfg=self.reg)
         l_liq = lambda_liq(spread_bps=spread_bps, ttd_s=ttd_s, cfg=self.liq)

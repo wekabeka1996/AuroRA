@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
-import os, time, math, sys
 from pathlib import Path
+import sys
+import time
 
 # Ensure workspace root is on sys.path so `import core...` works when script is run
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from core.tca.tca_analyzer import TCAAnalyzer, OrderExecution, FillEvent
+from core.tca.tca_analyzer import FillEvent, OrderExecution, TCAAnalyzer
 
 OUT = Path("logs/tca_identity_check.txt")
 OUT.parent.mkdir(parents=True, exist_ok=True)

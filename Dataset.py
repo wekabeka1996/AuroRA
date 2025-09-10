@@ -28,11 +28,11 @@ Dataset.py — lightweight OHLCV loader for Binance.
 from __future__ import annotations
 
 import argparse
+from datetime import UTC, datetime, timedelta
 import os
-import time
-from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Optional
+import time
+from typing import Any
 
 import pandas as pd
 
@@ -53,12 +53,12 @@ BACKOFF_BASE = 0.4
 MAX_BACKOFF = 6.4
 
 
-def _get_api_keys() -> tuple[Optional[str], Optional[str]]:
+def _get_api_keys() -> tuple[str | None, str | None]:
     return os.getenv("BINANCE_API_KEY"), os.getenv("BINANCE_API_SECRET")
 
 
-def create_binance_client(api_key: Optional[str] = None,
-                          api_secret: Optional[str] = None) -> Optional[Any]:
+def create_binance_client(api_key: str | None = None,
+                          api_secret: str | None = None) -> Any | None:
     if ccxt is None:
         return None
     if api_key is None or api_secret is None:
@@ -127,17 +127,17 @@ def _http_fetch_klines(symbol: str, timeframe: str, start_ms: int, end_ms: int) 
 def fetch_ohlcv_df(symbol: str = 'SUI/USDT',
                    timeframe: str = '1m',
                    hours: int = 24,
-                   exchange: Optional[Any] = None) -> pd.DataFrame:
+                   exchange: Any | None = None) -> pd.DataFrame:
     """Fetch OHLCV into a pandas DataFrame using ccxt or HTTP fallback.
 
     Fetches the FULL window for the specified hours (no 1000-row cap) by
     paginating requests until reaching the current time.
     """
-    now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
-    since_ms = int((datetime.now(timezone.utc) - timedelta(hours=hours)).timestamp() * 1000)
+    now_ms = int(datetime.now(UTC).timestamp() * 1000)
+    since_ms = int((datetime.now(UTC) - timedelta(hours=hours)).timestamp() * 1000)
 
     # Try ccxt first if exchange/client available
-    last_exc: Optional[Exception] = None
+    last_exc: Exception | None = None
     if exchange is None:
         exchange = create_binance_client()
 
@@ -188,7 +188,7 @@ def _main() -> None:
 
     lookback_hours = args.hours if (args.days is None) else max(1, int(args.days) * 24)
     df = fetch_ohlcv_df(symbol=args.symbol, timeframe=args.timeframe, hours=lookback_hours)
-    out_path: Optional[Path]
+    out_path: Path | None
     if args.out:
         out_path = Path(args.out)
         out_path.parent.mkdir(parents=True, exist_ok=True)

@@ -27,12 +27,10 @@ Integration
 
 from collections import deque
 from dataclasses import dataclass
-from typing import Deque, Optional, Tuple
 from pathlib import Path
 
+from core.config.loader import ConfigError, get_config
 from core.tca.latency import SLAGate, SLAGateResult
-from core.config.loader import get_config, ConfigError
-
 
 NS_PER_MS = 1_000_000
 
@@ -54,7 +52,7 @@ class _Quantile:
     """
 
     def __init__(self, limit: int = 10_000) -> None:
-        self._dq: Deque[float] = deque(maxlen=int(limit))
+        self._dq: deque[float] = deque(maxlen=int(limit))
 
     def push(self, x_ms: float) -> None:
         self._dq.append(float(x_ms))
@@ -100,7 +98,7 @@ class SLAMonitor:
         window: int = 10_000,
         kappa_bps_per_ms: float = 0.05,
         edge_floor_bps: float = 0.0,
-        max_latency_ms: Optional[float] = None,
+        max_latency_ms: float | None = None,
     ) -> None:
         self._q = _Quantile(limit=window)
         if max_latency_ms is None:
@@ -129,13 +127,13 @@ class SLAMonitor:
         """Apply SLA gate to a decision. Also records latency for monitoring."""
         self.observe(latency_ms)
         result = self._gate.gate(edge_bps=edge_bps, latency_ms=latency_ms)
-        
+
         # XAI logging (use a simple approach without validation)
         why_code = "OK" if result.allow else (
-            "WHY_LATENCY_BREACH" if latency_ms > self._gate.max_latency_ms 
+            "WHY_LATENCY_BREACH" if latency_ms > self._gate.max_latency_ms
             else "WHY_EDGE_AFTER_LT_FLOOR"
         )
-        
+
         # Log the SLA check (skip decision validation)
         log_entry = {
             "event_type": "SLA_CHECK",
@@ -154,14 +152,14 @@ class SLAMonitor:
                 "reason": result.reason
             }
         }
-        
+
         # Simple file logging for SLA events
         import json
         log_path = Path("logs/sla_decisions.jsonl")
         log_path.parent.mkdir(exist_ok=True)
         with open(log_path, "a", encoding="utf-8") as f:
             f.write(json.dumps(log_entry, separators=(",", ":")) + "\n")
-        
+
         return result
 
 

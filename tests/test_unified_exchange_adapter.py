@@ -10,45 +10,42 @@ Comprehensive tests for the unified exchange adapter interface:
 - Multi-exchange support
 """
 
-import pytest
-import json
-import tempfile
 from pathlib import Path
-from unittest.mock import Mock, patch
+import tempfile
 
-from core.execution.exchange.unified import (
-    ExchangeAdapterFactory,
-    ExchangeConfig,
-    ExchangeType,
-    AdapterMode,
-    create_exchange_adapter,
-    BinanceAdapter,
-    GateAdapter,
-    CCXTBinanceAdapter,
-)
-from core.execution.exchange.config import (
-    ExchangeConfigManager,
-    ExchangeConfig as ConfigConfig,
-    create_exchange_config,
-    get_exchange_config,
-)
-from core.execution.exchange.error_handling import (
-    ExchangeErrorHandler,
-    ExchangeErrorContext,
-    ErrorCategory,
-    ErrorSeverity,
-    RetryConfig,
-    ExchangeRetryHandler,
-    CircuitBreakerConfig,
-    ExchangeCircuitBreaker,
-)
+import pytest
+
 from core.execution.exchange.common import (
+    ExchangeError,
+    Fees,
     OrderRequest,
     OrderType,
     Side,
-    Fees,
-    ExchangeError,
     ValidationError,
+)
+from core.execution.exchange.config import (
+    ExchangeConfig as ConfigConfig,
+    ExchangeConfigManager,
+)
+from core.execution.exchange.error_handling import (
+    CircuitBreakerConfig,
+    ErrorCategory,
+    ErrorSeverity,
+    ExchangeCircuitBreaker,
+    ExchangeErrorContext,
+    ExchangeErrorHandler,
+    ExchangeRetryHandler,
+    RetryConfig,
+)
+from core.execution.exchange.unified import (
+    AdapterMode,
+    BinanceAdapter,
+    CCXTBinanceAdapter,
+    ExchangeAdapterFactory,
+    ExchangeConfig,
+    ExchangeType,
+    GateAdapter,
+    create_exchange_adapter,
 )
 
 
@@ -286,12 +283,12 @@ def test_circuit_breaker():
     assert result == "success"
     # After one success in HALF_OPEN, it should go to CLOSED
     assert breaker.state.name == "HALF_OPEN"  # Still in HALF_OPEN after first success
-    
+
     # Need another success to close the circuit
     result2 = breaker.call(lambda: "success")
     assert result2 == "success"
     assert breaker.state.name == "HALF_OPEN"  # Still need one more
-    
+
     # Third success should close the circuit
     result3 = breaker.call(lambda: "success")
     assert result3 == "success"

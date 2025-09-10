@@ -34,9 +34,8 @@ No external dependencies; NumPy optional. Standalone.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Deque, Dict, List, Optional, Tuple
 from collections import deque
+from dataclasses import dataclass, field
 import math
 import random
 
@@ -72,18 +71,18 @@ class CUSUMDetector:
     """
     k: float = 0.25
     h: float = 5.0
-    clip: Optional[float] = None
+    clip: float | None = None
 
     s_pos: float = 0.0
     s_neg: float = 0.0
-    last_ts: Optional[float] = None
+    last_ts: float | None = None
 
     def reset(self) -> None:
         self.s_pos = 0.0
         self.s_neg = 0.0
         self.last_ts = None
 
-    def update(self, x: float, ts: Optional[float] = None) -> Dict[str, float]:
+    def update(self, x: float, ts: float | None = None) -> dict[str, float]:
         if self.clip is not None:
             c = float(self.clip)
             x = max(-c, min(c, float(x)))
@@ -118,10 +117,10 @@ class GLRDetector:
     """
     window: int = 200
     thr: float = 25.0  # typical 16..36 for unit-variance noise
-    clip: Optional[float] = 6.0
+    clip: float | None = 6.0
 
     def __post_init__(self) -> None:
-        self.buf: Deque[float] = deque()
+        self.buf: deque[float] = deque()
         self.sum: float = 0.0
         self.sum2: float = 0.0
 
@@ -170,7 +169,7 @@ class GLRDetector:
                 best = stat
         return best
 
-    def update(self, x: float, ts: Optional[float] = None) -> Dict[str, float]:
+    def update(self, x: float, ts: float | None = None) -> dict[str, float]:
         self._push(x)
         g = self._glr_stat()
         alarm = 1.0 if g >= self.thr else 0.0
@@ -190,7 +189,7 @@ class DriftMonitor:
         self.cusum.reset()
         self.glr.reset()
 
-    def update(self, logit: float, ts: Optional[float] = None) -> Dict[str, float]:
+    def update(self, logit: float, ts: float | None = None) -> dict[str, float]:
         """Feed next logit/score and get combined drift diagnostics.
 
         Returns
@@ -201,7 +200,7 @@ class DriftMonitor:
         out_c = self.cusum.update(logit, ts)
         out_g = self.glr.update(logit, ts)
         drift_alarm = 1.0 if (out_c["cusum_alarm"] > 0.5 or out_g["glr_alarm"] > 0.5) else 0.0
-        
+
         # Emit ALERT_CALIBRATION_DRIFT event if drift detected
         if drift_alarm > 0.5 and _event_emitter is not None:
             event_data = {
@@ -221,8 +220,8 @@ class DriftMonitor:
                 severity="warning",
                 code="ALERT_CALIBRATION_DRIFT"
             )
-        
-        out: Dict[str, float] = {**out_c, **out_g}
+
+        out: dict[str, float] = {**out_c, **out_g}
         out["drift_alarm"] = drift_alarm
         return out
 
@@ -231,9 +230,9 @@ class DriftMonitor:
 # Self-tests (synthetic)
 # =============================
 
-def _make_logit_series(n: int = 600, mu0: float = 0.0, sigma: float = 1.0, shift_at: int = 300, dmu: float = 0.8, seed: int = 7) -> List[float]:
+def _make_logit_series(n: int = 600, mu0: float = 0.0, sigma: float = 1.0, shift_at: int = 300, dmu: float = 0.8, seed: int = 7) -> list[float]:
     rnd = random.Random(seed)
-    xs: List[float] = []
+    xs: list[float] = []
     for t in range(n):
         m = mu0 + (dmu if t >= shift_at else 0.0)
         xs.append(rnd.gauss(m, sigma))

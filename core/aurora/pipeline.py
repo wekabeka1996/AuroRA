@@ -1,20 +1,20 @@
 from __future__ import annotations
 
-from typing import Any, Dict, Optional, Tuple
 import os
+from typing import Any
 
+from aurora.governance import Governance
+from aurora.health import HealthGuard
 from core.aurora.pretrade import (
-    gate_latency,
     gate_expected_return,
+    gate_latency,
     gate_slippage,
     gate_trap,
 )
-from core.scalper.calibrator import IsotonicCalibrator, CalibInput
+from core.scalper.calibrator import CalibInput, IsotonicCalibrator
 from core.scalper.sprt import SPRT, SprtConfig
 from core.scalper.trap import TrapWindow
 from risk.manager import RiskManager
-from aurora.governance import Governance
-from aurora.health import HealthGuard
 
 
 class PretradePipeline:
@@ -31,7 +31,7 @@ class PretradePipeline:
         health_guard: HealthGuard | None,
         risk_manager: RiskManager | None,
         governance: Governance | None = None,
-        cfg: Dict[str, Any] | None = None,
+        cfg: dict[str, Any] | None = None,
     ) -> None:
         self.emitter = emitter
         self.tw = trap_window
@@ -43,11 +43,11 @@ class PretradePipeline:
     def decide(
         self,
         *,
-        account: Dict[str, Any],
-        order: Dict[str, Any],
-        market: Dict[str, Any],
+        account: dict[str, Any],
+        order: dict[str, Any],
+        market: dict[str, Any],
         fees_bps: float,
-    ) -> Tuple[bool, str, Dict[str, Any], float]:
+    ) -> tuple[bool, str, dict[str, Any], float]:
         """Return (allow, reason, obs, risk_scale)."""
         emitter = self.emitter
         tw = self.tw

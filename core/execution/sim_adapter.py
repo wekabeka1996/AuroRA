@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-import time
-from typing import Any, Dict, Optional
+from typing import Any
 
 from core.execution.sim_local_sink import SimLocalSink
 
@@ -13,7 +12,7 @@ class SimAdapter:
     while delegating execution to the local simulator. Designed for tests and offline runs.
     """
 
-    def __init__(self, cfg: Optional[Dict[str, Any]] = None):
+    def __init__(self, cfg: dict[str, Any] | None = None):
         self.cfg = cfg or {}
         # Create a SimLocalSink with passed cfg and default event logger
         self._sink = SimLocalSink(cfg=self.cfg)
@@ -31,7 +30,7 @@ class SimAdapter:
         trades = []
         return mid, spread, bids, asks, trades
 
-    def place_order(self, side: str, qty: float, price: Optional[float] = None):
+    def place_order(self, side: str, qty: float, price: float | None = None):
         order = {'side': side, 'qty': qty, 'price': price, 'order_id': None, 'order_type': 'market' if price is None else 'limit'}
         oid = self._sink.submit(order, market={'best_bid': None, 'best_ask': None, 'liquidity': {}})
         # Return a minimal dict compatible with runner expectations

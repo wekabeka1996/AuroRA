@@ -1,7 +1,7 @@
 import pytest
 
-from core.ingestion.replay import Replay
 from core.ingestion.normalizer import Normalizer
+from core.ingestion.replay import Replay
 from core.ingestion.sync_clock import ManualClock
 
 

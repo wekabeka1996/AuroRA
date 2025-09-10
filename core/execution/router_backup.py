@@ -33,10 +33,10 @@ Notes
 - The caller should feed the result into `execution/exchange/*` connectors.
 """
 
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Dict, Mapping, Optional, Tuple
 
-from core.config.loader import get_config, ConfigError
+from core.config.loader import ConfigError, get_config
 from core.execution.exchange.common import Fees
 from core.tca.hazard_cox import CoxPH
 from core.tca.latency import SLAGate
@@ -73,17 +73,17 @@ class RouteDecision:
     taker_fee_bps: float = 0.0
     net_e_maker_bps: float = 0.0  # Expected edge after fees
     net_e_taker_bps: float = 0.0  # Expected edge after fees
-    scores: Optional[Dict[str, float]] = None  # TCA scores for XAI tracing
+    scores: dict[str, float] | None = None  # TCA scores for XAI tracing
 
 
 class Router:
     def __init__(
         self,
         *,
-        hazard_model: Optional[CoxPH] = None,
-        slagate: Optional[SLAGate] = None,
-        min_p_fill: Optional[float] = None,
-        fees: Optional[Fees] = None,
+        hazard_model: CoxPH | None = None,
+        slagate: SLAGate | None = None,
+        min_p_fill: float | None = None,
+        fees: Fees | None = None,
         exchange_name: str = "default",
     ) -> None:
         # hazards
@@ -110,7 +110,7 @@ class Router:
             fees = Fees.from_exchange_config(exchange_name)
         self._fees = fees
 
-    def _tca_net_edge_bps(self, decision: str, features: Optional[Mapping[str, float]], edge_bps_estimate: float, latency_ms: float, half_spread_bps: float) -> float:
+    def _tca_net_edge_bps(self, decision: str, features: Mapping[str, float] | None, edge_bps_estimate: float, latency_ms: float, half_spread_bps: float) -> float:
         """
         Канонічна підсумовка нет-edge: raw_edge + fees + slippage + impact + adverse + latency + rebate.
         Підпис значень: позитивне => покращує edge (наприклад, rebate), негативне => погіршує.
@@ -140,7 +140,7 @@ class Router:
         quote: QuoteSnapshot,
         edge_bps_estimate: float,
         latency_ms: float,
-        fill_features: Optional[Mapping[str, float]] = None,
+        fill_features: Mapping[str, float] | None = None,
     ) -> RouteDecision:
         """Return a route decision and its rationale.
 
@@ -348,7 +348,7 @@ class Router:
         except Exception:
             tight_spread_bps = 1.5
             effective_spread = half
-        
+
         # Strong preference for maker with high p_fill + tight spread (only as fallback)
         if p_fill >= max(self._min_p, 0.6) and effective_spread <= tight_spread_bps and exp_maker > 0.0:
             return RouteDecision(
@@ -405,7 +405,7 @@ class Router:
             net_e_taker_bps=taker_net,
             scores={"expected_maker_bps": exp_maker, "taker_bps": taker_net, "p_fill": p_fill}
         )
-        
+
         # XAI logging
         why_code = "WHY_UNATTRACTIVE"
         if decision.route == "taker":
@@ -416,7 +416,7 @@ class Router:
             why_code = "WHY_SLA_DENY"
         elif p_fill < self._min_p:
             why_code = "WHY_LOW_PFILL"
-        
+
         # Log the routing decision (skip decision validation)
         log_entry = {
             "event_type": "ROUTE_DECISION",
@@ -442,7 +442,7 @@ class Router:
                 "reason": decision.reason
             }
         }
-        
+
         # Simple file logging for routing events
         import json
         from pathlib import Path
@@ -450,12 +450,12 @@ class Router:
         log_path.parent.mkdir(exist_ok=True)
         with open(log_path, "a", encoding="utf-8") as f:
             f.write(json.dumps(log_entry, separators=(",", ":")) + "\n")
-        
+
         return decision
 
     # ------------- internals -------------
 
-    def _estimate_p_fill(self, feats: Optional[Mapping[str, float]]) -> float:
+    def _estimate_p_fill(self, feats: Mapping[str, float] | None) -> float:
         # Default: SSOT target_fill_prob; hazard model if provided
         if self._haz is None or feats is None:
             try:
@@ -470,7 +470,7 @@ class Router:
             horizon_ms = float(cfg.get("execution.router.horizon_ms", 1000.0))  # 1 second default
         except (ConfigError, Exception):
             horizon_ms = 1000.0
-        
+
         p = self._haz.p_fill(horizon_ms, feats)
         # Heuristic clamp: if order-side microstructure strongly disfavors fills
         # (large spread + negative order book imbalance), reduce P(fill) to a
@@ -484,6 +484,6 @@ class Router:
         except Exception:
             pass
         return p
-        
+
 
 __all__ = ["QuoteSnapshot", "RouteDecision", "Router"]

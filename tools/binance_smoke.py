@@ -2,11 +2,10 @@ from __future__ import annotations
 
 import argparse
 import os
-import sys
-import time
-from typing import Any
 from pathlib import Path
 import re
+import sys
+from typing import Any
 
 try:
     import ccxt  # type: ignore

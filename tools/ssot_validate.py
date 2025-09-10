@@ -13,8 +13,10 @@ Order of checks:
 Usage: python tools/ssot_validate.py --config configs/default.toml
 """
 from __future__ import annotations
+
 import argparse
 import json
+
 try:
     import tomllib as toml
 except Exception:
@@ -23,10 +25,9 @@ except Exception:
     except Exception:
         print("toml or tomllib required: install 'toml' or use Python 3.11+")
         raise
-import os
 from pathlib import Path
-from typing import Any
 import sys
+from typing import Any
 
 try:
     import jsonschema
@@ -65,6 +66,8 @@ ALLOWED_TOP_LEVEL = {
     "risk","sizing","execution","reward","tca","xai",
     "universe","profile","order_sink","timescale",
     "replay","leadlag","market_data","orders","exchange","logger","shadow",
+    # infrastructure/ops section (e.g., [infra.idem])
+    "infra",
     # allow free-form naming field in minimal configs/tests
     "name",
 }
@@ -182,11 +185,21 @@ def check_unknown_and_nulls(cfg: dict[str, Any], schema: dict[str, Any]) -> None
             _print(f"SCHEMA: null/empty not allowed at {key}")
             raise SystemExit(EXIT_NULLS)
 
-    # Targeted unknown-key check within execution.sla (strict set of known keys)
+    # Targeted checks within execution.sla
     try:
         exec_sla = ((cfg.get('execution') or {}).get('sla') or {})
         if isinstance(exec_sla, dict):
-            allowed_sla_keys = {"max_latency_ms", "kappa_bps_per_ms", "target_fill_prob", "edge_floor_bps"}
+            # 1) explicit null/empty check for profile if provided
+            prof = exec_sla.get('profile')
+            if prof is None or (isinstance(prof, str) and prof.strip() == ""):
+                # If profile key exists but is empty/blank, treat as null/empty in critical path
+                # (tests expect exit 30 rather than unknown-key 20)
+                if 'profile' in exec_sla:
+                    _print("SCHEMA: null/empty not allowed at execution.sla.profile")
+                    raise SystemExit(EXIT_NULLS)
+
+            # 2) unknown-key check within sla: allow a strict set of keys
+            allowed_sla_keys = {"max_latency_ms", "kappa_bps_per_ms", "target_fill_prob", "edge_floor_bps", "profile"}
             extra = [k for k in exec_sla.keys() if k not in allowed_sla_keys]
             if extra:
                 _print(f"UNKNOWN: execution.sla contains unknown keys: {extra}")

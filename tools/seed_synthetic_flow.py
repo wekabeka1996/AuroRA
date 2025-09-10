@@ -6,14 +6,11 @@ Writes JSONL using AuroraEventLogger.emit through ExecutionService.place() paths
 from __future__ import annotations
 
 import argparse
-import json
-import random
 from decimal import Decimal
 from pathlib import Path
-from typing import List
-import time
+import random
 import sys
-import os
+import time
 
 # Ensure repo root is on sys.path so 'core' and other top-level packages can be imported
 ROOT = Path(__file__).resolve().parents[1]
@@ -26,7 +23,7 @@ from core.aurora_event_logger import AuroraEventLogger
 HAVE_EXECUTION = True
 try:
     from core.execution.execution_service import ExecutionService  # type: ignore
-    from core.execution.router_v2 import OrderIntent, MarketSpec  # type: ignore
+    from core.execution.router_v2 import MarketSpec, OrderIntent  # type: ignore
 except Exception:
     HAVE_EXECUTION = False
     # Minimal shims to keep type usage below; actual fallback path avoids using these

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from exch.errors import normalize_reason_struct, aurora_guard_reason
+from exch.errors import aurora_guard_reason, normalize_reason_struct
 
 
 @pytest.mark.parametrize(

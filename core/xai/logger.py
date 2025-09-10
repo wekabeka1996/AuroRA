@@ -25,16 +25,17 @@ Usage
 
 """
 
-import os
-import threading
-from datetime import datetime, timezone
+from collections.abc import Mapping
+from datetime import UTC, datetime
 from hashlib import sha256
-from pathlib import Path
-from typing import Any, Dict, Mapping, Optional, TextIO
 import json
+import os
+from pathlib import Path
+import threading
+from typing import Any, TextIO
 
-from core.config.loader import get_config, ConfigError
-from core.xai.schema import validate_decision, canonical_json
+from core.config.loader import ConfigError, get_config
+from core.xai.schema import canonical_json, validate_decision
 
 
 class DecisionLogger:
@@ -49,8 +50,8 @@ class DecisionLogger:
         self._rotate = bool(rotate_daily)
         self._sign = bool(include_signature)
         self._lock = threading.Lock()
-        self._fh: Optional[TextIO] = None
-        self._current_tag: Optional[str] = None
+        self._fh: TextIO | None = None
+        self._current_tag: str | None = None
         self._base.mkdir(parents=True, exist_ok=True)
 
     # ------------- internals -------------
@@ -58,7 +59,7 @@ class DecisionLogger:
     def _file_tag(self) -> str:
         if not self._rotate:
             return "decisions"
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         return now.strftime("decisions_%Y%m%d")
 
     def _ensure_open(self) -> None:
@@ -80,7 +81,7 @@ class DecisionLogger:
     def write(self, record: Mapping[str, Any]) -> None:
         """Validate and append a decision record as canonical JSONL (with optional signature)."""
         # enrich with config metadata if missing
-        rec: Dict[str, Any] = dict(record)
+        rec: dict[str, Any] = dict(record)
         try:
             cfg = get_config()
             rec.setdefault("config_hash", cfg.config_hash)

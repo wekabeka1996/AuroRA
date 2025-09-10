@@ -29,18 +29,17 @@ All parameters are configurable via SSOT or ctor args.
 """
 
 from dataclasses import dataclass
-from typing import Dict, Iterable, List, Mapping, Optional, Tuple
 
-from core.config.loader import get_config, ConfigError
-from core.universe.hysteresis import Hysteresis, EmaSmoother
+from core.config.loader import ConfigError, get_config
+from core.universe.hysteresis import EmaSmoother, Hysteresis
 
 
-def _f(x: Optional[float], default: float = 0.0) -> float:
+def _f(x: float | None, default: float = 0.0) -> float:
     """Coerce Optional[float] to float with default."""
     return default if x is None else float(x)
 
 
-def _i(x: Optional[int], default: int = 0) -> int:
+def _i(x: int | None, default: int = 0) -> int:
     """Coerce Optional[int] to int with default."""
     return default if x is None else int(x)
 
@@ -60,7 +59,7 @@ class Ranked:
     active: bool
 
 
-def _quantile(xs: List[float], q: float) -> float:
+def _quantile(xs: list[float], q: float) -> float:
     if not xs:
         return 0.0
     q = 0.0 if q < 0.0 else 1.0 if q > 1.0 else q
@@ -76,13 +75,13 @@ class UniverseRanker:
     def __init__(
         self,
         *,
-        wL: Optional[float] = None,
-        wS: Optional[float] = None,
-        wP: Optional[float] = None,
-        wR: Optional[float] = None,
-        add_thresh: Optional[float] = None,
-        drop_thresh: Optional[float] = None,
-        min_dwell: Optional[int] = None,
+        wL: float | None = None,
+        wS: float | None = None,
+        wP: float | None = None,
+        wR: float | None = None,
+        add_thresh: float | None = None,
+        drop_thresh: float | None = None,
+        min_dwell: int | None = None,
         ema_alpha: float = 0.2,
     ) -> None:
         # defaults from SSOT
@@ -123,15 +122,15 @@ class UniverseRanker:
         self.min_dwell = min_dwell
         self.ema_alpha = float(ema_alpha)
 
-        self._metrics: Dict[str, SymbolMetrics] = {}
-        self._hyst: Dict[str, Hysteresis] = {}
-        self._ema: Dict[str, EmaSmoother] = {}
-        self._score_raw: Dict[str, float] = {}
-        self._score_smooth: Dict[str, float] = {}
+        self._metrics: dict[str, SymbolMetrics] = {}
+        self._hyst: dict[str, Hysteresis] = {}
+        self._ema: dict[str, EmaSmoother] = {}
+        self._score_raw: dict[str, float] = {}
+        self._score_smooth: dict[str, float] = {}
 
     # ---------- update API ----------
 
-    def update_metrics(self, symbol: str, *, liquidity: Optional[float], spread_bps: Optional[float], p_fill: Optional[float], regime_flag: Optional[float]) -> None:
+    def update_metrics(self, symbol: str, *, liquidity: float | None, spread_bps: float | None, p_fill: float | None, regime_flag: float | None) -> None:
         # Coerce Optional values to ensure type safety
         L = _f(liquidity)
         S = _f(spread_bps)
@@ -142,7 +141,7 @@ class UniverseRanker:
 
     # ---------- scoring ----------
 
-    def _robust_scale(self, vals: List[float], invert: bool = False):
+    def _robust_scale(self, vals: list[float], invert: bool = False):
         # scale to [0,1] using p10..p90 range; outside clipped
         if not vals:
             return lambda v: 0.0
@@ -155,14 +154,14 @@ class UniverseRanker:
             return (1.0 - z) if invert else z
         return tr
 
-    def _compute_scores(self) -> Dict[str, float]:
+    def _compute_scores(self) -> dict[str, float]:
         if not self._metrics:
             return {}
         Ls = [m.liquidity for m in self._metrics.values()]
         Ss = [m.spread_bps for m in self._metrics.values()]
         trL = self._robust_scale(Ls, invert=False)
         trS = self._robust_scale(Ss, invert=True)
-        out: Dict[str, float] = {}
+        out: dict[str, float] = {}
         for sym, m in self._metrics.items():
             zL = trL(m.liquidity)
             zS = trS(m.spread_bps)
@@ -172,7 +171,7 @@ class UniverseRanker:
 
     # ---------- rank + hysteresis ----------
 
-    def rank(self, *, top_k: Optional[int] = None) -> List[Ranked]:
+    def rank(self, *, top_k: int | None = None) -> list[Ranked]:
         raw = self._compute_scores()
         # smooth
         for sym, sc in raw.items():
@@ -183,7 +182,7 @@ class UniverseRanker:
             self._score_smooth[sym] = ema.update(sc)
             self._score_raw[sym] = sc
         # hysteresis
-        out: List[Ranked] = []
+        out: list[Ranked] = []
         for sym, sc in self._score_smooth.items():
             h = self._hyst.get(sym)
             if h is None:
@@ -198,10 +197,10 @@ class UniverseRanker:
 
     # ---------- debug/inspection ----------
 
-    def scores(self) -> Dict[str, float]:
+    def scores(self) -> dict[str, float]:
         return dict(self._score_smooth)
 
-    def raw_scores(self) -> Dict[str, float]:
+    def raw_scores(self) -> dict[str, float]:
         return dict(self._score_raw)
 
 

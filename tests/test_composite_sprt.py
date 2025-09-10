@@ -3,14 +3,16 @@
 Тести для CompositeSPRT з підтримкою α-ledger політик та EVT
 """
 
-import numpy as np
-import pytest
 from unittest.mock import Mock, patch
 
+import numpy as np
+import pytest
+
 from core.governance.composite_sprt import (
-    CompositeSPRT, AlphaSpendingLedger, GaussianKnownVarModel,
-    StudentTModel, SubexponentialModel, SPRTResult,
-    create_gaussian_sprt, create_t_test_sprt, create_subexponential_sprt
+    AlphaSpendingLedger,
+    SPRTResult,
+    SubexponentialModel,
+    create_gaussian_sprt,
 )
 
 
@@ -53,8 +55,9 @@ class TestAlphaSpendingLedger:
         assert ledger.can_spend_alpha(0.02)
 
         # Витрачаємо
-        from core.governance.composite_sprt import AlphaSpendingEntry
         import time
+
+        from core.governance.composite_sprt import AlphaSpendingEntry
 
         entry = AlphaSpendingEntry(
             timestamp=time.time(),
@@ -194,8 +197,9 @@ class TestPropertyBased:
         max_iterations = 20
 
         for i in range(max_iterations):
-            from core.governance.composite_sprt import AlphaSpendingEntry
             import time
+
+            from core.governance.composite_sprt import AlphaSpendingEntry
 
             # Спробувати витратити дозволену кількість для цього тесту
             allowed_alpha = ledger._alpha_spending_function(i, ledger.n_tests)

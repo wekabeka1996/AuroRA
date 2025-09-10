@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 import argparse
 import os
-import re
-import sys
 import pathlib
+import re
 import subprocess
+import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 TOOLS = ROOT / 'tools'

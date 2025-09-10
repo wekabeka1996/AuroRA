@@ -14,19 +14,18 @@ Usage:
     python tools/soak_test.py --duration-hours 2 --target-events 500
 """
 
-import time
-import threading
 import argparse
-import json
-import statistics
-from pathlib import Path
 from dataclasses import dataclass, field
-from typing import List, Dict, Optional
+import json
+from pathlib import Path
 import random
+import statistics
+import threading
+import time
 
-from core.execution.execution_router_v1 import ExecutionRouter, ExecutionContext
-from core.tca.tca_analyzer import FillEvent, TCAMetrics
 from common.events import EventEmitter
+from core.execution.execution_router_v1 import ExecutionContext, ExecutionRouter
+from core.tca.tca_analyzer import FillEvent
 
 
 @dataclass
@@ -34,7 +33,7 @@ class SoakTestConfig:
     """Configuration for soak testing"""
     duration_hours: float = 2.0
     target_order_events: int = 500
-    symbols: List[str] = field(default_factory=lambda: ["BTCUSDT", "ETHUSDT"])
+    symbols: list[str] = field(default_factory=lambda: ["BTCUSDT", "ETHUSDT"])
     max_concurrent_orders: int = 10
     decision_interval_ms: int = 100  # 10 decisions per second
     metrics_interval_s: int = 30
@@ -52,7 +51,7 @@ class SoakTestConfig:
 class SoakTestMetrics:
     """Real-time soak test metrics"""
     start_time: float
-    end_time: Optional[float] = None
+    end_time: float | None = None
 
     # Order metrics
     total_orders: int = 0
@@ -61,26 +60,26 @@ class SoakTestMetrics:
     rejected_orders: int = 0
 
     # Performance metrics
-    decision_latencies_ms: List[float] = field(default_factory=list)
-    fill_latencies_ms: List[float] = field(default_factory=list)
+    decision_latencies_ms: list[float] = field(default_factory=list)
+    fill_latencies_ms: list[float] = field(default_factory=list)
 
     # TCA metrics
-    implementation_shortfall_bps: List[float] = field(default_factory=list)
-    adverse_selection_bps: List[float] = field(default_factory=list)
-    spread_cost_bps: List[float] = field(default_factory=list)
+    implementation_shortfall_bps: list[float] = field(default_factory=list)
+    adverse_selection_bps: list[float] = field(default_factory=list)
+    spread_cost_bps: list[float] = field(default_factory=list)
 
     # Market condition metrics
-    spread_bps_values: List[float] = field(default_factory=list)
-    fill_ratios: List[float] = field(default_factory=list)
+    spread_bps_values: list[float] = field(default_factory=list)
+    fill_ratios: list[float] = field(default_factory=list)
 
     # Error tracking
-    errors: List[Dict] = field(default_factory=list)
+    errors: list[dict] = field(default_factory=list)
 
 
 class SoakTestRunner:
     """Soak test runner with comprehensive metrics collection"""
 
-    def __init__(self, config: Optional[SoakTestConfig] = None):
+    def __init__(self, config: SoakTestConfig | None = None):
         self.config = config or SoakTestConfig()
         self.metrics = SoakTestMetrics(start_time=time.time())
 
@@ -202,7 +201,7 @@ class SoakTestRunner:
             daemon=True
         ).start()
 
-    def _simulate_order_lifecycle(self, children: List, market_data: Dict):
+    def _simulate_order_lifecycle(self, children: list, market_data: dict):
         """Simulate realistic order lifecycle"""
         for child in children:
             try:
@@ -258,7 +257,7 @@ class SoakTestRunner:
                     "order_id": child.order_id
                 })
 
-    def _record_tca_metrics(self, child, fill: FillEvent, market_data: Dict):
+    def _record_tca_metrics(self, child, fill: FillEvent, market_data: dict):
         """Record TCA metrics for analysis"""
         # Simplified TCA calculation
         arrival_price = market_data["micro_price"]

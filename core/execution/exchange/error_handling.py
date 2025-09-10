@@ -13,15 +13,16 @@ Comprehensive error handling and logging for exchange operations:
 - Metrics collection for circuit breaker state monitoring
 """
 
-import logging
-import time
-import threading
+from collections.abc import Callable
+from contextlib import contextmanager
 from dataclasses import dataclass
 from enum import Enum
-from typing import Dict, List, Optional, Any, Callable
-from contextlib import contextmanager
+import logging
+import threading
+import time
+from typing import Any
 
-from core.execution.exchange.common import ExchangeError, ValidationError, RateLimitError
+from core.execution.exchange.common import ExchangeError
 
 logger = logging.getLogger(__name__)
 
@@ -49,13 +50,13 @@ class ExchangeErrorContext:
     """Context information for exchange errors."""
     exchange_name: str
     operation: str
-    symbol: Optional[str] = None
-    order_id: Optional[str] = None
-    client_order_id: Optional[str] = None
-    request_params: Optional[Dict[str, Any]] = None
-    response_data: Optional[Dict[str, Any]] = None
+    symbol: str | None = None
+    order_id: str | None = None
+    client_order_id: str | None = None
+    request_params: dict[str, Any] | None = None
+    response_data: dict[str, Any] | None = None
     timestamp_ns: int = 0
-    correlation_id: Optional[str] = None
+    correlation_id: str | None = None
 
     def __post_init__(self):
         if self.timestamp_ns == 0:
@@ -70,15 +71,15 @@ class ExchangeErrorInfo:
     severity: ErrorSeverity
     context: ExchangeErrorContext
     retryable: bool = False
-    retry_after_seconds: Optional[float] = None
-    user_message: Optional[str] = None
+    retry_after_seconds: float | None = None
+    user_message: str | None = None
 
     @property
     def error_code(self) -> str:
         """Get standardized error code."""
         return f"{self.category.value}_{self.error.__class__.__name__}"
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for logging/serialization."""
         return {
             "error_code": self.error_code,
@@ -106,7 +107,7 @@ class ExchangeErrorHandler:
     def __init__(self):
         self._error_patterns = self._build_error_patterns()
 
-    def _build_error_patterns(self) -> Dict[str, Dict[str, Any]]:
+    def _build_error_patterns(self) -> dict[str, dict[str, Any]]:
         """Build error pattern matching rules."""
         return {
             # Network errors
@@ -296,7 +297,7 @@ class ExchangeRetryHandler:
             )
             raise last_error
 
-    def _calculate_delay(self, attempt: int, suggested_delay: Optional[float]) -> float:
+    def _calculate_delay(self, attempt: int, suggested_delay: float | None) -> float:
         """Calculate delay for next retry attempt."""
         if suggested_delay is not None:
             delay = suggested_delay
@@ -327,7 +328,7 @@ class CircuitBreakerConfig:
     failure_threshold: int = 5      # Failures before opening
     recovery_timeout: float = 60.0  # Seconds before attempting recovery
     success_threshold: int = 3      # Successes needed to close circuit
-    
+
     # Enhanced recovery features
     adaptive_timeout: bool = True    # Adaptive recovery timeout based on failure rate
     max_recovery_timeout: float = 300.0  # Maximum recovery timeout
@@ -346,7 +347,7 @@ class ExchangeCircuitBreaker:
         self._success_count = 0
         self._last_failure_time = 0.0
         self._lock = threading.Lock()
-        
+
         # Enhanced recovery features
         self._consecutive_failures = 0
         self._total_operations = 0
@@ -359,11 +360,11 @@ class ExchangeCircuitBreaker:
         """Execute operation through enhanced circuit breaker."""
         with self._lock:
             self._total_operations += 1
-            
+
             # Perform health check if enabled
             if self.config.health_check_enabled:
                 self._perform_health_check()
-            
+
             if self._state == CircuitBreakerState.OPEN:
                 if self._should_attempt_reset():
                     self._state = CircuitBreakerState.HALF_OPEN
@@ -372,7 +373,7 @@ class ExchangeCircuitBreaker:
                     logger.info("Circuit breaker transitioning to HALF_OPEN - attempting recovery")
                 else:
                     raise ExchangeError(f"Circuit breaker is OPEN - recovery in {self._get_remaining_recovery_time():.1f}s")
-            
+
             elif self._state == CircuitBreakerState.HALF_OPEN:
                 # Gradual recovery - limit number of requests in HALF_OPEN
                 if self.config.gradual_recovery and self._half_open_request_count >= self._max_half_open_requests:
@@ -389,7 +390,7 @@ class ExchangeCircuitBreaker:
     def _should_attempt_reset(self) -> bool:
         """Enhanced check if we should attempt to reset the circuit."""
         base_timeout = self.config.recovery_timeout
-        
+
         try:
             if self.config.adaptive_timeout:
                 # Adaptive timeout based on consecutive failures
@@ -406,15 +407,15 @@ class ExchangeCircuitBreaker:
         """Perform periodic health check when enabled."""
         if not self.config.health_check_enabled:
             return
-            
+
         try:
             current_time = time.time()
             if (current_time - self._last_health_check) >= self.config.health_check_interval:
                 self._last_health_check = current_time
-                
+
                 # Health check logic - could be extended with actual health probes
                 if self._state == CircuitBreakerState.OPEN:
-                    failure_rate = self._consecutive_failures / max(1, self._total_operations) 
+                    failure_rate = self._consecutive_failures / max(1, self._total_operations)
                     logger.info(f"Circuit breaker health check - failure rate: {failure_rate:.2%}, "
                                f"time since last failure: {current_time - self._last_failure_time:.1f}s")
         except TypeError:
@@ -435,7 +436,7 @@ class ExchangeCircuitBreaker:
         if self._state == CircuitBreakerState.HALF_OPEN:
             self._success_count += 1
             self._half_open_request_count += 1
-            
+
             if self._success_count >= self.config.success_threshold:
                 self._state = CircuitBreakerState.CLOSED
                 self._failure_count = 0
@@ -444,7 +445,7 @@ class ExchangeCircuitBreaker:
                 logger.info("Circuit breaker CLOSED - service fully recovered")
             else:
                 logger.debug(f"Circuit breaker HALF_OPEN - success {self._success_count}/{self.config.success_threshold}")
-        
+
         elif self._state == CircuitBreakerState.CLOSED:
             # Reset consecutive failures on success
             self._consecutive_failures = 0
@@ -461,7 +462,7 @@ class ExchangeCircuitBreaker:
             if self.config.adaptive_timeout:
                 self._adaptive_timeout_multiplier = min(self._adaptive_timeout_multiplier * 1.5, 5.0)
             logger.warning(f"Circuit breaker OPEN - service still failing (adaptive timeout: {self._adaptive_timeout_multiplier}x)")
-            
+
         elif (self._state == CircuitBreakerState.CLOSED and
               self._failure_count >= self.config.failure_threshold):
             self._state = CircuitBreakerState.OPEN
@@ -469,7 +470,7 @@ class ExchangeCircuitBreaker:
                 self._adaptive_timeout_multiplier = 1.5  # Start with modest increase
             logger.warning(f"Circuit breaker OPEN - failure threshold exceeded ({self._failure_count} failures)")
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """Get circuit breaker statistics."""
         with self._lock:
             return {
@@ -491,7 +492,7 @@ class ExchangeCircuitBreaker:
             logger.warning("Circuit breaker FORCED OPEN")
 
     def force_close(self):
-        """Force circuit breaker to CLOSED state (for manual recovery).""" 
+        """Force circuit breaker to CLOSED state (for manual recovery)."""
         with self._lock:
             self._state = CircuitBreakerState.CLOSED
             self._failure_count = 0
@@ -507,10 +508,10 @@ class ExchangeCircuitBreaker:
 
 @contextmanager
 def exchange_operation_context(exchange_name: str, operation: str,
-                              symbol: Optional[str] = None,
-                              order_id: Optional[str] = None,
-                              client_order_id: Optional[str] = None,
-                              correlation_id: Optional[str] = None):
+                              symbol: str | None = None,
+                              order_id: str | None = None,
+                              client_order_id: str | None = None,
+                              correlation_id: str | None = None):
     """Context manager for exchange operations with automatic error handling."""
     context = ExchangeErrorContext(
         exchange_name=exchange_name,
@@ -539,7 +540,7 @@ def exchange_operation_context(exchange_name: str, operation: str,
                 "duration_ms": duration_ms
             }
         )
-        
+
         # Re-raise with additional context
         raise ExchangeError(f"{error_info.user_message}: {e}") from e
     else:

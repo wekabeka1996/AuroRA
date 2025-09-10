@@ -8,15 +8,14 @@ Test Kelly sizing functions for Step 2: Sizing/Portfolio.
 from __future__ import annotations
 
 import pytest
-import math
 
 from core.sizing.kelly import (
+    KellyOrchestrator,
+    edge_to_pwin,
+    fraction_to_qty,
     kelly_binary,
     kelly_mu_sigma,
-    fraction_to_qty,
-    edge_to_pwin,
     raw_kelly_fraction,
-    KellyOrchestrator
 )
 
 
@@ -223,7 +222,7 @@ class TestKellySizing:
 
     def test_dd_haircut_factor(self):
         """Test DD haircut factor calculation."""
-        from core.sizing.kelly import dd_haircut_factor, apply_dd_haircut_to_kelly
+        from core.sizing.kelly import dd_haircut_factor
 
         # No drawdown
         haircut = dd_haircut_factor(0.0)
@@ -275,7 +274,7 @@ class TestKellySizing:
         assert abs(qty_spot - expected_spot) < 1e-8
 
         # Futures with leverage (use sufficient margin allowance)
-        qty_futures = fraction_to_qty(notional, px, lot_step, 10.0, 5000.0, 
+        qty_futures = fraction_to_qty(notional, px, lot_step, 10.0, 5000.0,
                                     leverage=2.0, initial_margin_pct=0.6)
         # With leverage, effective position is larger but margin requirements apply
         assert qty_futures > 0.0
@@ -364,8 +363,9 @@ class TestKellySizing:
 
     def test_sizing_stabilizer_time_guard(self):
         """Test time guard prevents too frequent resizes."""
-        from core.sizing.kelly import SizingStabilizer
         import time
+
+        from core.sizing.kelly import SizingStabilizer
 
         stabilizer = SizingStabilizer(min_resize_interval_sec=0.1)
 
@@ -388,7 +388,6 @@ class TestKellySizing:
     def test_portfolio_psd_projection(self):
         """Test PSD projection for invalid covariance matrices."""
         from core.sizing.portfolio import PortfolioOptimizer
-        import math
 
         optimizer = PortfolioOptimizer()
 

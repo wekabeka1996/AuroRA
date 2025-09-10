@@ -16,21 +16,26 @@ CLI:
             --out configs/ci_thresholds.ratchet.yaml --max-step 0.05 --dryrun
 """
 from __future__ import annotations
-import argparse, json, math, sys
-from pathlib import Path
+
+import argparse
 from datetime import datetime
-from typing import Any, Dict
+import json
+import math
+from pathlib import Path
+import sys
+from typing import Any
+
 import yaml
 
 
-def load_yaml(path: Path) -> Dict[str, Any]:
+def load_yaml(path: Path) -> dict[str, Any]:
     if not path.exists():
         raise FileNotFoundError(f"Current thresholds YAML not found: {path}")
     with path.open('r', encoding='utf-8') as f:
         return yaml.safe_load(f) or {}
 
 
-def load_report(path: Path) -> Dict[str, Any]:
+def load_report(path: Path) -> dict[str, Any]:
     with path.open('r', encoding='utf-8') as f:
         return json.load(f)
 
@@ -45,12 +50,12 @@ def parse_args(argv):
     ap.add_argument('--out', required=True, help='Output YAML (ratcheted).')
     ap.add_argument('--max-step', type=float, default=0.05, help='Maximum relative change per metric (fraction).')
     ap.add_argument('--dryrun', action='store_true', help='Dryrun mode (still writes --out for inspection).')
-    ap.add_argument('--exitcode-dryrun', type=int, choices=[0, 2], default=2, 
+    ap.add_argument('--exitcode-dryrun', type=int, choices=[0, 2], default=2,
                    help='Exit code for dryrun mode: 0 (legacy compat) or 2 (default convention).')
     return ap.parse_args(argv)
 
 
-def ratchet(current: Dict[str, Any], proposal_report: Dict[str, Any], max_step: float) -> Dict[str, Any]:
+def ratchet(current: dict[str, Any], proposal_report: dict[str, Any], max_step: float) -> dict[str, Any]:
     prop = proposal_report.get('new', {}) if isinstance(proposal_report, dict) else {}
     prop_thresholds = prop.get('thresholds', {}) if isinstance(prop, dict) else {}
     cur_thresholds = current.get('thresholds', {}) if isinstance(current, dict) else {}
@@ -114,7 +119,7 @@ def ratchet(current: Dict[str, Any], proposal_report: Dict[str, Any], max_step: 
     return out_doc
 
 
-def write_yaml(path: Path, data: Dict[str, Any]):
+def write_yaml(path: Path, data: dict[str, Any]):
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open('w', encoding='utf-8') as f:
         yaml.safe_dump(data, f, sort_keys=False)

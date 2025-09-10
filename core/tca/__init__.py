@@ -12,9 +12,9 @@ These modules provide the mathematical foundations for Aurora's execution
 optimization and risk management systems.
 """
 
-from . import latency, hazard_cox, hawkes
-from .tca_analyzer import TCAAnalyzer, TCAMetrics, FillEvent, OrderExecution, TCAInputs, TCAComponents
-from .types import TCAInputs as TCAInputsType, TCAComponents as TCAComponentsType, TCAMetrics as TCAMetricsType
+from . import hawkes, hazard_cox, latency
+from .tca_analyzer import FillEvent, OrderExecution, TCAAnalyzer, TCAComponents, TCAInputs, TCAMetrics
+from .types import TCAComponents as TCAComponentsType, TCAInputs as TCAInputsType, TCAMetrics as TCAMetricsType
 
 __all__ = [
     "latency", "hazard_cox", "hawkes",

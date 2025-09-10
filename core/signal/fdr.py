@@ -22,7 +22,7 @@ Notes
 - Pure Python, no NumPy dependency.
 """
 
-from typing import Iterable, List, Sequence, Tuple
+from collections.abc import Iterable, Sequence
 
 # -------------------- Utilities --------------------
 
@@ -34,7 +34,7 @@ def _validate_pvals(p: Sequence[float]) -> None:
             raise ValueError("p-values must be in [0,1]")
 
 
-def _argsort(p: Sequence[float]) -> List[int]:
+def _argsort(p: Sequence[float]) -> list[int]:
     return sorted(range(len(p)), key=lambda i: float(p[i]))
 
 
@@ -47,7 +47,7 @@ def _harmonic_number(m: int) -> float:
 
 # -------------------- Core: q-values --------------------
 
-def bh_qvalues(p: Sequence[float], *, pi0: float = 1.0) -> List[float]:
+def bh_qvalues(p: Sequence[float], *, pi0: float = 1.0) -> list[float]:
     """Benjamini–Hochberg q-values with optional Storey scaling by π₀.
 
     Parameters
@@ -76,7 +76,7 @@ def bh_qvalues(p: Sequence[float], *, pi0: float = 1.0) -> List[float]:
     return [0.0 if x < 0.0 else 1.0 if x > 1.0 else x for x in q]
 
 
-def by_qvalues(p: Sequence[float]) -> List[float]:
+def by_qvalues(p: Sequence[float]) -> list[float]:
     """Benjamini–Yekutieli q-values (arbitrary dependence)."""
     _validate_pvals(p)
     m = len(p)
@@ -138,7 +138,7 @@ def reject(
     alpha: float = 0.05,
     method: str = "bh",
     pi0: float | None = None,
-) -> Tuple[List[bool], int]:
+) -> tuple[list[bool], int]:
     """Return rejection mask and number of rejections under a chosen FDR method.
 
     method: 'bh', 'bh_storey' (Storey π₀), or 'by'
@@ -163,7 +163,7 @@ def reject(
     return mask, k
 
 
-def bh_threshold(p: Sequence[float], *, alpha: float = 0.05) -> Tuple[float | None, int]:
+def bh_threshold(p: Sequence[float], *, alpha: float = 0.05) -> tuple[float | None, int]:
     """Return (p*, k) where k is number of rejections and p* the largest p-value among rejections.
 
     p* = max{ p_(j) : p_(j) <= (j/m) * alpha }, computed in sorted order.

@@ -1,15 +1,13 @@
 from __future__ import annotations
 
 import time
-from typing import Dict, Any, Optional
+from typing import Any
 
-from observability.codes import (
-    AURORA_HALT, DQ_EVENT_STALE_BOOK, DQ_EVENT_CROSSED_BOOK, DQ_EVENT_ABNORMAL_SPREAD
-)
+from observability.codes import AURORA_HALT, DQ_EVENT_ABNORMAL_SPREAD, DQ_EVENT_CROSSED_BOOK, DQ_EVENT_STALE_BOOK
 
 
 class Governance:
-    def __init__(self, cfg: Optional[Dict[str, Any]] = None):
+    def __init__(self, cfg: dict[str, Any] | None = None):
         self.cfg = cfg or {}
         self._halt_until_ts: float = 0.0
 
@@ -26,7 +24,7 @@ class Governance:
     def resume(self) -> None:
         self._halt_until_ts = 0.0
 
-    def approve(self, intent: Dict[str, Any], risk_state: Dict[str, Any]) -> Dict[str, Any]:
+    def approve(self, intent: dict[str, Any], risk_state: dict[str, Any]) -> dict[str, Any]:
         """Return approved intent or deny with code. Implements spread/latency/volatility guards,
         daily drawdown and CVaR checks, and a kill-switch based on reject storms or DQ critical signals.
         """

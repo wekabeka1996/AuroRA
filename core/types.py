@@ -22,12 +22,13 @@ NumPy is optional (used only if available to pretty-print/convert arrays).
 """
 from __future__ import annotations
 
+from collections.abc import Mapping, MutableMapping, Sequence
 from dataclasses import dataclass, field
-from enum import Enum, IntEnum, auto
-from typing import Any, Dict, Iterable, List, Mapping, MutableMapping, Optional, Sequence, Tuple, Union
+from enum import Enum, IntEnum
 import json
 import math
 import time
+from typing import Any
 
 try:  # NumPy is optional
     import numpy as np  # type: ignore
@@ -147,7 +148,7 @@ class MarketSnapshot:
     def spread_bps(self) -> float:
         return 1e4 * self.spread / self.mid
 
-    def l_sum(self, levels: int = 5) -> Tuple[float, float]:
+    def l_sum(self, levels: int = 5) -> tuple[float, float]:
         b = sum(self.bid_volumes_l[:levels])
         a = sum(self.ask_volumes_l[:levels])
         return b, a
@@ -171,9 +172,9 @@ class MarketSnapshot:
 
 @dataclass(slots=True)
 class ProbabilityMetrics:
-    ece: Optional[float] = None
-    brier: Optional[float] = None
-    logloss: Optional[float] = None
+    ece: float | None = None
+    brier: float | None = None
+    logloss: float | None = None
 
     def lambda_cal(self, *, eta: float = 10.0, zeta: float = 5.0) -> float:
         """Calibration multiplier λ_cal (see Road_map suggestion).
@@ -200,7 +201,7 @@ class Signal:
     score: float
     raw_probability: float
     calibrated_probability: float
-    confidence: Optional[ConformalInterval] = None
+    confidence: ConformalInterval | None = None
     features: Mapping[str, float] = field(default_factory=dict)
     metrics: ProbabilityMetrics = field(default_factory=ProbabilityMetrics)
 
@@ -257,17 +258,17 @@ class XAIRecord:
     """Full decision trace for one action (entry/exit/adjust)."""
     timestamp: float
     symbol: str
-    side: Optional[Side]
+    side: Side | None
     signal: Signal
     edge: EdgeBreakdown
     risk_gates: RiskGatesStatus
-    why_codes: List[WhyCode] = field(default_factory=list)
+    why_codes: list[WhyCode] = field(default_factory=list)
     extras: MutableMapping[str, Any] = field(default_factory=dict)
-    
+
     # P3-α Governance fields
-    sprt_llr: Optional[float] = None          # SPRT log-likelihood ratio
-    sprt_conf: Optional[float] = None         # SPRT decision confidence [0,1]
-    alpha_spent: Optional[float] = None       # α budget spent on this decision
+    sprt_llr: float | None = None          # SPRT log-likelihood ratio
+    sprt_conf: float | None = None         # SPRT decision confidence [0,1]
+    alpha_spent: float | None = None       # α budget spent on this decision
 
     def to_json(self) -> str:
         def _conv(o: Any) -> Any:
@@ -334,8 +335,8 @@ class OrderIntent:
     size: float
     order_type: OrderType
     tif: TimeInForce = TimeInForce.GTC
-    price: Optional[float] = None  # required for LIMIT
-    client_id: Optional[str] = None
+    price: float | None = None  # required for LIMIT
+    client_id: str | None = None
 
     def __post_init__(self) -> None:
         if self.size <= 0:
@@ -347,7 +348,7 @@ class OrderIntent:
 @dataclass(slots=True)
 class FillOutcome:
     filled: bool
-    avg_price: Optional[float]
+    avg_price: float | None
     filled_size: float
     slippage_bps: float
     adverse_bps: float
@@ -363,7 +364,7 @@ def now_ts() -> float:
     return time.time()
 
 
-def ensure_mapping(maybe: Optional[Mapping[str, float]]) -> Mapping[str, float]:
+def ensure_mapping(maybe: Mapping[str, float] | None) -> Mapping[str, float]:
     return {} if maybe is None else maybe
 
 

@@ -1,4 +1,4 @@
-from core.universe.hysteresis import Hysteresis, EmaSmoother
+from core.universe.hysteresis import EmaSmoother, Hysteresis
 
 
 def test_hysteresis_add_drop_with_dwell():

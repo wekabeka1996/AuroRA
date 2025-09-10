@@ -1,18 +1,19 @@
 from __future__ import annotations
 
-from typing import Optional, List, Dict, Any
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 
 class PredictionRequest(BaseModel):
-    features: List[float]
+    features: list[float]
 
 
 class PredictionResponse(BaseModel):
     forecast: float
     interval_lower: float
     interval_upper: float
-    weights: List[float]
+    weights: list[float]
     kappa_plus: float
     regime: int
     latency_ms: float
@@ -20,59 +21,59 @@ class PredictionResponse(BaseModel):
 
 class AccountInfo(BaseModel):
     # Розширювано при потребі; зараз використовуємо тільки режим роботи раннера
-    mode: Optional[str] = None  # 'paper' | 'prod'  (historical 'shadow' mode removed)
-    account_id: Optional[str] = None
-    subaccount: Optional[str] = None
+    mode: str | None = None  # 'paper' | 'prod'  (historical 'shadow' mode removed)
+    account_id: str | None = None
+    subaccount: str | None = None
 
 
 class OrderInfo(BaseModel):
-    symbol: Optional[str] = None
-    side: Optional[str] = None  # 'buy' | 'sell'
-    qty: Optional[float] = None
-    price: Optional[float] = None
-    base_notional: Optional[float] = None
-    notional: Optional[float] = None
+    symbol: str | None = None
+    side: str | None = None  # 'buy' | 'sell'
+    qty: float | None = None
+    price: float | None = None
+    base_notional: float | None = None
+    notional: float | None = None
 
 
 class MarketInfo(BaseModel):
     # Латентність/ринкові метрики
-    latency_ms: Optional[float] = None
-    slip_bps_est: Optional[float] = None
-    a_bps: Optional[float] = None
-    b_bps: Optional[float] = None
-    spread_bps: Optional[float] = None
+    latency_ms: float | None = None
+    slip_bps_est: float | None = None
+    a_bps: float | None = None
+    b_bps: float | None = None
+    spread_bps: float | None = None
     # Альфа/режим
-    score: Optional[float] = None
-    mode_regime: Optional[str] = None
+    score: float | None = None
+    mode_regime: str | None = None
     # TRAP
-    trap_cancel_deltas: Optional[List[float]] = None
-    trap_add_deltas: Optional[List[float]] = None
-    trap_trades_cnt: Optional[int] = None
-    obi_sign: Optional[int] = None
-    tfi_sign: Optional[int] = None
+    trap_cancel_deltas: list[float] | None = None
+    trap_add_deltas: list[float] | None = None
+    trap_trades_cnt: int | None = None
+    obi_sign: int | None = None
+    tfi_sign: int | None = None
     # SPRT
-    sprt_samples: Optional[List[float]] = None
+    sprt_samples: list[float] | None = None
     # Risk context
-    pnl_today_pct: Optional[float] = None
-    open_positions: Optional[int] = None
+    pnl_today_pct: float | None = None
+    open_positions: int | None = None
 
 
 class PretradeCheckRequest(BaseModel):
-    ts: Optional[int] = None
-    req_id: Optional[str] = None
-    account: AccountInfo | Dict[str, Any]
-    order: OrderInfo | Dict[str, Any]
-    market: MarketInfo | Dict[str, Any]
-    risk_tags: Optional[List[str]] = None
-    fees_bps: Optional[float] = None
+    ts: int | None = None
+    req_id: str | None = None
+    account: AccountInfo | dict[str, Any]
+    order: OrderInfo | dict[str, Any]
+    market: MarketInfo | dict[str, Any]
+    risk_tags: list[str] | None = None
+    fees_bps: float | None = None
 
 
 class PretradeCheckResponse(BaseModel):
     allow: bool
     max_qty: float
-    risk_scale: Optional[float] = Field(default=1.0, ge=0.0, le=1.0)
+    risk_scale: float | None = Field(default=1.0, ge=0.0, le=1.0)
     cooldown_ms: int = 0
     reason: str = "ok"
     hard_gate: bool = False
-    quotas: Optional[Dict[str, Any]] = None
-    observability: Dict[str, Any]
+    quotas: dict[str, Any] | None = None
+    observability: dict[str, Any]

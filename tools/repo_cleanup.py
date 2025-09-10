@@ -15,11 +15,8 @@ Usage:
     python tools/repo_cleanup.py --execute    # Execute cleanup
 """
 
-import os
-import shutil
 import argparse
 from pathlib import Path
-from typing import List, Dict, Set
 import subprocess
 import sys
 
@@ -137,7 +134,7 @@ class RepoCleanup:
             for file_path in self.repo_root.glob(pattern):
                 if file_path.is_file():
                     try:
-                        with open(file_path, 'r', encoding='utf-8') as f:
+                        with open(file_path, encoding='utf-8') as f:
                             content = f.read().strip()
 
                         # Check if it's a stub (very short, mostly comments/imports)
@@ -193,7 +190,7 @@ class RepoCleanup:
         """Update import statements in Python files"""
         for py_file in self.repo_root.glob("**/*.py"):
             try:
-                with open(py_file, 'r', encoding='utf-8') as f:
+                with open(py_file, encoding='utf-8') as f:
                     content = f.read()
 
                 if old_import in content:
@@ -246,7 +243,7 @@ class RepoCleanup:
             print("\nRunning smoke tests...")
             self.run_smoke_tests()
 
-    def get_summary(self) -> Dict:
+    def get_summary(self) -> dict:
         """Get cleanup summary"""
         return {
             "changes_made": len(self.changes_made),

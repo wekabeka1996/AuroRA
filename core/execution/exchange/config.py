@@ -12,15 +12,15 @@ Provides SSOT (Single Source of Truth) configuration management for exchanges:
 - Configuration persistence and loading
 """
 
-import os
+from dataclasses import asdict, dataclass
 import json
 import logging
-from dataclasses import dataclass, asdict
-from typing import Dict, List, Optional, Any
+import os
 from pathlib import Path
+from typing import Any
 
 from core.execution.exchange.common import Fees
-from core.execution.exchange.unified import ExchangeType, AdapterMode
+from core.execution.exchange.unified import AdapterMode, ExchangeType
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +32,7 @@ class ExchangeCredentials:
     api_secret: str
 
     @classmethod
-    def from_env(cls, exchange_name: str) -> 'ExchangeCredentials':
+    def from_env(cls, exchange_name: str) -> ExchangeCredentials:
         """Load credentials from environment variables."""
         key_env = f"{exchange_name.upper()}_API_KEY"
         secret_env = f"{exchange_name.upper()}_API_SECRET"
@@ -48,7 +48,7 @@ class ExchangeSettings:
     """Exchange-specific settings."""
     type: ExchangeType
     adapter_mode: AdapterMode
-    base_url: Optional[str]
+    base_url: str | None
     futures: bool
     testnet: bool
     recv_window_ms: int
@@ -56,10 +56,10 @@ class ExchangeSettings:
     enable_rate_limit: bool
     dry_run: bool
     symbol: str
-    leverage: Optional[float]
+    leverage: float | None
 
     @classmethod
-    def get_defaults(cls, exchange_type: ExchangeType) -> 'ExchangeSettings':
+    def get_defaults(cls, exchange_type: ExchangeType) -> ExchangeSettings:
         """Get default settings for exchange type."""
         defaults = {
             ExchangeType.BINANCE: {
@@ -112,12 +112,12 @@ class ExchangeConfig:
     credentials: ExchangeCredentials
     settings: ExchangeSettings
     fees: Fees
-    metadata: Dict[str, Any]
+    metadata: dict[str, Any]
 
     @classmethod
     def create(cls, name: str, exchange_type: ExchangeType,
                api_key: str = "", api_secret: str = "",
-               **overrides) -> 'ExchangeConfig':
+               **overrides) -> ExchangeConfig:
         """Create a complete exchange configuration."""
 
         # Load credentials
@@ -159,7 +159,7 @@ class ExchangeConfig:
             metadata=metadata
         )
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
         return {
             "name": self.name,
@@ -173,7 +173,7 @@ class ExchangeConfig:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'ExchangeConfig':
+    def from_dict(cls, data: dict[str, Any]) -> ExchangeConfig:
         """Create from dictionary."""
         credentials = ExchangeCredentials(**data["credentials"])
         settings_data = data["settings"]
@@ -238,17 +238,17 @@ class ExchangeConfig:
 class ExchangeConfigManager:
     """Manager for exchange configurations."""
 
-    def __init__(self, config_dir: Optional[Path] = None):
+    def __init__(self, config_dir: Path | None = None):
         self.config_dir = config_dir or Path("configs/exchanges")
         self.config_dir.mkdir(parents=True, exist_ok=True)
-        self._configs: Dict[str, ExchangeConfig] = {}
+        self._configs: dict[str, ExchangeConfig] = {}
         self._load_configs()
 
     def _load_configs(self):
         """Load all configurations from disk."""
         for config_file in self.config_dir.glob("*.json"):
             try:
-                with open(config_file, 'r') as f:
+                with open(config_file) as f:
                     data = json.load(f)
                 config = ExchangeConfig.from_dict(data)
                 self._configs[config.name] = config
@@ -275,15 +275,15 @@ class ExchangeConfigManager:
         self._save_config(config)
         return config
 
-    def get_config(self, name: str) -> Optional[ExchangeConfig]:
+    def get_config(self, name: str) -> ExchangeConfig | None:
         """Get configuration by name."""
         return self._configs.get(name)
 
-    def list_configs(self) -> List[str]:
+    def list_configs(self) -> list[str]:
         """List all configuration names."""
         return list(self._configs.keys())
 
-    def update_config(self, name: str, **updates) -> Optional[ExchangeConfig]:
+    def update_config(self, name: str, **updates) -> ExchangeConfig | None:
         """Update configuration."""
         config = self._configs.get(name)
         if not config:
@@ -343,7 +343,7 @@ class ExchangeConfigManager:
 
 
 # Global configuration manager instance
-_config_manager: Optional[ExchangeConfigManager] = None
+_config_manager: ExchangeConfigManager | None = None
 
 
 def get_config_manager() -> ExchangeConfigManager:
@@ -359,7 +359,7 @@ def create_exchange_config(name: str, exchange_type: str, **kwargs) -> ExchangeC
     return get_config_manager().create_config(name, ExchangeType(exchange_type), **kwargs)
 
 
-def get_exchange_config(name: str) -> Optional[ExchangeConfig]:
+def get_exchange_config(name: str) -> ExchangeConfig | None:
     """Convenience function to get exchange configuration."""
     return get_config_manager().get_config(name)
 

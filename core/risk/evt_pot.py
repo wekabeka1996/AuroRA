@@ -24,12 +24,11 @@ This module internally applies max(0, x) but explicit convention ensures clarity
 """
 from __future__ import annotations
 
+from collections import deque
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Deque, Dict, Iterable, List, Optional, Sequence, Tuple
-import bisect
 import math
 import random
-from collections import deque
 
 try:
     import numpy as np  # type: ignore
@@ -50,7 +49,7 @@ def _quantile(values: Sequence[float], q: float) -> float:
     return xs[k]
 
 
-def _mean_var(xs: Sequence[float]) -> Tuple[float, float]:
+def _mean_var(xs: Sequence[float]) -> tuple[float, float]:
     n = len(xs)
     if n == 0:
         return 0.0, 0.0
@@ -77,7 +76,7 @@ def select_threshold(losses: Sequence[float], q: float = 0.95) -> float:
     return _quantile([max(0.0, float(x)) for x in losses], q)
 
 
-def fit_gpd_mom(excesses: Sequence[float], *, clip_xi: Tuple[float, float] = (-0.25, 0.9)) -> Tuple[float, float]:
+def fit_gpd_mom(excesses: Sequence[float], *, clip_xi: tuple[float, float] = (-0.25, 0.9)) -> tuple[float, float]:
     """Method-of-moments (MoM) for GPD parameters from **excesses** (x≥0).
 
     For GPD(ξ, β), mean μ = β/(1−ξ) (ξ<1) and var σ² = β²/((1−ξ)²(1−2ξ)) (ξ<1/2).
@@ -112,7 +111,7 @@ def pot_fit(losses: Sequence[float], *, q_u: float = 0.95) -> GPDEstimate:
     return GPDEstimate(xi=xi, beta=beta, u=u, zeta=zeta, n_exc=n_exc, n_total=n_total)
 
 
-def pot_var_es(est: GPDEstimate, p: float) -> Tuple[float, float]:
+def pot_var_es(est: GPDEstimate, p: float) -> tuple[float, float]:
     """Compute VaR_p and ES_p for original loss variable X using POT.
 
     Given u, zeta=k/n, and GPD(ξ,β) fit on Y=X−u | X>u.
@@ -141,7 +140,7 @@ def pot_var_es(est: GPDEstimate, p: float) -> Tuple[float, float]:
     return var_p, es_p
 
 
-def pot_var_bootstrap(losses: Sequence[float], p: float, *, q_u: float = 0.95, n_boot: int = 300, seed: int = 7, ci: Tuple[float, float] = (0.05, 0.95)) -> Dict[str, float]:
+def pot_var_bootstrap(losses: Sequence[float], p: float, *, q_u: float = 0.95, n_boot: int = 300, seed: int = 7, ci: tuple[float, float] = (0.05, 0.95)) -> dict[str, float]:
     """Bootstrap percentile CI for VaR_p via resampling exceedances.
 
     Keeps the same threshold u and tail fraction ζ̂; resamples exceedances with
@@ -161,7 +160,7 @@ def pot_var_bootstrap(losses: Sequence[float], p: float, *, q_u: float = 0.95, n
     var_p, _ = pot_var_es(est, p)
     if n_exc < 5:
         return {"var": var_p, "lo": var_p, "hi": var_p, "u": u, "zeta": zeta}
-    vals: List[float] = []
+    vals: list[float] = []
     for _ in range(int(n_boot)):
         bs = [exc[rnd.randrange(0, n_exc)] for __ in range(n_exc)]
         xi, beta = fit_gpd_mom(bs)
@@ -183,7 +182,7 @@ class RollingPOT:
     def __init__(self, window_n: int = 5000, q_u: float = 0.95) -> None:
         self.N = int(window_n)
         self.q_u = float(q_u)
-        self.q: Deque[float] = deque()
+        self.q: deque[float] = deque()
 
     def add(self, loss: float) -> None:
         x = max(0.0, float(loss))
@@ -191,7 +190,7 @@ class RollingPOT:
         while len(self.q) > self.N:
             self.q.popleft()
 
-    def report(self, p: float = 0.99, with_bootstrap: bool = False, n_boot: int = 200) -> Dict[str, float]:
+    def report(self, p: float = 0.99, with_bootstrap: bool = False, n_boot: int = 200) -> dict[str, float]:
         L = list(self.q)
         est = pot_fit(L, q_u=self.q_u)
         var_p, es_p = pot_var_es(est, p)
@@ -218,7 +217,7 @@ class RollingPOT:
 # Self-tests
 # =============================
 
-def _gpd_sample(n: int, xi: float, beta: float, seed: int = 3) -> List[float]:
+def _gpd_sample(n: int, xi: float, beta: float, seed: int = 3) -> list[float]:
     rnd = random.Random(seed)
     out = []
     for _ in range(n):
@@ -231,7 +230,7 @@ def _gpd_sample(n: int, xi: float, beta: float, seed: int = 3) -> List[float]:
     return out
 
 
-def _make_losses(n: int = 5000, seed: int = 5) -> List[float]:
+def _make_losses(n: int = 5000, seed: int = 5) -> list[float]:
     rnd = random.Random(seed)
     base = [max(0.0, rnd.expovariate(1.5)) for _ in range(n)]  # light-tail base
     # inject heavy-tail components

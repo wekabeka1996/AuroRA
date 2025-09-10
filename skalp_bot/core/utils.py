@@ -1,5 +1,6 @@
 import numpy as np
 
+
 def rolling_std(arr, window):
     if len(arr) < max(2, window):
         return 0.0

@@ -39,11 +39,12 @@ Usage
 
 """
 
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Dict, Mapping, Optional, Protocol, runtime_checkable, Union
 import math
+from typing import Any, Protocol, runtime_checkable
 
-from core.config.loader import get_config, ConfigError
+from core.config.loader import ConfigError, get_config
 
 
 @runtime_checkable
@@ -78,10 +79,10 @@ class ScoreOutput:
     score: float
     p_raw: float
     p: float
-    components: Dict[str, float]
+    components: dict[str, float]
 
-    def as_dict(self) -> Dict[str, float]:
-        d: Dict[str, float] = {
+    def as_dict(self) -> dict[str, float]:
+        d: dict[str, float] = {
             "score": self.score,
             "p_raw": self.p_raw,
             "p": self.p,
@@ -97,8 +98,8 @@ class ScoreModel:
         *,
         weights: Mapping[str, float],
         intercept: float = 0.0,
-        gamma: Optional[float] = None,
-        use_cross_asset: Optional[bool] = None,
+        gamma: float | None = None,
+        use_cross_asset: bool | None = None,
     ) -> None:
         self._w = {str(k): float(v) for k, v in weights.items()}
         self._b = float(intercept)
@@ -128,9 +129,9 @@ class ScoreModel:
         self,
         *,
         features: Mapping[str, Any],
-        cross_beta: Optional[float] = None,
-        cross_return: Optional[float] = None,
-        calibrator: Optional[Union[CalibratorProto, ModelProto, TransformerProto]] = None,
+        cross_beta: float | None = None,
+        cross_return: float | None = None,
+        calibrator: CalibratorProto | ModelProto | TransformerProto | None = None,
     ) -> ScoreOutput:
         """
         Compute linear score and probability, with optional cross-asset coupling and calibration.
@@ -184,10 +185,10 @@ class ScoreModel:
         }
         return ScoreOutput(score=s, p_raw=p_raw, p=p, components=comps)
 
-    def score_only(self, features: Mapping[str, Any], *, cross_beta: Optional[float] = None, cross_return: Optional[float] = None) -> float:
+    def score_only(self, features: Mapping[str, Any], *, cross_beta: float | None = None, cross_return: float | None = None) -> float:
         return self.score_event(features=features, cross_beta=cross_beta, cross_return=cross_return).score
 
-    def predict_proba(self, features: Mapping[str, Any], *, cross_beta: Optional[float] = None, cross_return: Optional[float] = None, calibrator: Optional[Union[CalibratorProto, ModelProto, TransformerProto]] = None) -> float:
+    def predict_proba(self, features: Mapping[str, Any], *, cross_beta: float | None = None, cross_return: float | None = None, calibrator: CalibratorProto | ModelProto | TransformerProto | None = None) -> float:
         return self.score_event(features=features, cross_beta=cross_beta, cross_return=cross_return, calibrator=calibrator).p
 
     # --------- utilities ---------

@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 import csv
 import json
 import os
-import sys
-from collections import Counter
-from statistics import quantiles
 from pathlib import Path
+from statistics import quantiles
+import sys
 
 # Ensure project root on sys.path for local package imports
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -106,7 +106,6 @@ def slippage_stats(events: list[dict]) -> tuple[str, str]:
             continue
     if not model_vals or not realized_vals:
         return "N/A", "N/A"
-    import math
     n = min(len(model_vals), len(realized_vals))
     abs_err = [abs(realized_vals[i] - model_vals[i]) for i in range(n)]
     mae = sum(abs_err) / n if n > 0 else float("nan")

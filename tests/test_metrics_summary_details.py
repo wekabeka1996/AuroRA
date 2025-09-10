@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from tools.metrics_summary import main as metrics_main
 
 
 def write_jsonl(p: Path, rows):
@@ -15,6 +14,7 @@ def write_jsonl(p: Path, rows):
 def test_metrics_summary_enriched(tmp_path: Path, monkeypatch):
     # place logs under project logs path by monkeypatching ROOT
     from importlib import reload
+
     import tools.metrics_summary as ms
     reload(ms)
     ms.ROOT = tmp_path

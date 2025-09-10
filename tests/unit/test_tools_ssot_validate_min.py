@@ -1,5 +1,4 @@
 import json
-from pathlib import Path
 
 from tools import ssot_validate
 
@@ -18,7 +17,12 @@ def test_validate_ok_sample(tmp_path):
         # unknown keys should not be present in this minimal cfg
         assert False, f"unexpected SystemExit: {e}"
 
-import sys, subprocess, textwrap, tempfile, pathlib
+import pathlib
+import subprocess
+import sys
+import tempfile
+import textwrap
+
 
 def run_cfg(toml: str) -> int:
     with tempfile.NamedTemporaryFile('w', suffix='.toml', delete=False, encoding='utf-8') as f:

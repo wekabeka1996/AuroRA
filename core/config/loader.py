@@ -1,15 +1,15 @@
 # repo/core/config/loader.py
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping, MutableMapping
+from dataclasses import dataclass
+from hashlib import sha256
 import json
 import logging
 import os
-import threading
-import time
-from dataclasses import dataclass
-from hashlib import sha256
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, List, Mapping, MutableMapping, Optional, Set, Tuple, Union
+import threading
+from typing import Any
 
 try:  # Python 3.11+
     import tomllib  # type: ignore
@@ -43,13 +43,13 @@ def _deep_merge(base: MutableMapping[str, Any], override: Mapping[str, Any]) -> 
             base[k] = v  # type: ignore
     return base
 
-def _parse_env_overrides(prefix: str, env: Mapping[str, str]) -> Dict[str, Any]:
+def _parse_env_overrides(prefix: str, env: Mapping[str, str]) -> dict[str, Any]:
     """
     Parse environment variables of the form:
       PREFIX__SECTION__SUB__KEY = value
     Types: bool/int/float/json/str (in this order of detection).
     """
-    out: Dict[str, Any] = {}
+    out: dict[str, Any] = {}
     plen = len(prefix) + 2  # account for '__'
     for key, raw in env.items():
         if not key.startswith(prefix + "__"):
@@ -84,8 +84,8 @@ def _canonical_json(data: Mapping[str, Any]) -> str:
 def _sha256(text: str) -> str:
     return sha256(text.encode("utf-8")).hexdigest()
 
-def _flatten(d: Mapping[str, Any], prefix: str = "") -> Dict[str, Any]:
-    out: Dict[str, Any] = {}
+def _flatten(d: Mapping[str, Any], prefix: str = "") -> dict[str, Any]:
+    out: dict[str, Any] = {}
     for k, v in d.items():
         key = f"{prefix}.{k}" if prefix else k
         if isinstance(v, Mapping):
@@ -94,10 +94,10 @@ def _flatten(d: Mapping[str, Any], prefix: str = "") -> Dict[str, Any]:
             out[key] = v
     return out
 
-def _diff_keys(old: Mapping[str, Any], new: Mapping[str, Any]) -> Set[str]:
+def _diff_keys(old: Mapping[str, Any], new: Mapping[str, Any]) -> set[str]:
     a = _flatten(old)
     b = _flatten(new)
-    changed: Set[str] = set()
+    changed: set[str] = set()
     keys = set(a.keys()).union(b.keys())
     for k in keys:
         if a.get(k) != b.get(k):
@@ -167,12 +167,12 @@ def _apply_schema_defaults(data: MutableMapping[str, Any], schema: Mapping[str, 
     """
     if not isinstance(schema, Mapping) or "properties" not in schema:
         return
-    
+
     properties = schema.get("properties", {})
     for key, subschema in properties.items():
         if key not in data and "default" in subschema:
             data[key] = subschema["default"]
-        
+
         # Recurse into nested objects
         if isinstance(subschema, Mapping) and subschema.get("type") == "object":
             if key not in data:
@@ -184,9 +184,9 @@ def _apply_schema_defaults(data: MutableMapping[str, Any], schema: Mapping[str, 
 
 @dataclass(frozen=True)
 class Config:
-    data: Dict[str, Any]
-    source_path: Optional[Path]
-    schema_version: Optional[str]
+    data: dict[str, Any]
+    source_path: Path | None
+    schema_version: str | None
     config_hash: str
 
     def get(self, path: str, default: Any = None) -> Any:
@@ -197,7 +197,7 @@ class Config:
             cur = cur[part]
         return cur
 
-    def as_dict(self) -> Dict[str, Any]:
+    def as_dict(self) -> dict[str, Any]:
         return json.loads(_canonical_json(self.data))  # deep copy via canonical json
 
 class ConfigManager:
@@ -211,25 +211,25 @@ class ConfigManager:
     """
     def __init__(
         self,
-        config_path: Optional[Union[str, Path]] = None,
-        schema_path: Optional[Union[str, Path]] = None,
+        config_path: str | Path | None = None,
+        schema_path: str | Path | None = None,
         env_prefix: str = "AURORA",
         enable_watcher: bool = False,
         poll_interval_sec: float = 1.5,
-        environment: Optional[Mapping[str, str]] = None,
+        environment: Mapping[str, str] | None = None,
     ) -> None:
         self._env_prefix = env_prefix
         self._env = dict(os.environ if environment is None else environment)
         self._config_path = self._resolve_config_path(config_path)
         self._schema_path = self._resolve_schema_path(schema_path)
-        self._whitelist: Set[str] = set()
-        self._schema_version: Optional[str] = None
-        self._current: Optional[Config] = None
+        self._whitelist: set[str] = set()
+        self._schema_version: str | None = None
+        self._current: Config | None = None
         self._lock = threading.RLock()
-        self._watcher_thread: Optional[threading.Thread] = None
+        self._watcher_thread: threading.Thread | None = None
         self._stop_evt = threading.Event()
-        self._mtime: Optional[float] = None
-        self._callbacks: List[Callable[[Config, Set[str]], None]] = []
+        self._mtime: float | None = None
+        self._callbacks: list[Callable[[Config, set[str]], None]] = []
 
         # Initial load
         self._load_and_validate(initial=True)
@@ -244,7 +244,7 @@ class ConfigManager:
         assert self._current is not None
         return self._current
 
-    def register_callback(self, fn: Callable[[Config, Set[str]], None]) -> None:
+    def register_callback(self, fn: Callable[[Config, set[str]], None]) -> None:
         self._callbacks.append(fn)
 
     def start_watcher(self, poll_interval_sec: float = 1.5) -> None:
@@ -261,7 +261,7 @@ class ConfigManager:
         self._watcher_thread.join(timeout=3.0)
         self._watcher_thread = None
 
-    def try_reload(self) -> Optional[Set[str]]:
+    def try_reload(self) -> set[str] | None:
         """Manual reload; returns set of changed keys if applied, else None."""
         with self._lock:
             new_data, mtime = self._read_config_file()
@@ -271,25 +271,25 @@ class ConfigManager:
 
     # ---------- internals ----------
 
-    def _resolve_config_path(self, cfg: Optional[Union[str, Path]]) -> Path:
+    def _resolve_config_path(self, cfg: str | Path | None) -> Path:
         env_path = os.environ.get(f"{self._env_prefix}_CONFIG")
         p = Path(cfg or env_path or "configs/default.toml")
         return p.absolute()
 
-    def _resolve_schema_path(self, sp: Optional[Union[str, Path]]) -> Optional[Path]:
+    def _resolve_schema_path(self, sp: str | Path | None) -> Path | None:
         if sp is None:
             candidate = Path("configs/schema.json")
             return candidate.absolute() if candidate.exists() else None
         return Path(sp).absolute()
 
-    def _read_config_file(self) -> Tuple[Dict[str, Any], float]:
+    def _read_config_file(self) -> tuple[dict[str, Any], float]:
         if not self._config_path.exists():
             raise ConfigError(f"Config file not found: {self._config_path}")
         raw = self._config_path.read_bytes()
         data = _TOML_LOAD(raw)
         return data, self._config_path.stat().st_mtime
 
-    def _load_schema(self) -> Optional[Dict[str, Any]]:
+    def _load_schema(self) -> dict[str, Any] | None:
         if self._schema_path is None:
             return None
         try:
@@ -329,7 +329,7 @@ class ConfigManager:
             self._mtime = mtime
             logger.info("Config loaded (schema=%s, hash=%s…)", self._schema_version, chash[:8])
 
-    def _apply_new_data(self, new_data: Dict[str, Any], new_mtime: float) -> Set[str]:
+    def _apply_new_data(self, new_data: dict[str, Any], new_mtime: float) -> set[str]:
         assert self._current is not None
         # Apply ENV overrides also on reload
         env_override = _parse_env_overrides(self._env_prefix, self._env)
@@ -378,11 +378,11 @@ class ConfigManager:
 
 # ---------- convenience API ----------
 
-_GLOBAL: Optional[ConfigManager] = None
+_GLOBAL: ConfigManager | None = None
 
 def load_config(
-    config_path: Optional[Union[str, Path]] = None,
-    schema_path: Optional[Union[str, Path]] = None,
+    config_path: str | Path | None = None,
+    schema_path: str | Path | None = None,
     env_prefix: str = "AURORA",
     enable_watcher: bool = False,
     poll_interval_sec: float = 1.5,

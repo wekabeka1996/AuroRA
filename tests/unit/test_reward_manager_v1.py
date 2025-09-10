@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 import pytest
-from unittest.mock import Mock
-from core.reward_manager import RewardManager, PositionState, RewardDecision
+
 from core.config_loader import RewardCfg
+from core.reward_manager import PositionState, RewardManager
 
 
 class TestRewardManager:
     """Unit tests for RewardManager v1.0"""
-    
+
     @pytest.fixture
     def cfg(self) -> RewardCfg:
         """Test configuration with higher max_R to avoid premature exits"""
@@ -35,16 +35,16 @@ class TestRewardManager:
             scale_in_max_add_per_step=0.2,
             scale_in_cooldown_s=60
         )
-    
+
     @pytest.fixture
     def reward_mgr(self, cfg: RewardCfg) -> RewardManager:
         return RewardManager(cfg)
-    
+
     def test_initialization(self, reward_mgr: RewardManager, cfg: RewardCfg):
         """Test RewardManager initialization"""
         assert reward_mgr.cfg == cfg
         assert reward_mgr._last_scale_in_ts == 0
-    
+
     def test_tp_ladder_hit_first_level(self, reward_mgr: RewardManager, cfg: RewardCfg):
         """Test TP ladder first level hit"""
         # Setup position with TP levels
@@ -63,14 +63,14 @@ class TestRewardManager:
             tp_hits=[],
             net_qty=100.0
         )
-        
+
         decision = reward_mgr.update(st)
-        
+
         assert decision.action == 'REDUCE'
         assert decision.reduce_qty == 25.0  # 0.25 * 100
         assert decision.tp_level_hit == 20.0
         assert 20.0 in (st.tp_hits or [])
-    
+
     def test_tp_ladder_hit_second_level(self, reward_mgr: RewardManager, cfg: RewardCfg):
         """Test TP ladder second level hit"""
         st = PositionState(
@@ -88,14 +88,14 @@ class TestRewardManager:
             tp_hits=[20.0],  # First level already hit
             net_qty=75.0  # Remaining after first reduce
         )
-        
+
         decision = reward_mgr.update(st)
-        
+
         assert decision.action == 'REDUCE'
         assert decision.reduce_qty == 26.25  # 0.35 * 75
         assert decision.tp_level_hit == 40.0
         assert 40.0 in (st.tp_hits or [])
-    
+
     def test_breakeven_activation(self, reward_mgr: RewardManager, cfg: RewardCfg):
         """Test breakeven activation after reaching R/R threshold"""
         st = PositionState(
@@ -113,12 +113,12 @@ class TestRewardManager:
             tp_hits=[],  # Empty list to pass TP ladder check
             net_qty=100.0
         )
-        
+
         decision = reward_mgr.update(st)
-        
+
         assert decision.action == 'MOVE_TO_BREAKEVEN'
         assert decision.new_sl == 100.12  # entry + fees + buffer = 100.0 + 0.1 + 2.0*100.0/10000
-    
+
     def test_trail_stop_activation(self, reward_mgr: RewardManager, cfg: RewardCfg):
         """Test trail-stop activation and updates"""
         st = PositionState(
@@ -134,13 +134,13 @@ class TestRewardManager:
             trail_px=108.0,  # Set trail even lower to ensure TRAIL_UP triggers
             net_qty=100.0
         )
-        
+
         decision = reward_mgr.update(st)
-        
+
         assert decision.action == 'TRAIL_UP'
         expected_trail = max(108.0, 110.0 - (0.8 * 2.0))  # max(current_trail, price - trail_dist) = max(108.0, 108.4) = 108.4
         assert decision.new_sl == expected_trail
-    
+
     def test_trail_stop_update(self, reward_mgr: RewardManager, cfg: RewardCfg):
         """Test trail-stop updates when price moves higher"""
         st = PositionState(
@@ -156,14 +156,14 @@ class TestRewardManager:
             trail_px=107.0,
             net_qty=100.0
         )
-        
+
         decision = reward_mgr.update(st)
-        
+
         assert decision.action == 'TRAIL_UP'
         expected_trail = 115.0 - (0.8 * 2.0)  # New higher trail = 115.0 - 1.6 = 113.4
         assert decision.new_sl == expected_trail
         assert st.trail_px == expected_trail
-    
+
     def test_short_position_trail_stop(self, reward_mgr: RewardManager, cfg: RewardCfg):
         """Test trail-stop for short positions"""
         st = PositionState(
@@ -182,13 +182,13 @@ class TestRewardManager:
             tp_sizes=[],  # Empty list to pass TP ladder check
             tp_hits=[],  # Empty list to pass TP ladder check
         )
-        
+
         decision = reward_mgr.update(st)
-        
+
         assert decision.action == 'TRAIL_UP'
         expected_trail = 90.0 + (0.8 * 2.0)  # price + (k * ATR) for short
         assert decision.new_sl == expected_trail
-    
+
     def test_max_r_exit(self, reward_mgr: RewardManager, cfg: RewardCfg):
         """Test Max-R exit condition"""
         st = PositionState(
@@ -203,12 +203,12 @@ class TestRewardManager:
             funding_accum=0.0,
             net_qty=100.0
         )
-        
+
         decision = reward_mgr.update(st)
-        
+
         assert decision.action == 'MAX_R_EXIT'
         assert decision.meta is not None and decision.meta['R_unreal'] == 10.0
-    
+
     def test_ttl_exit(self, reward_mgr: RewardManager, cfg: RewardCfg):
         """Test TTL-based exit"""
         st = PositionState(
@@ -223,13 +223,13 @@ class TestRewardManager:
             funding_accum=0.0,
             net_qty=100.0
         )
-        
+
         decision = reward_mgr.update(st)
-        
+
         assert decision.action == 'TIME_EXIT'
         assert decision.meta['age_sec'] == 7201
         assert decision.meta is not None and decision.meta['ttl_sec'] == 7200
-    
+
     def test_no_progress_exit(self, reward_mgr: RewardManager, cfg: RewardCfg):
         """Test no-progress exit condition"""
         st = PositionState(
@@ -244,12 +244,12 @@ class TestRewardManager:
             funding_accum=0.0,
             net_qty=100.0
         )
-        
+
         decision = reward_mgr.update(st)
-        
+
         assert decision.action == 'TIME_EXIT'
         assert decision.meta is not None and decision.meta['reason'] == 'no_progress'
-    
+
     def test_scale_in_anti_martingale(self, reward_mgr: RewardManager, cfg: RewardCfg):
         """Test anti-martingale scale-in logic"""
         st = PositionState(
@@ -265,12 +265,12 @@ class TestRewardManager:
             last_scale_in_ts=0,  # No recent scale-in
             net_qty=100.0
         )
-        
+
         decision = reward_mgr.update(st)
-        
+
         # Should trigger scale-in (simplified logic)
         assert decision.action in ['SCALE_IN', 'HOLD', 'MOVE_TO_BREAKEVEN']
-    
+
     def test_scale_in_cooldown(self, reward_mgr: RewardManager, cfg: RewardCfg):
         """Test scale-in cooldown prevents frequent scaling"""
         current_ts = 100
@@ -287,12 +287,12 @@ class TestRewardManager:
             last_scale_in_ts=current_ts - 30,  # Within cooldown
             net_qty=100.0
         )
-        
+
         decision = reward_mgr.update(st)
-        
+
         # Should not scale-in due to cooldown
         assert decision.action != 'SCALE_IN'
-    
+
     def test_hold_when_no_action_needed(self, reward_mgr: RewardManager, cfg: RewardCfg):
         """Test HOLD action when no reward action is needed"""
         st = PositionState(
@@ -307,7 +307,7 @@ class TestRewardManager:
             funding_accum=0.0,
             net_qty=100.0
         )
-        
+
         decision = reward_mgr.update(st)
-        
+
         assert decision.action == 'HOLD'

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+from datetime import datetime
 import os
 import subprocess
-from datetime import datetime
 
 
 def get_git_info() -> dict:

@@ -1,5 +1,7 @@
 import pytest
+
 from core.utils.timescale import to_ns
+
 
 def test_ns():
     assert to_ns(123, "ns") == 123

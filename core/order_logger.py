@@ -1,17 +1,33 @@
 from __future__ import annotations
 
+from collections import deque
+from collections.abc import Callable
+from dataclasses import dataclass, field
 import gzip
 import io
 import json
 import os
+from pathlib import Path
 import threading
 import time
-from dataclasses import dataclass, field
-import os
-from pathlib import Path
-from typing import Any, Dict, Deque, Optional, Tuple, Callable
-from collections import deque
-from exch.errors import normalize_reason, normalize_reason_struct, aurora_guard_reason
+from typing import Any
+
+from exch.errors import aurora_guard_reason, normalize_reason_struct
+
+
+def _to_ns(unit: str) -> int:
+    """Return multiplier for unit string into nanoseconds.
+
+    Accepted: 'ns' -> 1, 'ms' -> 1_000_000, 's' -> 1_000_000_000.
+    """
+    s = str(unit).strip().lower()
+    if s == "ns":
+        return 1
+    if s == "ms":
+        return 1_000_000
+    if s == "s":
+        return 1_000_000_000
+    raise ValueError(f"unknown unit: {unit}")
 
 # Terminal order states that should not be duplicated (legacy safeguard)
 TERMINAL_STATES = {"FILLED", "CANCELLED", "EXPIRED"}
@@ -21,7 +37,7 @@ class _LRUSet:
     """A tiny LRU for de-duplication of arbitrary hashable keys."""
     def __init__(self, capacity: int = 8192) -> None:
         self.capacity = capacity
-        self._dq: Deque[Any] = deque()
+        self._dq: deque[Any] = deque()
         self._set: set[Any] = set()
 
     def add(self, key: Any) -> None:
@@ -41,7 +57,7 @@ class _FileLock:
     """Cross-platform advisory file lock on a dedicated lock file."""
     def __init__(self, lock_path: Path) -> None:
         self.lock_path = lock_path
-        self._fh: Optional[io.TextIOWrapper] = None
+        self._fh: io.TextIOWrapper | None = None
         self._mtx = threading.Lock()
 
     def __enter__(self):
@@ -245,7 +261,7 @@ class OrderLoggers:
         # assume seconds
         return int(f * 1_000_000_000)
 
-    def _map_record(self, kind: str, data: Dict[str, Any]) -> Dict[str, Any]:
+    def _map_record(self, kind: str, data: dict[str, Any]) -> dict[str, Any]:
         # Input can be arbitrary kwargs from API; normalize to canonical schema
         d = dict(data)
         cid = d.get("cid") or d.get("client_order_id") or d.get("clientOrderId") or d.get("client_orderId")
@@ -291,7 +307,7 @@ class OrderLoggers:
         }
         return rec
 
-    def _write(self, writer: _JsonlWriter, rec: Dict[str, Any]) -> None:
+    def _write(self, writer: _JsonlWriter, rec: dict[str, Any]) -> None:
         # Idempotency/dedup: cid + ts_ns if present
         cid = rec.get("cid")
         ts_ns = rec.get("ts_ns")
@@ -359,7 +375,7 @@ class OrderLoggers:
 
 
 # Simple lifecycle resolver to be imported by other modules
-def lifecycle_state_for(order_events: list[Dict[str, Any]]) -> str:
+def lifecycle_state_for(order_events: list[dict[str, Any]]) -> str:
     """Compute lifecycle state from a list of events for same order_id.
     Returns one of CREATED,SUBMITTED,ACK,PARTIAL,FILLED,CANCELLED,EXPIRED,UNKNOWN
     """

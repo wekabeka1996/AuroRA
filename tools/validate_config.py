@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import argparse
 import sys
-import yaml
-
 from typing import Any
+
+import yaml
 
 
 def validate(cfg: dict[str, Any], fail_unknown: bool = False) -> list[str]:
@@ -39,7 +39,7 @@ def main():
     failed = False
     for fp in args.files:
         try:
-            with open(fp, 'r', encoding='utf-8') as f:
+            with open(fp, encoding='utf-8') as f:
                 cfg = yaml.safe_load(f) or {}
         except Exception as e:
             print(f"Failed to read {fp}: {e}")

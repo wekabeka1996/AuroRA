@@ -17,8 +17,6 @@ Uses core.types.EdgeBreakdown as SSOT to avoid desync with XAI logs.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, Optional
-import math
 
 from core.types import EdgeBreakdown
 
@@ -80,8 +78,8 @@ def tca_report(
     c_bps: float,
     latency_ms: float,
     config: TCAConfig,
-    breakdown: Optional[EdgeBreakdown] = None
-) -> Dict[str, float]:
+    breakdown: EdgeBreakdown | None = None
+) -> dict[str, float]:
     """Generate TCA report with gate decision.
 
     Returns dict with:

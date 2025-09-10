@@ -1,5 +1,5 @@
-from repo.core.governance.sprt_glr import SPRT, gaussian_llr
 from repo.core.governance.alpha_ledger import AlphaLedger
+from repo.core.governance.sprt_glr import SPRT, gaussian_llr
 
 
 def test_sprt_accepts_H1_with_positive_signal_and_spends_alpha():

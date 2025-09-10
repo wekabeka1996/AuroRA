@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-import os
+from collections.abc import Mapping
 from dataclasses import dataclass
+import os
 from pathlib import Path
-from typing import Any, Mapping, Optional
+from typing import Any
 
 from core.aurora_event_logger import AuroraEventLogger
 
@@ -30,8 +31,8 @@ class EventEmitter:
         self,
         type: str,
         payload: Mapping[str, Any],
-        severity: Optional[str] = None,
-        code: Optional[str] = None,
+        severity: str | None = None,
+        code: str | None = None,
     ) -> None:
         # Вибрати пріоритетно 'code' як канонічний event_code; інакше використати 'type'
         event_code = (code or type or "").strip()

@@ -16,8 +16,8 @@ No external dependencies; NumPy optional. Standalone.
 """
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 import math
 import random
 
@@ -64,7 +64,7 @@ class SplitConformalBinary:
         self.n = len(s)
         self.scores = sorted(s)
 
-    def p_values(self, p_new: float) -> Tuple[float, float]:
+    def p_values(self, p_new: float) -> tuple[float, float]:
         """Return p-values (p_y=1, p_y=0) for a new probability p_new=P(y=1)."""
         n = getattr(self, "n", 0)
         S = getattr(self, "scores", [])
@@ -93,7 +93,7 @@ class SplitConformalBinary:
         pval0 = (ge0 + 1) / (n + 1)
         return float(pval1), float(pval0)
 
-    def predict_set(self, p_new: float) -> List[int]:
+    def predict_set(self, p_new: float) -> list[int]:
         p1, p0 = self.p_values(p_new)
         S = []
         if p1 > self.alpha:
@@ -113,7 +113,7 @@ class MondrianConformalBinary:
 
     def fit(self, p_hat: Sequence[float], y: Sequence[int], groups: Sequence[str]) -> None:
         assert len(p_hat) == len(y) == len(groups)
-        self.bucket: Dict[str, List[float]] = {}
+        self.bucket: dict[str, list[float]] = {}
         for pi, yi, g in zip(p_hat, y, groups):
             s = _nonconformity_binary(pi, yi)
             L = self.bucket.setdefault(str(g), [])
@@ -123,7 +123,7 @@ class MondrianConformalBinary:
         # global fallback
         self.global_scores = sorted([_nonconformity_binary(pi, yi) for pi, yi in zip(p_hat, y)])
 
-    def _p_values_from_scores(self, scores: Sequence[float], p_new: float) -> Tuple[float, float]:
+    def _p_values_from_scores(self, scores: Sequence[float], p_new: float) -> tuple[float, float]:
         if not scores:
             return 1.0, 1.0
         n = len(scores)
@@ -135,12 +135,12 @@ class MondrianConformalBinary:
         k0 = n - bisect.bisect_left(scores, s0)
         return (k1 + 1) / (n + 1), (k0 + 1) / (n + 1)
 
-    def p_values(self, p_new: float, group: Optional[str]) -> Tuple[float, float]:
+    def p_values(self, p_new: float, group: str | None) -> tuple[float, float]:
         if group is not None and group in getattr(self, "bucket", {}):
             return self._p_values_from_scores(self.bucket[group], p_new)
         return self._p_values_from_scores(getattr(self, "global_scores", []), p_new)
 
-    def predict_set(self, p_new: float, group: Optional[str]) -> List[int]:
+    def predict_set(self, p_new: float, group: str | None) -> list[int]:
         p1, p0 = self.p_values(p_new, group)
         S = []
         if p1 > self.alpha:
@@ -156,8 +156,8 @@ class MondrianConformalBinary:
 
 @dataclass
 class _Iso:
-    xs: List[float]
-    ys: List[float]
+    xs: list[float]
+    ys: list[float]
 
     def fit(self) -> None:
         # Pool-Adjacent-Violators for isotonic (non-decreasing) fit
@@ -249,7 +249,7 @@ class VennAbersBinary:
         iso.fit()
         return max(0.0, min(1.0, iso.predict(float(s_new))))
 
-    def predict_interval(self, score_new: float) -> Tuple[float, float]:
+    def predict_interval(self, score_new: float) -> tuple[float, float]:
         # map prob to logit if necessary (mirror of fit)
         s_new = float(score_new)
         if 0.0 <= s_new <= 1.0:
@@ -266,10 +266,10 @@ class VennAbersBinary:
 # Self-tests (synthetic)
 # =============================
 
-def _make_scores(n: int = 1200, seed: int = 11) -> Tuple[List[float], List[int]]:
+def _make_scores(n: int = 1200, seed: int = 11) -> tuple[list[float], list[int]]:
     rnd = random.Random(seed)
-    scores: List[float] = []
-    y: List[int] = []
+    scores: list[float] = []
+    y: list[int] = []
     for i in range(n):
         # latent probability depends on score via sigmoid with mild miscalibration
         s = rnd.uniform(-2.5, 2.5)

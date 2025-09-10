@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from dataclasses import dataclass
+from typing import Any
 
 
-def _percentiles(values: List[float], qs: List[int]) -> Dict[int, float]:
+def _percentiles(values: list[float], qs: list[int]) -> dict[int, float]:
     if not values:
         return {q: 0.0 for q in qs}
     arr = sorted(values)
-    out: Dict[int, float] = {}
+    out: dict[int, float] = {}
     n = len(arr)
     for q in qs:
         # nearest-rank
@@ -19,12 +19,12 @@ def _percentiles(values: List[float], qs: List[int]) -> Dict[int, float]:
 
 @dataclass
 class OrderState:
-    cid: Optional[str] = None
-    oid: Optional[str] = None
-    submit_ns: Optional[int] = None
-    ack_ns: Optional[int] = None
-    done_ns: Optional[int] = None
-    final: Optional[str] = None  # FILLED/CANCELED/REJECTED/EXPIRED
+    cid: str | None = None
+    oid: str | None = None
+    submit_ns: int | None = None
+    ack_ns: int | None = None
+    done_ns: int | None = None
+    final: str | None = None  # FILLED/CANCELED/REJECTED/EXPIRED
     fills: int = 0
     qty_filled: float = 0.0
 
@@ -32,10 +32,10 @@ class OrderState:
 class LifecycleCorrelator:
     def __init__(self, window_s: int = 300):
         self.window_ns = int(window_s * 1_000_000_000)
-        self.by_cid: Dict[str, OrderState] = {}
-        self.by_oid: Dict[str, OrderState] = {}
+        self.by_cid: dict[str, OrderState] = {}
+        self.by_oid: dict[str, OrderState] = {}
 
-    def add_event(self, ev: Dict[str, Any]) -> None:
+    def add_event(self, ev: dict[str, Any]) -> None:
         cid = ev.get("cid")
         oid = ev.get("oid")
         ts_ns = int(ev.get("ts_ns") or 0)
@@ -90,13 +90,13 @@ class LifecycleCorrelator:
             state.final = "EXPIRED"
             state.done_ns = ts_ns
 
-    def finalize(self, now_ns: Optional[int] = None) -> Dict[str, Any]:
+    def finalize(self, now_ns: int | None = None) -> dict[str, Any]:
         if now_ns is None:
             import time as _t
             now_ns = int(_t.time() * 1_000_000_000)
-        submit_ack_ms: List[float] = []
-        ack_done_ms: List[float] = []
-        orders: Dict[str, Any] = {}
+        submit_ack_ms: list[float] = []
+        ack_done_ms: list[float] = []
+        orders: dict[str, Any] = {}
         for cid, st in self.by_cid.items():
             # expire dangling submits without ACK within window
             if st.final is None:
@@ -116,7 +116,7 @@ class LifecycleCorrelator:
                 "fills": st.fills,
                 "qty_filled": st.qty_filled,
             }
-        def _mk(buckets: List[float]) -> Dict[str, float]:
+        def _mk(buckets: list[float]) -> dict[str, float]:
             pct = _percentiles(buckets, [50, 95, 99])
             return {"p50": pct[50], "p95": pct[95], "p99": pct[99]}
         return {

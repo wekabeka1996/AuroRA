@@ -2,13 +2,12 @@
 from __future__ import annotations
 
 import argparse
-import json
 from hashlib import sha256
-from pathlib import Path
-from typing import Any, Dict
-
+import json
+from pathlib import Path, Path as _P
 import sys
-from pathlib import Path as _P
+from typing import Any
+
 # Ensure repository root is on sys.path so `core` package imports work when run from tools/
 ROOT = str(_P(__file__).resolve().parents[1])
 if ROOT not in sys.path:
@@ -21,7 +20,7 @@ def _sha256_text(text: str) -> str:
     return sha256(text.encode("utf-8")).hexdigest()
 
 
-def merge_profile_to_dict(cfg: Dict[str, Any], profile: Dict[str, Any]) -> Dict[str, Any]:
+def merge_profile_to_dict(cfg: dict[str, Any], profile: dict[str, Any]) -> dict[str, Any]:
     # simple deep-merge: profile overrides
     out = json.loads(json.dumps(cfg))
     def _rec(o, p):
@@ -39,7 +38,7 @@ def merge_profile_to_dict(cfg: Dict[str, Any], profile: Dict[str, Any]) -> Dict[
     return out
 
 
-def normalize_profile_flat_keys(profile: Dict[str, Any]) -> Dict[str, Any]:
+def normalize_profile_flat_keys(profile: dict[str, Any]) -> dict[str, Any]:
     """Convert known flat underscore keys into nested structure expected by config schema."""
     mapping = {
         "execution_sla_max_latency_ms": ("execution", "sla", "max_latency_ms"),
@@ -96,7 +95,7 @@ def main():
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / f"effective_{args.profile}.toml"
     # write as TOML using a minimal serializer (avoid external deps)
-    def dump_toml(d: Dict[str, Any], fh, prefix: str = ""):
+    def dump_toml(d: dict[str, Any], fh, prefix: str = ""):
         # writes top-level simple keys and nested tables
         simple = {k: v for k, v in d.items() if not isinstance(v, dict)}
         nested = {k: v for k, v in d.items() if isinstance(v, dict)}

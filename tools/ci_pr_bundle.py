@@ -15,9 +15,14 @@ Produces a consolidated pr_summary.md with sections:
 Exit 0 normal; exit 3 on error.
 """
 from __future__ import annotations
-import argparse, json, sys, math
+
+import argparse
+import json
+import math
 from pathlib import Path
-from typing import Any, Dict, List
+import sys
+from typing import Any
+
 import yaml
 
 SECTION_HEADERS = ["Overview", "Ratchet Diff", "Hard-enable Decisions", "DCTS Audit", "Rollback Playbook"]
@@ -40,7 +45,7 @@ def read_jsonl(path: Path):
     return out
 
 
-def diff_thresholds(cur: Dict[str, Any], rat: Dict[str, Any]) -> List[Dict[str, Any]]:
+def diff_thresholds(cur: dict[str, Any], rat: dict[str, Any]) -> list[dict[str, Any]]:
     cd = cur.get('thresholds', {}) or {}
     rd = rat.get('thresholds', {}) or {}
     rows = []
@@ -59,7 +64,7 @@ def diff_thresholds(cur: Dict[str, Any], rat: Dict[str, Any]) -> List[Dict[str, 
     return rows
 
 
-def format_diff_table(rows: List[Dict[str, Any]]) -> str:
+def format_diff_table(rows: list[dict[str, Any]]) -> str:
     header = "| Key | Current | Proposed | Δ | Δ% |\n|-----|---------|----------|----|----|"
     lines = [header]
     for r in rows:
@@ -73,7 +78,7 @@ def format_diff_table(rows: List[Dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
-def summarize_hard(decisions: List[Dict[str, Any]]) -> str:
+def summarize_hard(decisions: list[dict[str, Any]]) -> str:
     if not decisions:
         return "No hard-enable decisions logged."
     header = "| Metric | Threshold Key | Enable | Changed | Reasons | n | warn_rate | delta_p95p10 |\n|--------|---------------|--------|---------|---------|---|-----------|-------------|"

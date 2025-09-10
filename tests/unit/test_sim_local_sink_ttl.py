@@ -1,5 +1,6 @@
-import pytest
 import time
+
+import pytest
 
 sim = pytest.importorskip("core.execution.sim_local_sink", reason="sim_local_sink not available")
 

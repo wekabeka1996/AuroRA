@@ -1,14 +1,31 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import List
-from typing import Optional
+from typing import TYPE_CHECKING, Protocol, TypedDict
 
-from core.scalper.trap import TrapWindow, TrapMetrics
+from core.scalper.trap import TrapMetrics, TrapWindow
+
 try:
     from core.calibration.icp import SplitConformalBinary
 except ImportError:
     SplitConformalBinary = None
+
+# --- Type-checking helpers to avoid F821 at runtime ---
+if TYPE_CHECKING:
+    # Real types should be imported when available; for runtime keep annotations as strings
+    class IcpMetrics(TypedDict):
+        flag: bool
+        icp_z: float
+
+    class IcpWindow(Protocol):
+        def update(
+            self,
+            *,
+            price_deltas: list[float],
+            trades_cnt: int,
+            z_threshold: float,
+            pctl: int,
+        ) -> "IcpMetrics": ...
 
 
 @dataclass
@@ -30,17 +47,17 @@ class PretradeReport:
     slip_bps_est: float
     latency_ms: float
     mode_regime: str
-    reasons: List[str] = field(default_factory=list)
+    reasons: list[str] = field(default_factory=list)
 
 
-def gate_expected_return(e_pi_bps: float, pi_min_bps: float, reasons: List[str]) -> bool:
+def gate_expected_return(e_pi_bps: float, pi_min_bps: float, reasons: list[str]) -> bool:
     if e_pi_bps > pi_min_bps:
         return True
     reasons.append("expected_return_below_threshold")
     return False
 
 
-def gate_latency(latency_ms: float, lmax_ms: float, reasons: List[str]) -> bool:
+def gate_latency(latency_ms: float, lmax_ms: float, reasons: list[str]) -> bool:
     """Latency guard: blocks if latency exceeds configured max.
 
     Returns True if OK (<= lmax), False otherwise and appends reason.
@@ -51,7 +68,7 @@ def gate_latency(latency_ms: float, lmax_ms: float, reasons: List[str]) -> bool:
     return False
 
 
-def gate_slippage(slip_bps: float, b_bps: float | None, eta_fraction_of_b: float, reasons: List[str]) -> bool:
+def gate_slippage(slip_bps: float, b_bps: float | None, eta_fraction_of_b: float, reasons: list[str]) -> bool:
     """Slippage guard: require slip_bps <= eta * b_bps.
 
     If b_bps is None or non-positive, the guard is skipped (returns True) but adds a
@@ -69,15 +86,15 @@ def gate_slippage(slip_bps: float, b_bps: float | None, eta_fraction_of_b: float
 
 def gate_trap(
     tw: TrapWindow,
-    cancel_deltas: List[float],
-    add_deltas: List[float],
+    cancel_deltas: list[float],
+    add_deltas: list[float],
     trades_cnt: int,
     *,
     z_threshold: float,
     cancel_pctl: int,
-    obi_sign: Optional[int] = None,
-    tfi_sign: Optional[int] = None,
-    reasons: List[str],
+    obi_sign: int | None = None,
+    tfi_sign: int | None = None,
+    reasons: list[str],
 ) -> tuple[bool, TrapMetrics]:
     """TRAP v2 gate using a rolling z-score and conflict rule.
 
@@ -100,12 +117,12 @@ def gate_trap(
 
 def gate_icp(
     iw: IcpWindow,
-    price_deltas: List[float],
+    price_deltas: list[float],
     trades_cnt: int,
     *,
     z_threshold: float,
     pctl: int,
-    reasons: List[str],
+    reasons: list[str],
 ) -> tuple[bool, IcpMetrics]:
     """ICP gate using a rolling z-score.
 
@@ -125,8 +142,8 @@ def gate_icp(
 
 def gate_icp_uncertainty(
     icp_predictor,
-    features: List[float],
-    reasons: List[str],
+    features: list[float],
+    reasons: list[str],
     alpha: float = 0.1
 ) -> bool:
     """ICP uncertainty gate: blocks if prediction set is empty (high uncertainty).
@@ -147,7 +164,7 @@ def gate_icp_uncertainty(
     if SplitConformalBinary is None:
         reasons.append("icp_guard_skipped_no_module")
         return True
-    
+
     try:
         prediction_set = icp_predictor.predict_set(features[0])  # Use first feature as probability
         if not prediction_set:  # Empty prediction set = high uncertainty

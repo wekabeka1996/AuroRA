@@ -1,19 +1,18 @@
 from __future__ import annotations
 
 import argparse
+from datetime import UTC, datetime, timedelta
 import json
-import re
 import os
-import sys
-from datetime import datetime, timedelta, timezone
 from pathlib import Path
+import sys
 
 # Ensure project root on sys.path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from observability.codes import RISK_DENY, is_latency, AURORA_EXPECTED_RETURN_ACCEPT
+from observability.codes import AURORA_EXPECTED_RETURN_ACCEPT, RISK_DENY, is_latency
 
 
 def load_summary_md(path: Path) -> dict:
@@ -97,7 +96,7 @@ def count_expected_return_accepts(events) -> int:
 
 def window_counts(events, predicate, window_sec: int):
     # Use timezone-aware UTC datetimes to avoid naive/aware comparison issues
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     start = now - timedelta(seconds=window_sec)
     cnt = 0
     buckets = {}
@@ -108,7 +107,7 @@ def window_counts(events, predicate, window_sec: int):
         ts_ns = ev.get('ts_ns')
         if isinstance(ts_ns, (int, float)):
             try:
-                tdt = datetime.fromtimestamp(float(ts_ns) / 1_000_000_000.0, tz=timezone.utc)
+                tdt = datetime.fromtimestamp(float(ts_ns) / 1_000_000_000.0, tz=UTC)
             except Exception:
                 tdt = now
         else:
@@ -116,7 +115,7 @@ def window_counts(events, predicate, window_sec: int):
             try:
                 tdt = datetime.fromisoformat(ts.replace('Z','+00:00')) if isinstance(ts, str) else now
                 if tdt.tzinfo is None:
-                    tdt = tdt.replace(tzinfo=timezone.utc)
+                    tdt = tdt.replace(tzinfo=UTC)
             except Exception:
                 tdt = now
         if tdt < start:
@@ -230,7 +229,7 @@ def main():
                     'slip_ratio': (summary.get('slippage') or {}).get('ratio'),
                     'expected_return_accepts': er_cnt,
                 },
-                'timestamp': datetime.now(timezone.utc).isoformat().replace('+00:00','Z'),
+                'timestamp': datetime.now(UTC).isoformat().replace('+00:00','Z'),
             }
             Path(args.status_out).parent.mkdir(parents=True, exist_ok=True)
             Path(args.status_out).write_text(json.dumps(out, ensure_ascii=False, indent=2), encoding='utf-8')
@@ -242,7 +241,7 @@ def main():
     try:
         pgw = os.getenv('AURORA_PUSHGATEWAY') or os.getenv('PUSHGATEWAY_URL')
         if pgw:
-            from prometheus_client import CollectorRegistry, Gauge, Counter, push_to_gateway, pushadd_to_gateway
+            from prometheus_client import CollectorRegistry, Counter, Gauge, push_to_gateway, pushadd_to_gateway
             reg = CollectorRegistry()
             last_status = Gauge('aurora_summary_gate_last_status', 'Last summary gate status: 0=OK,1=FAIL', ['branch', 'sha'], registry=reg)
             last_ts = Gauge('aurora_summary_gate_last_run_ts', 'Last summary gate run timestamp (unix)', registry=reg)
@@ -252,7 +251,7 @@ def main():
             branch = os.getenv('GITHUB_REF_NAME') or os.getenv('GITHUB_REF') or os.getenv('BRANCH') or 'unknown'
             sha = os.getenv('GITHUB_SHA') or os.getenv('SHA') or 'unknown'
             last_status.labels(branch=branch, sha=sha).set(0 if result == 'OK' else 1)
-            last_ts.set(int(datetime.now(timezone.utc).timestamp()))
+            last_ts.set(int(datetime.now(UTC).timestamp()))
             # Push gauges (replace)
             push_to_gateway(pgw, job='summary_gate', registry=reg)
             # Increment fail reasons (add) if failed

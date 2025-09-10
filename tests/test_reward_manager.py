@@ -1,5 +1,5 @@
-from core.reward_manager import RewardManager, PositionState
 from core.config_loader import RewardCfg
+from core.reward_manager import PositionState, RewardManager
 
 
 def _st(

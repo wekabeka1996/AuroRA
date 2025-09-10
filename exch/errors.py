@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from typing import Tuple, Optional, Dict, Any
+from typing import Any
 
 # Normalized structure
 # reason_class: AURORA | EXCHANGE
 # severity: INFO | WARN | ERROR
 # action: RETRY_SOFT | RETRY_HARD | ABORT
 
-Normalized = Dict[str, Any]
+Normalized = dict[str, Any]
 
 # Binance Futures common error codes mapping to normalized reasons
 BINANCE_FUTURES_ERROR_MAP: dict[str, Normalized] = {
@@ -46,7 +46,7 @@ def normalize_reason(raw_code: str | int | None, raw_msg: str | None):
     return "UNKNOWN"
 
 
-def aurora_guard_reason(code: str, detail: Optional[str] = None) -> Normalized:
+def aurora_guard_reason(code: str, detail: str | None = None) -> Normalized:
     """Helper for AURORA guard denials.
     code examples: SPREAD_GUARD, VOL_GUARD, LATENCY_GUARD, DD_GUARD, CVAR_GUARD, POSITION_CAP_GUARD, TIME_GUARD
     """

@@ -23,7 +23,6 @@ maintains per-order state. Connect it to exchange adapters.
 """
 
 from dataclasses import dataclass
-from typing import Dict, Optional
 import math
 
 
@@ -51,9 +50,9 @@ class PartialSlicer:
         self.q_min = float(q_min)
         self.q_max = float(q_max)
         self.use_p_fill = bool(use_p_fill)
-        self._state: Dict[str, Dict[str, float]] = {}
+        self._state: dict[str, dict[str, float]] = {}
 
-    def _state_of(self, order_id: str) -> Dict[str, float]:
+    def _state_of(self, order_id: str) -> dict[str, float]:
         s = self._state.get(order_id)
         if s is None:
             # last_fill stores the last registered fill quantity to make register_fill idempotent
@@ -88,7 +87,7 @@ class PartialSlicer:
         s = self._state_of(order_id)
         return max(0.0, s["target"] - s["filled"])
 
-    def next_slice(self, order_id: str, *, p_fill: Optional[float] = None) -> Optional[SliceDecision]:
+    def next_slice(self, order_id: str, *, p_fill: float | None = None) -> SliceDecision | None:
         s = self._state_of(order_id)
         rem = max(0.0, s["target"] - s["filled"])
         if rem <= 0.0:
@@ -107,11 +106,11 @@ class PartialSlicer:
             q = self.q_max
         # don't exceed remaining (this is the key fix)
         q = min(q, rem)
-        
+
         # Additional safety: if this would be the last slice and q > rem, use rem
         if rem - q < self.q_min and q > rem:
             q = rem
-            
+
         key = f"{order_id}:{idx}"
         return SliceDecision(order_id=order_id, slice_idx=idx, qty=q, remaining_after=rem - q, key=key)
 

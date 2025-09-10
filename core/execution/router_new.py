@@ -1,19 +1,19 @@
 from dataclasses import dataclass
-from typing import Optional, Dict, Any
+from typing import Any
 
 
 @dataclass
 class Decision:
     route: str                 # "maker" | "taker" | "deny"
     why_code: str              # e.g. "OK_ROUTE_MAKER", "OK_ROUTE_TAKER", "WHY_UNATTRACTIVE", "WHY_SLA_LATENCY"
-    scores: Dict[str, float]
+    scores: dict[str, float]
 
 
 def _clip01(x: float) -> float:
     return 0.0 if x < 0.0 else (1.0 if x > 1.0 else x)
 
 
-def _estimate_p_fill(fill_features: Dict[str, Any]) -> float:
+def _estimate_p_fill(fill_features: dict[str, Any]) -> float:
     """
     Простий, детермінований естіматор P(fill) із ознак:
     - OBI in [-1,1] збільшує P
@@ -40,18 +40,18 @@ class Router:
         router.maker_spread_ok_bps (def=2.0) — для схилення у maker при tight spread
         router.switch_margin_bps (def=0.0)
     """
-    
-    def __init__(self, cfg: Dict[str, Any]):
+
+    def __init__(self, cfg: dict[str, Any]):
         ex = (cfg or {}).get("execution", {})
         r = (ex or {}).get("router", {})
         sla = (ex or {}).get("sla", {})
-        
+
         self.edge_floor_bps: float = float(ex.get("edge_floor_bps", 0.0))
         self.p_min_fill: float = float(r.get("p_min_fill", 0.25))
         self.horizon_ms: int = int(r.get("horizon_ms", 1500))
         self.kappa_bps_per_ms: float = float(sla.get("kappa_bps_per_ms", 0.0))
         self.max_latency_ms: float = float(sla.get("max_latency_ms", float("inf")))
-        
+
         # додаткові пороги
         self.spread_deny_bps: float = float(r.get("spread_deny_bps", 8.0))
         self.maker_spread_ok_bps: float = float(r.get("maker_spread_ok_bps", 2.0))
@@ -62,8 +62,8 @@ class Router:
                quote,                       # QuoteSnapshot із bid/ask
                edge_bps_estimate: float,
                latency_ms: float,
-               fill_features: Dict[str, Any]) -> Decision:
-        
+               fill_features: dict[str, Any]) -> Decision:
+
         # 1) SLA gate — надмірна латентність
         if latency_ms > self.max_latency_ms:
             return Decision(

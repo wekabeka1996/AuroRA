@@ -2,10 +2,11 @@
 """Batch runner: import ssot_validate once and run main() for multiple configs,
 capturing stdout/stderr and SystemExit codes into logs/*."""
 from __future__ import annotations
-import sys
-from pathlib import Path
+
+from contextlib import redirect_stderr, redirect_stdout
 import io
-from contextlib import redirect_stdout, redirect_stderr
+from pathlib import Path
+import sys
 
 ROOT = Path(__file__).resolve().parent.parent
 LOGS = ROOT / 'logs'

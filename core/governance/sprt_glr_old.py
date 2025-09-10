@@ -20,12 +20,13 @@ Key Features:
 """
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, List, Optional, Sequence, Tuple, Union, Any
 import math
 import random
 import time
+from typing import Any
 
 try:
     import numpy as np  # type: ignore
@@ -34,10 +35,10 @@ except Exception:  # pragma: no cover
 
 # -------- Core imports from our modules ---------
 try:  # pragma: no cover
-    from core.types import ProbabilityMetrics, ConformalInterval, XAIRecord, WhyCode
+    from common.events import aurora_event
     from core.calibration.calibrator import PlattCalibrator
     from core.calibration.icp import ConformalCalibrator
-    from common.events import aurora_event
+    from core.types import ConformalInterval, ProbabilityMetrics, WhyCode, XAIRecord
 except Exception:  # pragma: no cover - minimal fallbacks
     class WhyCode(str, Enum):
         SPRT_REJECT = "SPRT_REJECT"
@@ -61,7 +62,7 @@ except Exception:  # pragma: no cover - minimal fallbacks
     class XAIRecord:
         timestamp: float = 0.0
         why_code: WhyCode = WhyCode.SPRT_CONTINUE
-        details: Dict[str, Any] = field(default_factory=dict)
+        details: dict[str, Any] = field(default_factory=dict)
 
     def aurora_event(record: XAIRecord) -> None:  # pragma: no cover
         print(f"AURORA_EVENT: {record}")
@@ -125,14 +126,14 @@ class SPRTState:
     # EVT estimates
     tail_index_upper: float = 0.0
     tail_index_lower: float = 0.0
-    tail_index_ci: Tuple[float, float] = (0.0, 0.0)
+    tail_index_ci: tuple[float, float] = (0.0, 0.0)
 
     # GLR state
-    glr_statistics: List[float] = field(default_factory=list)
-    composite_scores: List[float] = field(default_factory=list)
+    glr_statistics: list[float] = field(default_factory=list)
+    composite_scores: list[float] = field(default_factory=list)
 
     # Bootstrap results
-    bootstrap_cis: List[Tuple[float, float]] = field(default_factory=list)
+    bootstrap_cis: list[tuple[float, float]] = field(default_factory=list)
 
 
 class SPRTDecision(Enum):
@@ -157,8 +158,8 @@ class SPRTResult:
     time_elapsed: float
     alpha_spent: float
     tail_index_estimate: float
-    conformal_interval: Optional[ConformalInterval] = None
-    xai_record: Optional[XAIRecord] = None
+    conformal_interval: ConformalInterval | None = None
+    xai_record: XAIRecord | None = None
 
 
 class CompositeSPRT:
@@ -220,7 +221,7 @@ class CompositeSPRT:
 
         return min(p_value, 1.0)
 
-    def _estimate_tail_index(self, samples: Sequence[float]) -> Tuple[float, Tuple[float, float]]:
+    def _estimate_tail_index(self, samples: Sequence[float]) -> tuple[float, tuple[float, float]]:
         """Estimate tail index using EVT with bootstrap CI."""
         if len(samples) < 10:
             return 0.0, (0.0, 0.0)
@@ -284,7 +285,7 @@ class CompositeSPRT:
 
         return 2 * (ll_alt - ll_null)  # Likelihood ratio test statistic
 
-    def update(self, score: float, timestamp: Optional[float] = None) -> SPRTResult:
+    def update(self, score: float, timestamp: float | None = None) -> SPRTResult:
         """Update SPRT with new observation and return current result."""
 
         if timestamp is None:

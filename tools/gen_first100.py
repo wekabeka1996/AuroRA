@@ -1,5 +1,8 @@
-import argparse, json, re
+import argparse
+from datetime import UTC
+import json
 from pathlib import Path
+import re
 
 ISOZ = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$")
 
@@ -40,14 +43,14 @@ def main():
             t = str(o.get("time") or o.get("ts") or o.get("timestamp") or "")
             if not ISOZ.match(t):
                 # якщо є ns або ms — спробуємо конвертнути до ISO .sssZ
-                from datetime import datetime, timezone
+                from datetime import datetime
                 try:
                     ns = int(o.get("ts_ns")) if o.get("ts_ns") else None
                     ms = int(o.get("ts_ms")) if o.get("ts_ms") else None
                     if ns is not None:
-                        dt = datetime.fromtimestamp(ns/1e9, tz=timezone.utc)
+                        dt = datetime.fromtimestamp(ns/1e9, tz=UTC)
                     elif ms is not None:
-                        dt = datetime.fromtimestamp(ms/1e3, tz=timezone.utc)
+                        dt = datetime.fromtimestamp(ms/1e3, tz=UTC)
                     else:
                         raise ValueError
                     o["time"] = dt.strftime("%Y-%m-%dT%H:%M:%S.%f")[:23] + "Z"

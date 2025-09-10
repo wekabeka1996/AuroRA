@@ -19,17 +19,13 @@ Comprehensive integration test suite covering:
 All tests validate complete XAI event chains from SIZING_DECISION to POSITION_CLOSED
 """
 
-import pytest
 import time
-import threading
-from unittest.mock import Mock, patch, MagicMock
-from dataclasses import dataclass
-from typing import Dict, List, Optional
+from unittest.mock import patch
 
-from core.execution.execution_router_v1 import ExecutionRouter, ExecutionContext, RouterConfig
-from core.tca.tca_analyzer import FillEvent, OrderExecution
-from common.events import EventEmitter
-from core.config.loader import get_config
+import pytest
+
+from core.execution.execution_router_v1 import ExecutionContext, ExecutionRouter, RouterConfig
+from core.tca.tca_analyzer import FillEvent
 
 
 @pytest.fixture

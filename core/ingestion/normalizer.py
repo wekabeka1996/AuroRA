@@ -52,33 +52,42 @@ Notes:
   • TS detection auto-infers unit from magnitude (s/ms/us/ns). Floats allowed; coerced to int ns.
 """
 
-import logging
+from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, Iterator, Mapping, MutableMapping, Optional, Tuple
+import logging
+from typing import Any
 
 logger = logging.getLogger("aurora.ingestion.normalizer")
 logger.setLevel(logging.INFO)
 
 # -------------------- timestamp handling --------------------
 
-def _detect_ts_unit(x: float | int) -> int:
-    """Return multiplier to convert given epoch value to nanoseconds.
-    Heuristic based on magnitude (2020s epoch ~ 1.6e9 s):
-      NOTE: For synthetic/unit tests we treat small integers as already nanoseconds.
-      nanoseconds  ~ < 1e12          → *1
-      milliseconds ~ 1e12 .. 1e14    → *1e6
-      microseconds ~ 1e14 .. 1e17    → *1e3
-      seconds      ~ 1e17 .. 1e19    → *1e9
+def _detect_ts_unit(x: float | int) -> str:
+    """Detect unit of epoch-like value.
+
+    Returns one of: 'ns', 'ms', 'us', 's'.
     """
     v = float(x)
-    # Treat very small values as already in nanoseconds (common in tests)
     if v < 1e12:
-        return 1               # nanoseconds
+        return "ns"
     if v < 1e14:
-        return 1_000_000      # milliseconds
+        return "ms"
     if v < 1e17:
-        return 1_000          # microseconds
-    return 1_000_000_000       # seconds
+        return "us"
+    return "s"
+
+
+def _mult_for_unit(unit: str) -> int:
+    u = str(unit).lower()
+    if u == "ns":
+        return 1
+    if u == "us":
+        return 1_000
+    if u == "ms":
+        return 1_000_000
+    if u == "s":
+        return 1_000_000_000
+    return 1
 
 
 def to_ns(ts: Any) -> int:
@@ -86,11 +95,11 @@ def to_ns(ts: Any) -> int:
     if ts is None:
         raise ValueError("timestamp is None")
     if isinstance(ts, (int,)):
-        mult = _detect_ts_unit(ts)
+        mult = _mult_for_unit(_detect_ts_unit(ts))
         return int(ts * mult)
     if isinstance(ts, float):
         # float seconds / ms / us / ns by magnitude
-        mult = _detect_ts_unit(ts)
+        mult = _mult_for_unit(_detect_ts_unit(ts))
         return int(ts * mult)
     # strings: try to parse numeric
     s = str(ts).strip()
@@ -103,7 +112,7 @@ def to_ns(ts: Any) -> int:
             val = int(s)
     except Exception as e:
         raise ValueError(f"unrecognized timestamp: {ts!r}") from e
-    mult = _detect_ts_unit(val)
+    mult = _mult_for_unit(_detect_ts_unit(val))
     return int(val * mult)
 
 # -------------------- field helpers --------------------
@@ -135,7 +144,7 @@ def _normalize_symbol(sym: Any) -> str:
     return s.upper().replace(" ", "")
 
 
-def _normalize_side(x: Any) -> Optional[str]:
+def _normalize_side(x: Any) -> str | None:
     if x is None:
         return None
     s = str(x).strip().lower()
@@ -147,7 +156,7 @@ def _normalize_side(x: Any) -> Optional[str]:
     return None
 
 
-def _coerce_float(x: Any) -> Optional[float]:
+def _coerce_float(x: Any) -> float | None:
     if x is None:
         return None
     try:
@@ -160,7 +169,7 @@ def _coerce_float(x: Any) -> Optional[float]:
 @dataclass
 class _StreamState:
     last_ts_ns: int = -1
-    last_seq: Optional[int] = None
+    last_seq: int | None = None
 
 
 class Normalizer:
@@ -172,11 +181,11 @@ class Normalizer:
     def __init__(self, *, source_tag: str = "unknown", strict: bool = True) -> None:
         self._source = source_tag
         self._strict = strict
-        self._state: Dict[Tuple[str, str], _StreamState] = {}
+        self._state: dict[tuple[str, str], _StreamState] = {}
 
     # ---------- public API ----------
 
-    def normalize(self, raw: Mapping[str, Any]) -> Optional[Dict[str, Any]]:
+    def normalize(self, raw: Mapping[str, Any]) -> dict[str, Any] | None:
         """Normalize single raw event to canonical dict or return None if dropped (strict=False)."""
         try:
             evt = self._normalize_impl(raw)
@@ -188,7 +197,7 @@ class Normalizer:
             logger.debug("drop invalid event: %s (err=%s)", raw, e)
             return None
 
-    def normalize_iter(self, raws: Iterable[Mapping[str, Any]]) -> Iterator[Dict[str, Any]]:
+    def normalize_iter(self, raws: Iterable[Mapping[str, Any]]) -> Iterator[dict[str, Any]]:
         for r in raws:
             out = self.normalize(r)
             if out is not None:
@@ -196,7 +205,7 @@ class Normalizer:
 
     # ---------- internals ----------
 
-    def _normalize_impl(self, raw: Mapping[str, Any]) -> Dict[str, Any]:
+    def _normalize_impl(self, raw: Mapping[str, Any]) -> dict[str, Any]:
         # core fields
         ts_val = _first(raw, _TS_KEYS)
         if ts_val is None:
@@ -228,7 +237,7 @@ class Normalizer:
         ask_sz = _coerce_float(_first(raw, _ASK_SZ_KEYS))
 
         # Heuristic resolution
-        kind: Optional[str] = None
+        kind: str | None = None
         if typ in ("trade", "aggtrade", "t", "fills"):
             kind = "trade"
         elif typ in ("quote", "book_ticker", "book", "depth"):
@@ -243,7 +252,7 @@ class Normalizer:
         if kind is None:
             raise ValueError("unable to infer event type")
 
-        base: Dict[str, Any] = {
+        base: dict[str, Any] = {
             "ts_ns": ts_ns,
             "type": kind,
             "symbol": sym,

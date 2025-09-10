@@ -12,11 +12,9 @@ archive directory to keep the main repo focused on production code.
 from __future__ import annotations
 
 import argparse
-import shutil
 from datetime import datetime
 from pathlib import Path
-from typing import List, Tuple
-
+import shutil
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -31,8 +29,8 @@ DEFAULT_PATTERNS = [
 ]
 
 
-def gather_candidates(root: Path) -> List[Path]:
-    candidates: List[Path] = []
+def gather_candidates(root: Path) -> list[Path]:
+    candidates: list[Path] = []
 
     # explicit directories
     for pat in DEFAULT_PATTERNS:
@@ -90,12 +88,12 @@ def is_protected(path: Path, root: Path) -> bool:
     return False
 
 
-def archive_items(items: List[Path], root: Path, dry_run: bool = True) -> List[Tuple[Path, Path]]:
+def archive_items(items: list[Path], root: Path, dry_run: bool = True) -> list[tuple[Path, Path]]:
     """Move items into archive/YYYYMMDD and return list of (src, dest).
 
     Preserves relative paths under archive/YYYYMMDD/<relative path>
     """
-    moved: List[Tuple[Path, Path]] = []
+    moved: list[tuple[Path, Path]] = []
     date = datetime.utcnow().strftime('%Y%m%d')
     base = root / 'archive' / date
 
@@ -143,7 +141,7 @@ def archive_items(items: List[Path], root: Path, dry_run: bool = True) -> List[T
     return moved
 
 
-def main(argv: List[str] | None = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description='Archive non-production files.')
     parser.add_argument('--dry-run', action='store_true', help='List files to be archived without moving')
     parser.add_argument('--root', type=str, default=str(ROOT), help='Repository root')

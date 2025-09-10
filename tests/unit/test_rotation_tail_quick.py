@@ -1,6 +1,5 @@
-import sys
 import subprocess
-from pathlib import Path
+import sys
 
 
 def test_rotation_quick(tmp_path):
@@ -12,7 +11,8 @@ def test_rotation_quick(tmp_path):
     found = any(p.name.endswith('.gz') for p in tmp_path.glob('test_rotation_quick*'))
     assert found, "rotation gz files not created"
 
-import sys, subprocess, pathlib
+import pathlib
+
 
 def test_rotation_quick(tmp_path):
     logdir = pathlib.Path("logs")

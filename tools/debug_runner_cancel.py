@@ -1,5 +1,5 @@
-from pathlib import Path
 import os
+from pathlib import Path
 import time
 
 from skalp_bot.runner import run_live_aurora as runner

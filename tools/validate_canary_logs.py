@@ -7,11 +7,10 @@ from __future__ import annotations
 
 import argparse
 import json
-from pathlib import Path
-from typing import Dict, Any, List, Tuple
+from pathlib import Path, Path as _P
 import statistics
 import sys
-from pathlib import Path as _P
+from typing import Any
 
 # Ensure repo root is on sys.path for imports in CI
 _ROOT = _P(__file__).resolve().parents[1]
@@ -19,8 +18,8 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 
-def _read_jsonl(path: Path) -> Tuple[List[Dict[str, Any]], int]:
-    events: List[Dict[str, Any]] = []
+def _read_jsonl(path: Path) -> tuple[list[dict[str, Any]], int]:
+    events: list[dict[str, Any]] = []
     corrupt = 0
     if not path.exists():
         return events, 0
@@ -36,7 +35,7 @@ def _read_jsonl(path: Path) -> Tuple[List[Dict[str, Any]], int]:
     return events, corrupt
 
 
-def compute_kpis(events: List[Dict[str, Any]]) -> Dict[str, Any]:
+def compute_kpis(events: list[dict[str, Any]]) -> dict[str, Any]:
     k = {
         'total_events': len(events),
         'intents': 0,
@@ -126,7 +125,7 @@ def compute_kpis(events: List[Dict[str, Any]]) -> Dict[str, Any]:
     return k
 
 
-def validate(path: str, window_mins: int, thresholds: Dict[str, float]) -> int:
+def validate(path: str, window_mins: int, thresholds: dict[str, float]) -> int:
     p = Path(path)
     events, corrupt = _read_jsonl(p)
     if not events:
@@ -251,7 +250,7 @@ def _parse_args():
     return p.parse_args()
 
 
-def main(argv: List[str] | None = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     import sys
     args = _parse_args()
     thresholds = {

@@ -23,8 +23,8 @@ Notes
 - Pure Python; efficient enough for small/medium samples (≤1e5)
 """
 
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Iterable, List, Optional, Tuple
 import math
 import random
 
@@ -38,7 +38,7 @@ class HawkesParams:
 
 # -------------------- core helpers --------------------
 
-def _intensity_at(t: float, times: List[float], params: HawkesParams) -> float:
+def _intensity_at(t: float, times: list[float], params: HawkesParams) -> float:
     mu, eta, beta = params.mu, params.eta, params.beta
     s = 0.0
     # sum over t_i < t of beta * exp(-beta (t - t_i))
@@ -49,7 +49,7 @@ def _intensity_at(t: float, times: List[float], params: HawkesParams) -> float:
     return mu + eta * beta * s
 
 
-def loglik(times: List[float], params: HawkesParams, T: Optional[float] = None) -> float:
+def loglik(times: list[float], params: HawkesParams, T: float | None = None) -> float:
     if not times:
         return -(params.mu * (T if T is not None else 0.0))
     if T is None:
@@ -68,7 +68,7 @@ def loglik(times: List[float], params: HawkesParams, T: Optional[float] = None) 
         lam = mu + eta * beta * s_kernel
         ll += math.log(max(lam, 1e-300))
 
-    # integral term: 
+    # integral term:
     # ∫ λ = μ T + η ∑_{j} ∫_{t_j}^T β e^{-β (t - t_j)} dt = μ T + η ∑_{j} (1 - e^{-β (T - t_j)})
     tail = 0.0
     for tj in times:
@@ -79,8 +79,8 @@ def loglik(times: List[float], params: HawkesParams, T: Optional[float] = None) 
 
 # -------------------- EM estimation --------------------
 
-def fit_em(times: Iterable[float], *, T: Optional[float] = None, max_iter: int = 100, tol: float = 1e-6,
-           init: Optional[HawkesParams] = None) -> HawkesParams:
+def fit_em(times: Iterable[float], *, T: float | None = None, max_iter: int = 100, tol: float = 1e-6,
+           init: HawkesParams | None = None) -> HawkesParams:
     """Estimate (μ, η, β) by EM for exponential Hawkes.
 
     References: Veen & Schoenberg (2008)
@@ -164,12 +164,12 @@ def fit_em(times: Iterable[float], *, T: Optional[float] = None, max_iter: int =
 
 # -------------------- Simulation (Ogata thinning) --------------------
 
-def simulate(params: HawkesParams, T: float, seed: Optional[int] = None) -> List[float]:
+def simulate(params: HawkesParams, T: float, seed: int | None = None) -> list[float]:
     """Simulate Hawkes events on [0, T] via Ogata's thinning (exponential kernel)."""
     if seed is not None:
         random.seed(seed)
     mu, eta, beta = params.mu, params.eta, params.beta
-    t: List[float] = []
+    t: list[float] = []
     s_kernel: float = 0.0
     current = 0.0
     while current < T:

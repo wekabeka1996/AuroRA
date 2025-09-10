@@ -8,11 +8,10 @@ inventory caps, and notional constraints. All breaches result in DENY.
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
-from typing import Dict, Optional, Any, Tuple
+from typing import Any
 
-from core.config.loader import get_config, ConfigError
+from core.config.loader import ConfigError, get_config
 
 
 @dataclass
@@ -32,7 +31,7 @@ class RiskCheckResult:
     """Result of risk guard check."""
     allow: bool
     why_code: str
-    details: Dict[str, Any]
+    details: dict[str, Any]
 
 
 class RiskGuards:
@@ -42,12 +41,12 @@ class RiskGuards:
     All risk breaches result in immediate DENY to prevent catastrophic losses.
     Guards are evaluated in order of computational cost (cheap first).
     """
-    
+
     def __init__(
         self,
-        limits: Optional[RiskLimits] = None,
-        cvar_model: Optional[Any] = None,  # CVaR model interface
-        evt_model: Optional[Any] = None,   # EVT model interface
+        limits: RiskLimits | None = None,
+        cvar_model: Any | None = None,  # CVaR model interface
+        evt_model: Any | None = None,   # EVT model interface
     ):
         # Load limits from SSOT if not provided
         if limits is None:
@@ -55,7 +54,7 @@ class RiskGuards:
                 cfg = get_config()
                 risk_cfg = cfg.get("risk", {})
                 limits_cfg = risk_cfg.get("limits", {})
-                
+
                 limits = RiskLimits(
                     dd_day_bps=float(limits_cfg.get("dd_day_bps", 300.0)),
                     position_usd=float(limits_cfg.get("position_usd", 25000.0)),
@@ -67,20 +66,20 @@ class RiskGuards:
                 )
             except (ConfigError, Exception):
                 limits = RiskLimits()
-        
+
         self.limits = limits
         self.cvar_model = cvar_model
         self.evt_model = evt_model
-        
+
         # Internal state for tracking
-        self._daily_start_equity: Optional[float] = None
-        self._current_equity: Optional[float] = None
-    
+        self._daily_start_equity: float | None = None
+        self._current_equity: float | None = None
+
     def pre_trade_check(
         self,
-        intent: Dict[str, Any],      # order intent (symbol, side, qty, price)
-        snapshot: Dict[str, Any],    # market snapshot
-        account_state: Dict[str, Any]  # account state (equity, positions)
+        intent: dict[str, Any],      # order intent (symbol, side, qty, price)
+        snapshot: dict[str, Any],    # market snapshot
+        account_state: dict[str, Any]  # account state (equity, positions)
     ) -> RiskCheckResult:
         """
         Comprehensive pre-trade risk check.
@@ -101,33 +100,33 @@ class RiskGuards:
             why_code: structured reason code
             details: diagnostic information
         """
-        
+
         # Extract values with defaults
         symbol = intent.get("symbol", "")
         side = intent.get("side", "")
         qty = float(intent.get("qty", 0.0))
         price = float(intent.get("price", 0.0))
         mid_price = float(snapshot.get("mid_price", price))
-        
+
         equity_usd = float(account_state.get("equity_usd", 0.0))
         positions = account_state.get("positions", {})
         net_position_usd = sum(
-            qty * mid_price 
+            qty * mid_price
             for sym, qty in positions.items()
         )
-        
+
         # Update internal equity tracking
         if self._current_equity is None:
             self._current_equity = equity_usd
         if self._daily_start_equity is None:
             self._daily_start_equity = equity_usd
-        
+
         # Use internal equity for DD calculation (more reliable than account_state)
         dd_equity = self._current_equity
-        
+
         # Calculate order notional
         order_notional = abs(qty * price) if price > 0 else 0.0
-        
+
         # 1. Daily DD cap (cheapest check first)
         if self._daily_start_equity and self._daily_start_equity > 0:
             dd_bps = (1.0 - dd_equity / self._daily_start_equity) * 1e4
@@ -142,7 +141,7 @@ class RiskGuards:
                         "start_equity": self._daily_start_equity
                     }
                 )
-        
+
         # 2. Inventory cap
         if abs(net_position_usd) > self.limits.position_usd:
             return RiskCheckResult(
@@ -154,7 +153,7 @@ class RiskGuards:
                     "positions": positions
                 }
             )
-        
+
         # 3. Order notional min/max
         if order_notional < self.limits.order_min_usd:
             return RiskCheckResult(
@@ -167,7 +166,7 @@ class RiskGuards:
                     "price": price
                 }
             )
-        
+
         if order_notional > self.limits.order_max_usd:
             return RiskCheckResult(
                 allow=False,
@@ -179,14 +178,14 @@ class RiskGuards:
                     "price": price
                 }
             )
-        
+
         # 4. CVaR guard (if model available)
         if self.cvar_model is not None:
             try:
                 # Estimate CVaR for this trade
                 predicted_pnl = self._estimate_trade_pnl(intent, snapshot)
                 cvar_value = self.cvar_model.predict_cvar(predicted_pnl)
-                
+
                 if cvar_value < -self.limits.cvar_usd:
                     return RiskCheckResult(
                         allow=False,
@@ -200,7 +199,7 @@ class RiskGuards:
             except Exception:
                 # If CVaR fails, log but don't block (fail-safe)
                 pass
-        
+
         # 5. EVT POT guard (if model available)
         if self.evt_model is not None:
             try:
@@ -208,7 +207,7 @@ class RiskGuards:
                 tail_loss = self.evt_model.predict_quantile(
                     quantile=self.limits.evt_quantile
                 )
-                
+
                 if tail_loss > self.limits.evt_max_loss_usd:
                     return RiskCheckResult(
                         allow=False,
@@ -222,7 +221,7 @@ class RiskGuards:
             except Exception:
                 # If EVT fails, log but don't block (fail-safe)
                 pass
-        
+
         # All checks passed
         return RiskCheckResult(
             allow=True,
@@ -234,35 +233,35 @@ class RiskGuards:
                 "checks_passed": ["dd", "inventory", "notional", "cvar", "evt"]
             }
         )
-    
+
     def _estimate_trade_pnl(
-        self, 
-        intent: Dict[str, Any], 
-        snapshot: Dict[str, Any]
+        self,
+        intent: dict[str, Any],
+        snapshot: dict[str, Any]
     ) -> float:
         """Simple trade PnL estimation for risk modeling."""
         # This is a placeholder - in production, use proper execution simulation
         qty = float(intent.get("qty", 0.0))
         price = float(intent.get("price", 0.0))
         mid_price = float(snapshot.get("mid_price", price))
-        
+
         # Assume 50% adverse slippage for risk estimation
         slippage_bps = 50.0  # Conservative estimate
         slippage_factor = 1.0 + (slippage_bps / 1e4)
-        
+
         if intent.get("side") == "buy":
             execution_price = mid_price * slippage_factor
             pnl = (mid_price - execution_price) * qty
         else:
             execution_price = mid_price / slippage_factor
             pnl = (execution_price - mid_price) * qty
-        
+
         return pnl
-    
+
     def update_equity(self, new_equity: float):
         """Update current equity for DD tracking."""
         self._current_equity = new_equity
-    
+
     def reset_daily_start(self, equity: float):
         """Reset daily starting equity (call at market open)."""
         self._daily_start_equity = equity

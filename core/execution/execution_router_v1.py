@@ -24,18 +24,15 @@ Architecture:
 """
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Set, Tuple, Any
-from datetime import datetime
-import time
-import threading
-import json
-from pathlib import Path
 from enum import Enum
 import statistics
+import threading
+import time
+from typing import Any
 
-from core.config.loader import get_config
 from common.events import EventEmitter
-from core.tca.tca_analyzer import FillEvent, OrderExecution
+from core.config.loader import get_config
+from core.tca.tca_analyzer import FillEvent
 
 # Enhanced idempotency and partials support
 from .idempotency import IdempotencyStore
@@ -79,8 +76,8 @@ class ChildOrder:
     ttl_ms: int = 0
     created_ts_ns: int = 0
     last_update_ts_ns: int = 0
-    fills: List[FillEvent] = field(default_factory=list)
-    reject_reason: Optional[RejectReason] = None
+    fills: list[FillEvent] = field(default_factory=list)
+    reject_reason: RejectReason | None = None
     retry_count: int = 0
     max_retries: int = 3
     correlation_id: str = ""
@@ -138,14 +135,14 @@ class RouterConfig:
 class ExecutionRouter:
     """Execution Router v1.0 — Production-ready order lifecycle manager"""
 
-    def __init__(self, config: Optional[RouterConfig] = None, event_logger: Optional[EventEmitter] = None):
+    def __init__(self, config: RouterConfig | None = None, event_logger: EventEmitter | None = None):
         self.config = config or RouterConfig()
         self.event_logger = event_logger or EventEmitter()
 
         # State management
-        self._active_orders: Dict[str, ChildOrder] = {}
-        self._contexts: Dict[str, ExecutionContext] = {}
-        self._requote_counts: Dict[str, List[int]] = {}  # symbol -> timestamps
+        self._active_orders: dict[str, ChildOrder] = {}
+        self._contexts: dict[str, ExecutionContext] = {}
+        self._requote_counts: dict[str, list[int]] = {}  # symbol -> timestamps
         self._lock = threading.RLock()
 
         # Enhanced idempotency and partials support
@@ -158,7 +155,7 @@ class ExecutionRouter:
         )
 
         # Performance tracking
-        self._decision_latencies: List[float] = []
+        self._decision_latencies: list[float] = []
         self._max_latency_history = 1000
 
         # Load config from SSOT if available
@@ -184,8 +181,8 @@ class ExecutionRouter:
     def execute_sizing_decision(
         self,
         context: ExecutionContext,
-        market_data: Dict[str, Any]
-    ) -> List[ChildOrder]:
+        market_data: dict[str, Any]
+    ) -> list[ChildOrder]:
         """Execute a sizing decision with full lifecycle management
 
         Returns list of child orders to place
@@ -237,11 +234,11 @@ class ExecutionRouter:
     def handle_order_ack(self, order_id: str, ack_ts_ns: int, exchange_latency_ms: float):
         """Handle order acknowledgment with enhanced idempotency"""
         ack_event_id = f"ack:{order_id}:{ack_ts_ns}"
-        
+
         # Enhanced idempotency check
         if self._idempotency_store.seen(ack_event_id):
             return  # Duplicate ACK already processed
-        
+
         with self._lock:
             if order_id not in self._active_orders:
                 return  # Idempotency: ignore unknown orders
@@ -271,10 +268,10 @@ class ExecutionRouter:
         """Handle fill event with enhanced idempotency and partial tracking"""
         # Enhanced fill deduplication
         fill_event_id = f"fill:{order_id}:{fill.ts_ns}:{fill.qty}:{getattr(fill, 'trade_id', '')}"
-        
+
         if self._idempotency_store.seen(fill_event_id):
             return  # Duplicate fill already processed
-        
+
         with self._lock:
             if order_id not in self._active_orders:
                 # Late fill after cleanup - still log for TCA
@@ -297,7 +294,7 @@ class ExecutionRouter:
             # Enhanced deduplication: check if fill already processed by multiple criteria
             if any(
                 (f.ts_ns == fill.ts_ns and f.qty == fill.qty and f.price == fill.price) or
-                (hasattr(fill, 'trade_id') and hasattr(f, 'trade_id') and 
+                (hasattr(fill, 'trade_id') and hasattr(f, 'trade_id') and
                  getattr(fill, 'trade_id', '') and getattr(f, 'trade_id', '') == getattr(fill, 'trade_id', ''))
                 for f in order.fills
             ):
@@ -415,7 +412,7 @@ class ExecutionRouter:
 
     # ------------- GUARDS & CHECKS -------------
 
-    def _check_guards(self, context: ExecutionContext, market_data: Dict[str, Any]) -> bool:
+    def _check_guards(self, context: ExecutionContext, market_data: dict[str, Any]) -> bool:
         """Check all execution guards"""
         # Spread guard
         if context.spread_bps > self.config.spread_limit_bps:
@@ -528,7 +525,7 @@ class ExecutionRouter:
 
     # ------------- CHILD ORDER MANAGEMENT -------------
 
-    def _calculate_child_split(self, context: ExecutionContext, market_data: Dict[str, Any]) -> List[ChildOrder]:
+    def _calculate_child_split(self, context: ExecutionContext, market_data: dict[str, Any]) -> list[ChildOrder]:
         """Calculate child order split"""
         remaining_qty = context.target_qty
         children = []
@@ -552,7 +549,7 @@ class ExecutionRouter:
         # Simple equal split for now
         return min(remaining_qty, remaining_qty / max(1, self.config.max_children))
 
-    def _create_child_order(self, context: ExecutionContext, qty: float, market_data: Dict[str, Any]) -> ChildOrder:
+    def _create_child_order(self, context: ExecutionContext, qty: float, market_data: dict[str, Any]) -> ChildOrder:
         """Create a child order"""
         order_id = f"{context.correlation_id}_{len(self._active_orders)}"
 
@@ -586,7 +583,7 @@ class ExecutionRouter:
 
     # ------------- EVENT LOGGING -------------
 
-    def _log_event(self, event_type: str, correlation_id: str, data: Dict[str, Any]):
+    def _log_event(self, event_type: str, correlation_id: str, data: dict[str, Any]):
         """Log XAI event"""
         event = {
             "event_type": event_type,
@@ -599,20 +596,20 @@ class ExecutionRouter:
 
     # ------------- ENHANCED PARTIAL FILL SUPPORT -------------
 
-    def get_next_slice(self, order_id: str, p_fill: Optional[float] = None) -> Optional[Dict[str, Any]]:
+    def get_next_slice(self, order_id: str, p_fill: float | None = None) -> dict[str, Any] | None:
         """Get next slice for partial fill continuation"""
         with self._lock:
             if order_id not in self._active_orders:
                 return None
-            
+
             order = self._active_orders[order_id]
             if order.state != OrderState.PARTIAL:
                 return None
-            
+
             slice_decision = self._partial_slicer.next_slice(order_id, p_fill=p_fill)
             if slice_decision is None:
                 return None
-            
+
             return {
                 "slice_key": slice_decision.key,
                 "qty": slice_decision.qty,
@@ -632,7 +629,7 @@ class ExecutionRouter:
 
     # ------------- PERFORMANCE MONITORING -------------
 
-    def get_performance_stats(self) -> Dict[str, float]:
+    def get_performance_stats(self) -> dict[str, float]:
         """Get performance statistics"""
         if not self._decision_latencies:
             return {}

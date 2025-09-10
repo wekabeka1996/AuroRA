@@ -15,8 +15,8 @@ No external dependencies; NumPy is optional. Compatible with `core/types.py` if 
 """
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Iterable, List, Optional, Sequence, Tuple, Dict
 import math
 import random
 
@@ -32,9 +32,9 @@ try:  # pragma: no cover - exercised in integration
 except Exception:
     @dataclass
     class ProbabilityMetrics:  # fallback
-        ece: Optional[float] = None
-        brier: Optional[float] = None
-        logloss: Optional[float] = None
+        ece: float | None = None
+        brier: float | None = None
+        logloss: float | None = None
 
         def lambda_cal(self, *, eta: float = 10.0, zeta: float = 5.0) -> float:
             ece = 0.0 if self.ece is None else float(self.ece)
@@ -90,9 +90,9 @@ def log_loss(p: Sequence[float], y: Sequence[int]) -> float:
 def ece_uniform(p: Sequence[float], y: Sequence[int], n_bins: int = 15) -> float:
     if n_bins <= 1:
         return abs(sum(y_i for y_i in y) / max(1, len(y)) - (sum(p) / max(1, len(p))))
-    bins: List[float] = [0.0] * n_bins
-    cnts: List[int] = [0] * n_bins
-    hits: List[int] = [0] * n_bins
+    bins: list[float] = [0.0] * n_bins
+    cnts: list[int] = [0] * n_bins
+    hits: list[int] = [0] * n_bins
     for pi, yi in zip(p, y):
         b = min(n_bins - 1, max(0, int(float(pi) * n_bins)))
         bins[b] += float(pi)
@@ -116,9 +116,9 @@ class PrequentialMetrics:
     _n: int = 0
     _sum_brier: float = 0.0
     _sum_logloss: float = 0.0
-    _bin_sum_p: List[float] = None  # type: ignore
-    _bin_hits: List[int] = None  # type: ignore
-    _bin_cnts: List[int] = None  # type: ignore
+    _bin_sum_p: list[float] = None  # type: ignore
+    _bin_hits: list[int] = None  # type: ignore
+    _bin_cnts: list[int] = None  # type: ignore
 
     def __post_init__(self) -> None:
         self._bin_sum_p = [0.0] * self.n_bins
@@ -166,7 +166,7 @@ class PlattCalibrator:
     max_iter: int = 100
     tol: float = 1e-9
 
-    def fit(self, scores: Sequence[float], y: Sequence[int]) -> "PlattCalibrator":
+    def fit(self, scores: Sequence[float], y: Sequence[int]) -> PlattCalibrator:
         A, B = self.A, self.B
         lam = float(self.l2)
         for _ in range(self.max_iter):
@@ -219,7 +219,7 @@ class PlattCalibrator:
         self.A, self.B = float(A), float(B)
         return self
 
-    def predict_proba(self, scores: Sequence[float]) -> List[float]:
+    def predict_proba(self, scores: Sequence[float]) -> list[float]:
         return [_sigmoid(self.A * float(s) + self.B) for s in scores]
 
     def calibrate_prob(self, p_raw: float) -> float:
@@ -234,7 +234,7 @@ class TemperatureScaler:
     max_iter: int = 100
     tol: float = 1e-9
 
-    def fit(self, p: Sequence[float], y: Sequence[int]) -> "TemperatureScaler":
+    def fit(self, p: Sequence[float], y: Sequence[int]) -> TemperatureScaler:
         # Use Newton steps with backtracking; ensure T>0.
         T = max(1e-3, float(self.T))
         x = [_logit(pi) for pi in p]
@@ -268,7 +268,7 @@ class TemperatureScaler:
         self.T = float(T)
         return self
 
-    def predict_proba(self, p: Sequence[float]) -> List[float]:
+    def predict_proba(self, p: Sequence[float]) -> list[float]:
         return [_sigmoid(_logit(pi) / self.T) for pi in p]
 
 
@@ -280,10 +280,10 @@ class IsotonicCalibrator:
     we perform step-function lookup with linear interpolation between knots for
     smoother behavior.
     """
-    xs_: List[float] = None  # type: ignore
-    ys_: List[float] = None  # type: ignore
+    xs_: list[float] = None  # type: ignore
+    ys_: list[float] = None  # type: ignore
 
-    def fit(self, x: Sequence[float], y: Sequence[int]) -> "IsotonicCalibrator":
+    def fit(self, x: Sequence[float], y: Sequence[int]) -> IsotonicCalibrator:
         pairs = sorted((float(xi), int(yi)) for xi, yi in zip(x, y))
         xs = [xi for xi, _ in pairs]
         ys = [float(yi) for _, yi in pairs]
@@ -327,10 +327,10 @@ class IsotonicCalibrator:
 
         return self
 
-    def predict_proba(self, x: Sequence[float]) -> List[float]:
+    def predict_proba(self, x: Sequence[float]) -> list[float]:
         if not self.xs_:
             return [0.5] * len(list(x))
-        res: List[float] = []
+        res: list[float] = []
         for xi in x:
             xi = float(xi)
             # find insertion point
@@ -377,8 +377,8 @@ class ProbabilityCalibrator:
         if m not in ("platt", "isotonic"):
             raise ValueError("unknown calibration method: " + method)
         self._method = m
-        self._platt: Optional[PlattCalibrator] = None
-        self._iso: Optional[IsotonicCalibrator] = None
+        self._platt: PlattCalibrator | None = None
+        self._iso: IsotonicCalibrator | None = None
 
     def fit(self, p_raw: Sequence[float], y: Sequence[int]) -> None:
         if self._method == "platt":
@@ -422,10 +422,10 @@ def evaluate_calibration(p: Sequence[float], y: Sequence[int], n_bins: int = 15)
 # Self-tests (synthetic)
 # =============================
 
-def _make_synthetic(n: int = 5000, seed: int = 7) -> Tuple[List[float], List[int], List[float]]:
+def _make_synthetic(n: int = 5000, seed: int = 7) -> tuple[list[float], list[int], list[float]]:
     random.seed(seed)
-    xs: List[float] = []  # raw scores
-    y: List[int] = []
+    xs: list[float] = []  # raw scores
+    y: list[int] = []
     for _ in range(n):
         s = random.gauss(0.0, 1.0)
         xs.append(s)

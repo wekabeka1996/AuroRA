@@ -19,18 +19,19 @@ Notes
   as a reliable skeleton. Extend as needed.
 """
 
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Mapping, Optional, Dict, Any, cast
+from typing import Any, cast
 from urllib.parse import urlencode
 
 from core.execution.exchange.common import (
     AbstractExchange,
+    Fill,
     HttpClient,
     OrderRequest,
     OrderResult,
     OrderType,
     SymbolInfo,
-    Fill,
     ValidationError,
     make_idempotency_key,
 )
@@ -45,7 +46,7 @@ class _Creds:
 class BinanceExchange(AbstractExchange):
     name = "binance"
 
-    def __init__(self, *, api_key: str, api_secret: str, http: Optional[HttpClient] = None, futures: bool = False, base_url: Optional[str] = None) -> None:
+    def __init__(self, *, api_key: str, api_secret: str, http: HttpClient | None = None, futures: bool = False, base_url: str | None = None) -> None:
         super().__init__(http=http)
         self._creds = _Creds(api_key, api_secret)
         self._is_futures = bool(futures)
@@ -80,7 +81,7 @@ class BinanceExchange(AbstractExchange):
     def get_server_time_ms(self) -> int:
         if self._http is None:
             return int(self.server_time_ns_hint() // 1_000_000)
-        out = cast(Dict[str, Any], self._http.request("GET", self._ep(self._time_path())))
+        out = cast(dict[str, Any], self._http.request("GET", self._ep(self._time_path())))
         return int(out.get("serverTime", 0))
 
     def get_symbol_info(self, symbol: str) -> SymbolInfo:
@@ -88,11 +89,11 @@ class BinanceExchange(AbstractExchange):
         if self._http is None:
             # Conservative defaults for offline validation; override in production
             return SymbolInfo(symbol=sym, base=sym[:-4], quote=sym[-4:], tick_size=0.01, step_size=0.001, min_qty=0.001, min_notional=5.0)
-        data = cast(Dict[str, Any], self._http.request("GET", self._ep(self._exchange_info_path()), params={"symbol": sym}))
+        data = cast(dict[str, Any], self._http.request("GET", self._ep(self._exchange_info_path()), params={"symbol": sym}))
         symbols = cast(list, data.get("symbols")) or cast(list, data.get("symbols", []))
         if not symbols:
             # Some endpoints return single-symbol object under 'symbols' or 'symbol'
-            symbol_data = cast(Dict[str, Any], data.get("symbol")) if data.get("symbol") else None
+            symbol_data = cast(dict[str, Any], data.get("symbol")) if data.get("symbol") else None
             symbols = [symbol_data] if symbol_data else []
         if not symbols:
             raise ValidationError(f"symbol {sym} not found")
@@ -150,7 +151,7 @@ class BinanceExchange(AbstractExchange):
         }
         if clean.type == OrderType.LIMIT:
             params.update({"price": f"{clean.price}", "timeInForce": clean.tif.value})
-        res = cast(Dict[str, Any], self._signed_request("POST", self._order_path(), params))
+        res = cast(dict[str, Any], self._signed_request("POST", self._order_path(), params))
         # map result (fields follow Binance JSON structure; keep raw)
         fills = []
         fills_data = res.get("fills", [])
@@ -196,7 +197,7 @@ class BinanceExchange(AbstractExchange):
             params["orderId"] = order_id
         if client_order_id:
             params["origClientOrderId"] = client_order_id
-        return cast(Dict[str, Any], self._signed_request("DELETE", self._order_path(), params))
+        return cast(dict[str, Any], self._signed_request("DELETE", self._order_path(), params))
 
     def get_order(self, symbol: str, order_id: str | None = None, client_order_id: str | None = None) -> Mapping[str, object]:
         ts = self.get_server_time_ms()
@@ -209,7 +210,7 @@ class BinanceExchange(AbstractExchange):
             params["orderId"] = order_id
         if client_order_id:
             params["origClientOrderId"] = client_order_id
-        return cast(Dict[str, Any], self._signed_request("GET", self._order_path(), params))
+        return cast(dict[str, Any], self._signed_request("GET", self._order_path(), params))
 
 
 __all__ = ["BinanceExchange"]

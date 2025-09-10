@@ -1,7 +1,9 @@
 from __future__ import annotations
+
 import os
-import ccxt
 from typing import Any, Literal
+
+import ccxt
 
 
 class CCXTBinanceAdapter:
@@ -100,7 +102,7 @@ class CCXTBinanceAdapter:
             root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
             for env_candidate in (os.path.join(root_dir, ".env"), os.path.join(os.getcwd(), ".env")):
                 if os.path.isfile(env_candidate):
-                    for line in open(env_candidate, "r", encoding="utf-8"):
+                    for line in open(env_candidate, encoding="utf-8"):
                         s = line.strip()
                         if not s or s.startswith("#"):
                             continue

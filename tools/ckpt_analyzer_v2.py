@@ -11,10 +11,17 @@ Exit codes:
  0 OK, 3 anomaly when --exit-on-anomaly
 """
 from __future__ import annotations
-import argparse, json, sys, math, time
+
+import argparse
+import hashlib
+import json
+import math
 from pathlib import Path
-from typing import Dict, Any, List, Tuple
-import torch, yaml, hashlib
+import sys
+from typing import Any
+
+import torch
+import yaml
 
 
 def parse_args():
@@ -37,12 +44,12 @@ def load_profile(path: Path, name: str):
     return cfg['profiles'][name]
 
 
-def list_checkpoints(dir_path: Path) -> List[Path]:
+def list_checkpoints(dir_path: Path) -> list[Path]:
     cks = [p for p in dir_path.glob('*.pt')]
     return sorted(cks, key=lambda p: p.stat().st_mtime, reverse=True)
 
 
-def pick_reference(cks: List[Path], ref_spec: str) -> Path | None:
+def pick_reference(cks: list[Path], ref_spec: str) -> Path | None:
     if ref_spec.startswith('latest-'):
         try:
             idx = int(ref_spec.split('-')[1])
@@ -58,7 +65,7 @@ def pick_reference(cks: List[Path], ref_spec: str) -> Path | None:
     return None
 
 
-def tensor_iter(state_dict: Dict[str, Any]):
+def tensor_iter(state_dict: dict[str, Any]):
     for k, v in state_dict.items():
         if torch.is_tensor(v) and v.dtype.is_floating_point:
             yield k, v
@@ -75,14 +82,14 @@ def cosine(a: torch.Tensor, b: torch.Tensor):
     return float((a_f @ b_f) / denom)
 
 
-def analyze_pair(ref_sd: Dict[str, Any], cur_sd: Dict[str, Any], profile: Dict[str, Any]):
-    stats: List[Dict[str, Any]] = []
+def analyze_pair(ref_sd: dict[str, Any], cur_sd: dict[str, Any], profile: dict[str, Any]):
+    stats: list[dict[str, Any]] = []
     frozen = 0
     total = 0
     min_nonzero_std = profile['min_nonzero_std']
     has_nan = False
     has_inf = False
-    cos_list: List[float] = []
+    cos_list: list[float] = []
     for k, v in tensor_iter(cur_sd):
         total += 1
         if torch.isnan(v).any():
@@ -110,7 +117,7 @@ def analyze_pair(ref_sd: Dict[str, Any], cur_sd: Dict[str, Any], profile: Dict[s
     }
 
 
-def detect_anomaly(analysis: Dict[str, Any], profile: Dict[str, Any]):
+def detect_anomaly(analysis: dict[str, Any], profile: dict[str, Any]):
     if analysis['has_nan'] and not profile['allow_nan']:
         return True, 'nan'
     if analysis['has_inf'] and not profile['allow_inf']:

@@ -1,7 +1,8 @@
 
+from collections import deque
+
 import numpy as np
 import torch
-from collections import deque
 
 
 class BCCTracker:

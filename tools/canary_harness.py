@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 import argparse
+from collections import Counter
+from datetime import UTC, datetime, timedelta
 import json
-import sys
-from collections import deque, Counter
-from datetime import datetime, timedelta, timezone
 from pathlib import Path
+import sys
 
-import time
 import requests
 
 
@@ -29,7 +28,7 @@ def parse_events(path: Path):
 
 def risk_should_fail(events: list[dict], window_sec: int, threshold: int) -> tuple[bool, str]:
     """Track RISK.DENY reasons in a moving window. Support new event_code and ts_ns."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     window_start = now - timedelta(seconds=window_sec)
     reasons = []
     for ev in events[-1000:]:
@@ -40,7 +39,7 @@ def risk_should_fail(events: list[dict], window_sec: int, threshold: int) -> tup
         tdt = now
         if ev.get('ts_ns') is not None:
             try:
-                tdt = datetime.fromtimestamp(float(ev['ts_ns']) / 1_000_000_000.0, tz=timezone.utc)
+                tdt = datetime.fromtimestamp(float(ev['ts_ns']) / 1_000_000_000.0, tz=UTC)
             except Exception:
                 tdt = now
         else:
@@ -48,7 +47,7 @@ def risk_should_fail(events: list[dict], window_sec: int, threshold: int) -> tup
             try:
                 tdt = datetime.fromisoformat(ts.replace('Z','+00:00')) if isinstance(ts, str) else now
                 if tdt.tzinfo is None:
-                    tdt = tdt.replace(tzinfo=timezone.utc)
+                    tdt = tdt.replace(tzinfo=UTC)
             except Exception:
                 tdt = now
         if tdt < window_start:
@@ -103,7 +102,7 @@ def main():
         if not args.no_autocooloff and args.ops_token:
             # If there is at least one recent RISK.DENY but below threshold, try a cooloff
             has_any = False
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
             window_start = now - timedelta(seconds=args.window_sec)
             for ev in events[-1000:]:
                 code = str(ev.get('event_code') or ev.get('type') or ev.get('code') or '').upper()
@@ -111,12 +110,12 @@ def main():
                     continue
                 try:
                     if ev.get('ts_ns') is not None:
-                        tdt = datetime.fromtimestamp(float(ev['ts_ns']) / 1_000_000_000.0, tz=timezone.utc)
+                        tdt = datetime.fromtimestamp(float(ev['ts_ns']) / 1_000_000_000.0, tz=UTC)
                     else:
                         ts = ev.get('ts')
                         tdt = datetime.fromisoformat(ts.replace('Z','+00:00')) if isinstance(ts, str) else now
                         if tdt.tzinfo is None:
-                            tdt = tdt.replace(tzinfo=timezone.utc)
+                            tdt = tdt.replace(tzinfo=UTC)
                 except Exception:
                     tdt = now
                 if tdt >= window_start:

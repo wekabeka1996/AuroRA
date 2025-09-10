@@ -4,6 +4,7 @@ Tests for core/xai/schema.py
 from __future__ import annotations
 
 import pytest
+
 from core.xai.schema import validate_decision
 
 

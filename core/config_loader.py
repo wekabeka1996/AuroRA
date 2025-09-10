@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from typing import Optional, Literal
+from datetime import UTC, datetime
 import os
-import sys
 from pathlib import Path
-from pydantic import BaseModel, Field, conint, confloat, ValidationError
-from typing import Annotated
+import sys
+from typing import Annotated, Literal
+
+from pydantic import BaseModel, Field, ValidationError, confloat, conint
 import yaml
-from datetime import datetime, timezone
 
 
 class RewardCfg(BaseModel):
@@ -63,7 +63,7 @@ class Config(BaseModel):
 
 def _health_error(msg: str) -> None:
     # Emit to stdout in a consistent way; api/service.py uses EventEmitter, but loader can run early.
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     print(f"HEALTH.ERROR [{now}] {msg}", file=sys.stderr)
 
 
@@ -82,7 +82,7 @@ class ConfigLoadError(RuntimeError):
     pass
 
 
-def load_config(name: Optional[str]) -> Config:
+def load_config(name: str | None) -> Config:
     """Reads .env:AURORA_CONFIG_NAME or provided name, loads YAML into Config.
     On error, emit HEALTH.ERROR and raise ConfigLoadError (замість exit).
     """

@@ -15,14 +15,15 @@ This module **does not** perform network I/O; concrete adapters may accept an
 HTTP client (protocol) or implement their own I/O.
 """
 
+from collections.abc import Mapping
 from dataclasses import dataclass
-from decimal import Decimal, ROUND_DOWN, ROUND_HALF_UP, getcontext
+from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal, getcontext
 from enum import Enum
-from typing import Dict, List, Mapping, Optional, Protocol, Tuple
 import hashlib
 import hmac
 import threading
 import time
+from typing import Protocol
 
 # Higher precision for Decimal ops
 getcontext().prec = 28
@@ -69,8 +70,8 @@ class SymbolInfo:
     step_size: float  # qty increment
     min_qty: float
     min_notional: float
-    price_decimals: Optional[int] = None
-    qty_decimals: Optional[int] = None
+    price_decimals: int | None = None
+    qty_decimals: int | None = None
 
 
 @dataclass
@@ -79,9 +80,9 @@ class OrderRequest:
     side: Side
     type: OrderType
     quantity: float
-    price: Optional[float] = None
+    price: float | None = None
     tif: TimeInForce = TimeInForce.GTC
-    client_order_id: Optional[str] = None
+    client_order_id: str | None = None
 
 
 @dataclass
@@ -100,7 +101,7 @@ class OrderResult:
     status: str
     executed_qty: float
     cumm_quote_cost: float
-    fills: List[Fill]
+    fills: list[Fill]
     ts_ns: int
     raw: Mapping[str, object]
 
@@ -110,28 +111,28 @@ class Fees:
     """Exchange fee structure with maker/taker rates and rebates."""
     maker_fee_bps: float  # Maker fee in basis points (e.g., -0.1 for 0.1% rebate)
     taker_fee_bps: float  # Taker fee in basis points (e.g., 0.1 for 0.1%)
-    
+
     @property
     def maker_fee_rate(self) -> float:
         """Maker fee as decimal (negative for rebates)."""
         return self.maker_fee_bps / 10000.0
-    
-    @property  
+
+    @property
     def taker_fee_rate(self) -> float:
         """Taker fee as decimal."""
         return self.taker_fee_bps / 10000.0
-    
+
     @classmethod
-    def from_exchange_config(cls, exchange_name: str) -> 'Fees':
+    def from_exchange_config(cls, exchange_name: str) -> Fees:
         """Create Fees from SSOT config for given exchange."""
         try:
             from core.config.loader import get_config
             cfg = get_config()
             base_key = f"execution.exchange.{exchange_name}"
-            
+
             maker_bps = float(cfg.get(f"{base_key}.maker_fee_bps", 0.1))
             taker_bps = float(cfg.get(f"{base_key}.taker_fee_bps", 0.1))
-            
+
             return cls(maker_fee_bps=maker_bps, taker_fee_bps=taker_bps)
         except Exception:
             # Conservative defaults
@@ -231,8 +232,8 @@ class TokenBucket:
 # --------------------------- HTTP Protocol ---------------------------
 
 class HttpClient(Protocol):
-    def request(self, method: str, url: str, *, params: Optional[Mapping[str, object]] = None,
-                headers: Optional[Mapping[str, str]] = None, json: Optional[object] = None) -> Mapping[str, object]:
+    def request(self, method: str, url: str, *, params: Mapping[str, object] | None = None,
+                headers: Mapping[str, str] | None = None, json: object | None = None) -> Mapping[str, object]:
         ...
 
 
@@ -241,7 +242,7 @@ class HttpClient(Protocol):
 class AbstractExchange:
     name: str = "abstract"
 
-    def __init__(self, *, http: Optional[HttpClient] = None) -> None:
+    def __init__(self, *, http: HttpClient | None = None) -> None:
         self._http = http
 
     # ---- time ----
@@ -267,7 +268,7 @@ class AbstractExchange:
         raise NotImplementedError
 
     # ---- utils ----
-    def validate_order(self, req: OrderRequest, info: Optional[SymbolInfo] = None) -> OrderRequest:
+    def validate_order(self, req: OrderRequest, info: SymbolInfo | None = None) -> OrderRequest:
         if info is None:
             info = self.get_symbol_info(req.symbol)
         clean = apply_symbol_filters(req, info)
@@ -301,7 +302,7 @@ class AbstractExchange:
 
 __all__ = [
     "ExchangeError",
-    "ValidationError", 
+    "ValidationError",
     "RateLimitError",
     "Side",
     "OrderType",

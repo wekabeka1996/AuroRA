@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Check gzipped rotation parts: ensure last line JSON parses and contains ISO-8601Z in 'ts_iso' if present."""
-from pathlib import Path
 import gzip
 import json
+from pathlib import Path
 
 LOG_DIR = Path('logs')
 base = LOG_DIR / 'test_events.jsonl'

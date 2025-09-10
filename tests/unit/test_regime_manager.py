@@ -4,6 +4,7 @@ Tests for core/regime/manager.py
 from __future__ import annotations
 
 import pytest
+
 from core.regime.manager import RegimeManager, RegimeState
 
 

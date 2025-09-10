@@ -1,4 +1,5 @@
 import time
+
 import pytest
 
 from core.ingestion.sync_clock import ManualClock, RealTimeClock, ReplayClock

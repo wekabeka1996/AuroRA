@@ -1,4 +1,4 @@
-import json, sys
+import json
 from pathlib import Path
 
 p = Path('notebooks/aurora_colab/Aurora_SSOT_XAI_Optuna.ipynb')

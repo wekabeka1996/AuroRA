@@ -38,8 +38,9 @@ Provide pure functions + a small stateful window class for streaming updates.
 Type hints, docstrings, no external network deps.
 """
 
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Iterable, Optional, Tuple, List, Literal
+from typing import Literal
 
 import numpy as np
 
@@ -87,7 +88,7 @@ def _rate(sum_vals: float, dt_s: float) -> float:
 
 def compute_trap_raw(
     cancel_deltas: Iterable[float], add_deltas: Iterable[float], trades_cnt: int, dt_s: float
-) -> Tuple[float, float, float]:
+) -> tuple[float, float, float]:
     """Compute cancel_rate, repl_rate, trap_raw from a single window snapshot."""
     cancel_sum = float(np.sum(np.maximum(np.array(list(cancel_deltas), dtype=float), 0.0)))
     add_sum = float(np.sum(np.maximum(np.array(list(add_deltas), dtype=float), 0.0)))
@@ -125,8 +126,8 @@ class TrapWindow:
         *,
         z_threshold: float = 1.64,
         cancel_pctl: int = 90,
-        obi_sign: Optional[int] = None,
-        tfi_sign: Optional[int] = None,
+        obi_sign: int | None = None,
+        tfi_sign: int | None = None,
     ) -> TrapMetrics:
         cancel_rate, repl_rate, trap_raw = compute_trap_raw(cancel_deltas, add_deltas, trades_cnt, self.window_s)
 
@@ -167,12 +168,12 @@ class BookDelta:
     action: BookAction
 
 
-def _estimate_replenish_latency_ms(events: List[BookDelta], price_eps: float = 1e-6) -> float:
+def _estimate_replenish_latency_ms(events: list[BookDelta], price_eps: float = 1e-6) -> float:
     """Estimate typical replenish latency: time between cancel and next add at nearby price on same side.
 
     Returns median latency in milliseconds over pairs found; if none found, returns a large sentinel (e.g., 1000ms).
     """
-    latencies: List[float] = []
+    latencies: list[float] = []
     last_cancel_by_side_price: dict[tuple[str, int], float] = {}
     for ev in sorted(events, key=lambda e: e.ts):
         key = (ev.side, int(round(ev.price / max(price_eps, 1e-9))))
@@ -190,7 +191,7 @@ def _estimate_replenish_latency_ms(events: List[BookDelta], price_eps: float = 1
     return float(np.median(arr))
 
 
-def _cancel_add_sums(events: List[BookDelta], levels: int = 5) -> tuple[List[float], List[float]]:
+def _cancel_add_sums(events: list[BookDelta], levels: int = 5) -> tuple[list[float], list[float]]:
     """Aggregate positive cancel/add deltas across L1..Lk.
 
     Here we do not maintain explicit levels by price distance; for a simple heuristic we sum per event type.
@@ -218,7 +219,7 @@ def trap_score_from_features(cancel_ratio: float, replenish_latency_ms: float) -
 
 
 def trap_from_book_deltas(
-    events: List[BookDelta], *, window_s: float = 2.0, levels: int = 5
+    events: list[BookDelta], *, window_s: float = 2.0, levels: int = 5
 ) -> tuple[float, float, float, float]:
     """Compute trap features from normalized book_delta events within a window.
 

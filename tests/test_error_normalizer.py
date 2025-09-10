@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from exch.errors import normalize_reason, BINANCE_FUTURES_ERROR_MAP
+from exch.errors import BINANCE_FUTURES_ERROR_MAP, normalize_reason
 
 
 def test_known_codes_normalized():

@@ -4,10 +4,10 @@
 Usage: python tools\run_tests_clean_env.py
 """
 import os
-import sys
-import subprocess
-import shutil
 from pathlib import Path
+import shutil
+import subprocess
+import sys
 
 # Prepare environment without AURORA_* keys
 env = os.environ.copy()

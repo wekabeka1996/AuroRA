@@ -1,10 +1,12 @@
 from __future__ import annotations
-from typing import List, Tuple, Dict, Optional
-import numpy as np
+
 from collections import deque
 import time
 
-def micro_price(best_bid: Tuple[float, float], best_ask: Tuple[float, float]) -> Optional[float]:
+import numpy as np
+
+
+def micro_price(best_bid: tuple[float, float], best_ask: tuple[float, float]) -> float | None:
     """Return micro-price weighted by opposite queue sizes."""
     try:
         pb, vb = float(best_bid[0]), float(best_bid[1])
@@ -16,7 +18,7 @@ def micro_price(best_bid: Tuple[float, float], best_ask: Tuple[float, float]) ->
         return (pb + pa) / 2
     return (pb * va + pa * vb) / tot
 
-def obi_from_l5(bids: List[Tuple[float, float]], asks: List[Tuple[float, float]], levels: int = 5) -> Optional[float]:
+def obi_from_l5(bids: list[tuple[float, float]], asks: list[tuple[float, float]], levels: int = 5) -> float | None:
     """Order Book Imbalance using sum of sizes over L1..Lk (price, size) lists.
     Clamped to [-1, 1] to avoid saturation artifacts when one side is ~0.
     """
@@ -35,8 +37,8 @@ def obi_from_l5(bids: List[Tuple[float, float]], asks: List[Tuple[float, float]]
         obi = -1.0
     return float(obi)
 
-def tfi_from_trades(trades: List[Dict], side_key="side", qty_key="qty",
-                    ask_side="buy", bid_side="sell") -> Optional[float]:
+def tfi_from_trades(trades: list[dict], side_key="side", qty_key="qty",
+                    ask_side="buy", bid_side="sell") -> float | None:
     """Trade Flow Imbalance from recent trades stream.
     Prefer exchange aggressor flag when present: on Binance isBuyerMaker=True → aggressor is seller.
     Fallback to side field ('buy'/'sell').
@@ -70,7 +72,7 @@ def tfi_from_trades(trades: List[Dict], side_key="side", qty_key="qty",
         tfi = -1.0
     return float(tfi)
 
-def combine_alpha(obi: Optional[float], tfi: Optional[float], mp: Optional[float], mid: float, weights=(1.0, 1.0, 1.0)) -> float:
+def combine_alpha(obi: float | None, tfi: float | None, mp: float | None, mid: float, weights=(1.0, 1.0, 1.0)) -> float:
     """Combine OBI, TFI and micro-price deviation from mid into a scalar score."""
     w_obi, w_tfi, w_micro = weights
     parts = []
@@ -79,15 +81,15 @@ def combine_alpha(obi: Optional[float], tfi: Optional[float], mp: Optional[float
     if tfi is not None:
         parts.append(w_tfi * float(tfi))
     if mp is not None and np.isfinite(mid):
-        parts.append(w_micro * float((mp - mid)))
+        parts.append(w_micro * float(mp - mid))
     if not parts:
         return 0.0
     return float(np.tanh(np.sum(parts)))
 
 # --- New metrics (WS-α-01) ---
 
-def ofi_simplified(prev_bid: Tuple[float, float], prev_ask: Tuple[float, float],
-                   bid: Tuple[float, float], ask: Tuple[float, float]) -> Optional[float]:
+def ofi_simplified(prev_bid: tuple[float, float], prev_ask: tuple[float, float],
+                   bid: tuple[float, float], ask: tuple[float, float]) -> float | None:
     """Simplified OFI around best quotes: added-removed at best bid/ask with tick direction.
     Returns value in [-1,1] approx (normalized by size sum).
     """
@@ -105,8 +107,8 @@ def ofi_simplified(prev_bid: Tuple[float, float], prev_ask: Tuple[float, float],
         return 0.0
     return float((d_bid + d_ask) / denom)
 
-def absorption(trades: List[Dict], side: str = 'bid', window_s: float = 3.0,
-               now_ts: Optional[float] = None) -> float:
+def absorption(trades: list[dict], side: str = 'bid', window_s: float = 3.0,
+               now_ts: float | None = None) -> float:
     """Absorption proxy: market sells at bid or buys at ask without price move.
     Expect trade dicts contain ts (ms), side ('buy'/'sell'), and optionally price.
     Returns volume at the chosen side over recent window.
@@ -124,8 +126,8 @@ def absorption(trades: List[Dict], side: str = 'bid', window_s: float = 3.0,
             vol += float(t.get('qty', 0.0) or 0.0)
     return float(vol)
 
-def cancel_replenish_rate(events: List[Dict], window_s: float = 5.0,
-                          now_ts: Optional[float] = None) -> float:
+def cancel_replenish_rate(events: list[dict], window_s: float = 5.0,
+                          now_ts: float | None = None) -> float:
     """Cancel/Replenish ratio from LOB update events with type in {'add','cancel'}.
     This requires a feed of LOB events. If unavailable, return 0.0.
     """
@@ -149,7 +151,7 @@ def cancel_replenish_rate(events: List[Dict], window_s: float = 5.0,
         return float('inf') if cancel_q > 0 else 0.0
     return float(cancel_q / add_q)
 
-def sweep_score(trades: List[Dict], dt_ms: int = 100) -> float:
+def sweep_score(trades: list[dict], dt_ms: int = 100) -> float:
     """Estimate sweep by counting unique price levels crossed within a short burst.
     Without L2 deltas, approximate via price range span over the burst.
     """
@@ -169,7 +171,7 @@ def sweep_score(trades: List[Dict], dt_ms: int = 100) -> float:
     mid = (pmin + pmax) / 2.0 if (pmin and pmax) else (pmin + pmax + 1e-9) / 2.0
     return float(abs(pmax - pmin) / (mid if mid else 1.0))
 
-def liquidity_ahead(depth: List[Tuple[float, float]], levels: int = 5) -> float:
+def liquidity_ahead(depth: list[tuple[float, float]], levels: int = 5) -> float:
     """Average depth ahead on a side (e.g., asks for longs). Provide list of (price, size)."""
     if not depth:
         return 0.0
@@ -222,7 +224,7 @@ class RollingPerc:
         p95 = float(np.percentile(arr, 95))
         return (p05, p50, p95)
 
-def compute_alpha_score(features: Dict[str, float], rp: Dict[str, tuple], weights: Dict[str, float] | None = None) -> float:
+def compute_alpha_score(features: dict[str, float], rp: dict[str, tuple], weights: dict[str, float] | None = None) -> float:
     """Compute weighted alpha score from normalized features using robust percentiles.
     Missing features default to 0. Features expected: OBI, TFI, ABSORB, MICRO_BIAS, OFI, TREND_ALIGN.
     """

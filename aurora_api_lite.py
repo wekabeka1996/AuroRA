@@ -3,10 +3,11 @@
 Aurora API Lite - Спрощений API для тестування інтеграції з WiseScalp
 """
 
+import asyncio
 import json
 import time
-import asyncio
-from fastapi import FastAPI, HTTPException
+
+from fastapi import FastAPI
 import uvicorn
 
 # --- Створюємо FastAPI ---
@@ -23,7 +24,7 @@ async def health():
     """Простий health check"""
     return {"status": "healthy", "timestamp": time.time()}
 
-@app.get("/healthz")  
+@app.get("/healthz")
 async def healthz():
     """Kubernetes style health check"""
     return {"status": "ok"}
@@ -36,15 +37,15 @@ async def pretrade_check(request: dict):
     """
     # Симуляція обробки (не блокуємо event loop)
     await asyncio.sleep(0.001)
-    
+
     order = request.get("order", {})
     market = request.get("market", {})
     account = request.get("account", {})
-    
+
     symbol = (market or {}).get("symbol") or (request.get("order") or {}).get("symbol") or "UNKNOWN"
     qty = order.get("qty", 0)
     side = order.get("side", "buy")
-    
+
     # Базова валідація
     if qty <= 0:
         return {
@@ -63,11 +64,11 @@ async def pretrade_check(request: dict):
                 "reasons": ["invalid_qty"],
             }
         }
-    
+
     # Симуляція Aurora логіки
     confidence = 0.85
     regime = 2
-    
+
     # Симуляція обмежень
     if "BTC" in symbol and qty > 0.1:
         return {
@@ -86,7 +87,7 @@ async def pretrade_check(request: dict):
                 "reasons": ["pos_limit"],
             }
         }
-    
+
     # Дозволити операцію
     return {
         "allow": True,
@@ -116,9 +117,9 @@ async def posttrade_log(request: dict):
         "timestamp": time.time(),
         "request": request
     }
-    
+
     print(f"[TRADE LOG] {json.dumps(trade_log, indent=2)}")
-    
+
     return {
         "status": "logged",
         "trade_id": f"tr_{int(time.time()*1000)}",

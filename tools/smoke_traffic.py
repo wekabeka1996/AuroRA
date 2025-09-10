@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass
 import json
 import random
 import time
-from dataclasses import dataclass
-from typing import Dict, Any
+from typing import Any
 
 import requests
 
@@ -18,7 +18,7 @@ class Stats:
     last_reason: str | None = None
 
 
-def make_payload(symbol: str) -> Dict[str, Any]:
+def make_payload(symbol: str) -> dict[str, Any]:
     # Generate a plausible pretrade payload; use testnet mode
     # Randomize a bit to exercise gates deterministically
     a_bps = random.uniform(3.0, 8.0)

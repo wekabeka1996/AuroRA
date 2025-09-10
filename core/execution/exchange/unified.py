@@ -12,25 +12,24 @@ Provides a unified interface for all exchange adapters with:
 - Support for both dependency-free and CCXT-based implementations
 """
 
-import logging
 from abc import ABC, abstractmethod
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Protocol, Type, Any, Union, Mapping
 from enum import Enum
+import logging
+from typing import Any, Protocol
 
+from core.execution.exchange.binance import BinanceExchange
 from core.execution.exchange.common import (
     AbstractExchange,
+    ExchangeError,
     Fees,
     OrderRequest,
     OrderResult,
     SymbolInfo,
-    ExchangeError,
-    ValidationError,
-    RateLimitError,
 )
-from core.execution.exchange.binance import BinanceExchange
-from core.execution.exchange.gate import GateExchange
 from core.execution.exchange.error_handling import exchange_operation_context
+from core.execution.exchange.gate import GateExchange
 
 logger = logging.getLogger(__name__)
 
@@ -55,17 +54,17 @@ class ExchangeConfig:
     adapter_mode: AdapterMode
     api_key: str
     api_secret: str
-    base_url: Optional[str] = None
+    base_url: str | None = None
     futures: bool = False
     testnet: bool = True
     recv_window_ms: int = 5000
     timeout_ms: int = 20000
     enable_rate_limit: bool = True
     dry_run: bool = True
-    fees: Optional[Fees] = None
+    fees: Fees | None = None
 
     @classmethod
-    def from_ssot_config(cls, exchange_name: str) -> 'ExchangeConfig':
+    def from_ssot_config(cls, exchange_name: str) -> ExchangeConfig:
         """Create ExchangeConfig from SSOT configuration."""
         try:
             from core.config.loader import get_config
@@ -125,18 +124,18 @@ class ExchangeConfig:
 
 class HttpClientProtocol(Protocol):
     """HTTP client protocol for dependency injection."""
-    def request(self, method: str, url: str, *, params: Optional[Mapping[str, object]] = None,
-                headers: Optional[Mapping[str, str]] = None, json: Optional[object] = None) -> Mapping[str, object]:
+    def request(self, method: str, url: str, *, params: Mapping[str, object] | None = None,
+                headers: Mapping[str, str] | None = None, json: object | None = None) -> Mapping[str, object]:
         ...
 
 
 class UnifiedExchangeAdapter(ABC):
     """Abstract base class for unified exchange adapters."""
 
-    def __init__(self, config: ExchangeConfig, http_client: Optional[HttpClientProtocol] = None):
+    def __init__(self, config: ExchangeConfig, http_client: HttpClientProtocol | None = None):
         self.config = config
         self.http_client = http_client
-        self._exchange: Optional[AbstractExchange] = None
+        self._exchange: AbstractExchange | None = None
         self._logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
 
     @property
@@ -177,8 +176,8 @@ class UnifiedExchangeAdapter(ABC):
             self._logger.info(f"Order placed: {result.order_id} ({result.status})")
             return result
 
-    def cancel_order(self, symbol: str, order_id: Optional[str] = None,
-                    client_order_id: Optional[str] = None) -> Dict[str, Any]:
+    def cancel_order(self, symbol: str, order_id: str | None = None,
+                    client_order_id: str | None = None) -> dict[str, Any]:
         """Cancel an order."""
         with exchange_operation_context(self.exchange_name, "cancel_order",
                                       symbol=symbol, order_id=order_id, client_order_id=client_order_id):
@@ -186,8 +185,8 @@ class UnifiedExchangeAdapter(ABC):
             self._logger.info(f"Order cancelled: {order_id or client_order_id}")
             return dict(result)
 
-    def get_order(self, symbol: str, order_id: Optional[str] = None,
-                 client_order_id: Optional[str] = None) -> Dict[str, Any]:
+    def get_order(self, symbol: str, order_id: str | None = None,
+                 client_order_id: str | None = None) -> dict[str, Any]:
         """Get order information."""
         with exchange_operation_context(self.exchange_name, "get_order",
                                       symbol=symbol, order_id=order_id, client_order_id=client_order_id):
@@ -348,7 +347,7 @@ class CCXTBinanceAdapter(UnifiedExchangeAdapter):
 class ExchangeAdapterFactory:
     """Factory for creating exchange adapters."""
 
-    _adapters: Dict[str, Type[UnifiedExchangeAdapter]] = {
+    _adapters: dict[str, type[UnifiedExchangeAdapter]] = {
         ExchangeType.BINANCE: BinanceAdapter,
         ExchangeType.GATE: GateAdapter,
         ExchangeType.BINANCE_CCXT: CCXTBinanceAdapter,
@@ -356,7 +355,7 @@ class ExchangeAdapterFactory:
 
     @classmethod
     def create_adapter(cls, config: ExchangeConfig,
-                      http_client: Optional[HttpClientProtocol] = None) -> UnifiedExchangeAdapter:
+                      http_client: HttpClientProtocol | None = None) -> UnifiedExchangeAdapter:
         """Create an exchange adapter instance."""
         adapter_class = cls._adapters.get(config.exchange_type)
         if not adapter_class:
@@ -372,13 +371,13 @@ class ExchangeAdapterFactory:
 
     @classmethod
     def create_from_ssot(cls, exchange_name: str,
-                        http_client: Optional[HttpClientProtocol] = None) -> UnifiedExchangeAdapter:
+                        http_client: HttpClientProtocol | None = None) -> UnifiedExchangeAdapter:
         """Create adapter from SSOT configuration."""
         config = ExchangeConfig.from_ssot_config(exchange_name)
         return cls.create_adapter(config, http_client)
 
     @classmethod
-    def get_supported_exchanges(cls) -> List[str]:
+    def get_supported_exchanges(cls) -> list[str]:
         """Get list of supported exchange types."""
         return list(cls._adapters.keys())
 

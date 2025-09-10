@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-
-from tools.metrics_summary import main as metrics_main
 import time
 
 
@@ -17,6 +15,7 @@ def write_jsonl(p: Path, rows):
 def test_metrics_summary_schema_and_values(tmp_path: Path, monkeypatch):
     # Monkeypatch ROOT in module
     from importlib import reload
+
     import tools.metrics_summary as ms
     reload(ms)
     ms.ROOT = tmp_path
@@ -87,6 +86,7 @@ def test_metrics_summary_schema_and_values(tmp_path: Path, monkeypatch):
 
 def test_metrics_summary_empty_data(tmp_path: Path, monkeypatch):
     from importlib import reload
+
     import tools.metrics_summary as ms
     reload(ms)
     ms.ROOT = tmp_path

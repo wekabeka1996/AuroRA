@@ -2,10 +2,12 @@
 """
 Debug script to check runner logs
 """
-import tempfile
 import json
 from pathlib import Path
+import tempfile
+
 from tests.integration.test_runner_observability import _run_runner_with_mocks
+
 
 def _read_jsonl(path):
     """Read JSONL file and return list of parsed records"""
@@ -17,7 +19,7 @@ def main():
     # Create temp directory
     tmp_path = Path(tempfile.mkdtemp())
     print(f"Running runner in: {tmp_path}")
-    
+
     # Run runner with mocks
     try:
         _run_runner_with_mocks(str(tmp_path), allow_gate=True, fail_exchange=False)
@@ -25,11 +27,11 @@ def main():
     except Exception as e:
         print(f"Runner failed: {e}")
         return
-    
+
     # Check files created
     files = list(tmp_path.glob("*.jsonl"))
     print(f"Files created: {[f.name for f in files]}")
-    
+
     # Check orders_success.jsonl
     success_file = tmp_path / "orders_success.jsonl"
     if success_file.exists():
@@ -39,8 +41,8 @@ def main():
             print(f"  Record {i}: {rec}")
     else:
         print("orders_success.jsonl not found")
-    
-    # Check aurora_events.jsonl  
+
+    # Check aurora_events.jsonl
     events_file = tmp_path / "aurora_events.jsonl"
     if events_file.exists():
         events = _read_jsonl(events_file)

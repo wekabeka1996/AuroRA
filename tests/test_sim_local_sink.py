@@ -12,6 +12,6 @@ def test_gen_sim_local_first100_creates_events():
     gen_main()
     assert os.path.exists('logs/aurora_events.jsonl')
     # file has at least one line
-    with open('logs/aurora_events.jsonl', 'r', encoding='utf8') as f:
+    with open('logs/aurora_events.jsonl', encoding='utf8') as f:
         lines = [l.strip() for l in f if l.strip()]
     assert len(lines) >= 1

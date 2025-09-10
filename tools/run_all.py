@@ -3,11 +3,10 @@ from __future__ import annotations
 
 import argparse
 import os
-import sys
-import time
 from pathlib import Path
 import subprocess
-
+import sys
+import time
 
 ROOT = Path(__file__).resolve().parent.parent
 

@@ -1,5 +1,5 @@
-import pytest
 import numpy as np
+import pytest
 
 regime = pytest.importorskip("core.regime.manager", reason="regime manager missing")
 

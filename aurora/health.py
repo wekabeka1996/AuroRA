@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-import time
-from dataclasses import dataclass
-from typing import Deque, List, Tuple
 from collections import deque
+from dataclasses import dataclass
+import time
 
 import numpy as np
 
@@ -39,14 +38,14 @@ class HealthGuard:
         self.base_cooloff_sec = int(base_cooloff_sec)
         self.halt_threshold_repeats = int(halt_threshold_repeats)
 
-        self._samples: Deque[Tuple[float, float]] = deque()  # (ts, latency_ms)
-        self._warn_ts: Deque[float] = deque()
+        self._samples: deque[tuple[float, float]] = deque()  # (ts, latency_ms)
+        self._warn_ts: deque[float] = deque()
         self.state = GuardState()
 
     def _now(self) -> float:
         return time.time()
 
-    def record(self, latency_ms: float, now: float | None = None) -> Tuple[bool, float]:
+    def record(self, latency_ms: float, now: float | None = None) -> tuple[bool, float]:
         now = self._now() if now is None else float(now)
         self._samples.append((now, float(latency_ms)))
         # evict old
@@ -84,7 +83,7 @@ class HealthGuard:
         now = self._now() if now is None else float(now)
         return now < self.state.cooloff_until
 
-    def enforce(self, now: float | None = None) -> Tuple[bool, str | None]:
+    def enforce(self, now: float | None = None) -> tuple[bool, str | None]:
         now = self._now() if now is None else float(now)
         if not self.state.armed:
             return False, "disarmed"

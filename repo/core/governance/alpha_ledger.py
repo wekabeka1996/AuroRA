@@ -32,10 +32,9 @@ In production you may persist `history()` to NDJSON using XAI logger; here we
 keep an in-memory list with a stable, canonical dict representation.
 """
 
-from dataclasses import dataclass, asdict
-from typing import Dict, List, Optional
-import time
+from dataclasses import asdict, dataclass
 import itertools
+import time
 
 
 @dataclass
@@ -45,10 +44,10 @@ class LedgerEntry:
     test_name: str
     alpha: float
     decision: str  # 'reject' | 'accept' | 'abort'
-    p_value: Optional[float]
-    note: Optional[str]
+    p_value: float | None
+    note: str | None
 
-    def as_dict(self) -> Dict[str, object]:
+    def as_dict(self) -> dict[str, object]:
         d = asdict(self)
         # robust rounding for storage (optional)
         d["alpha"] = float(self.alpha)
@@ -64,14 +63,14 @@ class AlphaLedger:
         self._budget = float(alpha_budget)
         self._policy_reject = bool(spend_on_reject)
         self._seq = itertools.count(1)
-        self._open: Dict[str, float] = {}  # ticket_id -> alpha allocated
-        self._hist: List[LedgerEntry] = []
+        self._open: dict[str, float] = {}  # ticket_id -> alpha allocated
+        self._hist: list[LedgerEntry] = []
         self._spent = 0.0
         self._reserved = 0.0
 
     # -------- tickets --------
 
-    def open(self, *, test_name: str, alpha: float, note: Optional[str] = None) -> str:
+    def open(self, *, test_name: str, alpha: float, note: str | None = None) -> str:
         if alpha <= 0.0 or alpha > 1.0:
             raise ValueError("alpha must be in (0,1]")
         if self._policy_reject:
@@ -87,7 +86,7 @@ class AlphaLedger:
         # pre-log open with decision=None (optional); we keep only commits in history for brevity
         return tid
 
-    def commit(self, ticket_id: str, *, decision: str, p_value: Optional[float] = None, test_name: Optional[str] = None, note: Optional[str] = None) -> LedgerEntry:
+    def commit(self, ticket_id: str, *, decision: str, p_value: float | None = None, test_name: str | None = None, note: str | None = None) -> LedgerEntry:
         if ticket_id not in self._open:
             raise KeyError("unknown ticket id")
         alpha = self._open.pop(ticket_id)
@@ -125,7 +124,7 @@ class AlphaLedger:
     def budget(self) -> float:
         return self._budget
 
-    def history(self) -> List[Dict[str, object]]:
+    def history(self) -> list[dict[str, object]]:
         return [h.as_dict() for h in self._hist]
 
 

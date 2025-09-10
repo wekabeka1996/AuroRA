@@ -13,11 +13,11 @@ We accumulate LLR_t = sum_i llr(x_i) and stop when LLR_t >= A (ACCEPT H1) or
 LLR_t <= B (REJECT H1), where typically A ~ log((1-β)/α), B ~ log(β/(1-α)).
 """
 
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Literal, Sequence
 import math
 import time
-
+from typing import Literal
 
 Decision = Literal["CONTINUE", "ACCEPT", "REJECT"]
 

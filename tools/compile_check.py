@@ -1,6 +1,6 @@
-import sys
 import pathlib
 import py_compile
+import sys
 
 # Default to current directory if no argument provided
 root = pathlib.Path(sys.argv[1] if len(sys.argv) > 1 else '.')

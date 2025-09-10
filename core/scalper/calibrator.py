@@ -10,7 +10,7 @@ Implement IsotonicCalibrator with fit/predict_p/e_pi_bps.
 """
 
 from dataclasses import dataclass
-from typing import Protocol, Optional, Any
+from typing import Any, Protocol
 
 import numpy as np
 import structlog
@@ -53,7 +53,7 @@ class IsotonicCalibrator:
     """
 
     def __init__(self) -> None:
-        self._iso: Optional[Any] = IsotonicRegression(out_of_bounds="clip") if IsotonicRegression else None
+        self._iso: Any | None = IsotonicRegression(out_of_bounds="clip") if IsotonicRegression else None
         self._platt_k: float = 2.0
         # If we use isotonic, we'll fit on domain [-1,1]
         self._fitted: bool = False

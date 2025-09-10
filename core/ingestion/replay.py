@@ -30,18 +30,19 @@ Design notes
 - Pacing is wall-sleep before yield/callback, using clock.sleep_until_event_ts_ns(ts).
 """
 
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, Iterable, Iterator, Mapping, Optional, Set, Tuple, Union
 import logging
+from typing import Any, Union
 
 from core.ingestion.normalizer import Normalizer
-from core.ingestion.sync_clock import TickClock, ReplayClock, RealTimeClock
+from core.ingestion.sync_clock import RealTimeClock, ReplayClock, TickClock
 
 logger = logging.getLogger("aurora.ingestion.replay")
 logger.setLevel(logging.INFO)
 
 Raw = Mapping[str, Any]
-Event = Dict[str, Any]
+Event = dict[str, Any]
 SourceLike = Union[Iterable[Raw], Callable[[], Iterable[Raw]]]
 
 
@@ -54,7 +55,7 @@ class ReplayStats:
     dropped_filtered: int = 0   # removed by filters (time/symbol/type/post_filter)
     errors: int = 0             # exceptions from hooks/transform
 
-    def as_dict(self) -> Dict[str, int]:
+    def as_dict(self) -> dict[str, int]:
         return self.__dict__.copy()
 
 
@@ -63,12 +64,12 @@ class Replay:
         self,
         *,
         source: SourceLike,
-        normalizer: Optional[Normalizer] = None,
-        clock: Optional[TickClock] = None,
+        normalizer: Normalizer | None = None,
+        clock: TickClock | None = None,
         strict: bool = True,
         pace: bool = True,
         log_every: int = 50_000,
-        max_sleep_ns: Optional[int] = None,
+        max_sleep_ns: int | None = None,
     ) -> None:
         """
         Parameters
@@ -102,13 +103,13 @@ class Replay:
     def stream(
         self,
         *,
-        start_ts_ns: Optional[int] = None,
-        end_ts_ns: Optional[int] = None,
-        symbols: Optional[Set[str]] = None,
-        types: Optional[Set[str]] = None,
-        pre_filter: Optional[Callable[[Raw], bool]] = None,
-        post_filter: Optional[Callable[[Event], bool]] = None,
-        transform: Optional[Callable[[Event], Event]] = None,
+        start_ts_ns: int | None = None,
+        end_ts_ns: int | None = None,
+        symbols: set[str] | None = None,
+        types: set[str] | None = None,
+        pre_filter: Callable[[Raw], bool] | None = None,
+        post_filter: Callable[[Event], bool] | None = None,
+        transform: Callable[[Event], Event] | None = None,
     ) -> Iterator[Event]:
         """Yield normalized events, time-paced if pace=True.
 
@@ -238,7 +239,7 @@ class Replay:
 
     def play(
         self,
-        on_event: Optional[Callable[[Event], None]] = None,
+        on_event: Callable[[Event], None] | None = None,
         **stream_kwargs: Any,
     ) -> ReplayStats:
         """Consume the stream; optionally call on_event(evt). Returns final stats."""
@@ -252,35 +253,36 @@ class Replay:
                 if self._strict:
                     raise
                 logger.debug("on_event error: %s", e)
-        
+
         # XAI-hook: emit service log event with ReplayStats for observability
         logger.info(
             "replay completed: source='ingestion.replay' stats=%s",
             self.stats.as_dict()
         )
-        
+
         return self.stats
 
 
 # -------------------- Lightweight generator API (post-transform filters) --------------------
 
-from typing import Iterable, Callable, Optional, Dict, Any, Iterator, Sequence, Set
+from collections.abc import Callable, Iterable, Sequence
 import time
+from typing import Any
 
 
 def replay_events(
     records: Iterable[Any],
     *,
-    transformer: Optional[Callable[[Any], Optional[Dict[str, Any]]]] = None,
-    start_ns: Optional[int] = None,
-    end_ns: Optional[int] = None,
-    symbols: Optional[Sequence[str]] = None,
-    types: Optional[Sequence[str]] = None,
+    transformer: Callable[[Any], dict[str, Any] | None] | None = None,
+    start_ns: int | None = None,
+    end_ns: int | None = None,
+    symbols: Sequence[str] | None = None,
+    types: Sequence[str] | None = None,
     strict: bool = True,
-    pace_ms: Optional[float] = None,
-    clock: Optional[Callable[[], float]] = None,
-    sleep: Optional[Callable[[float], None]] = None,
-) -> Iterator[Dict[str, Any]]:
+    pace_ms: float | None = None,
+    clock: Callable[[], float] | None = None,
+    sleep: Callable[[float], None] | None = None,
+) -> Iterator[dict[str, Any]]:
     """
     Pipeline: raw -> transformer -> filters(start/end/symbols/types) -> (optional) pacing -> yield.
     strict=False: любые ошибки/некорректные записи тихо дропаются. Фильтры применяются ПОСЛЕ трансформации.
@@ -288,10 +290,10 @@ def replay_events(
     """
     _clock = clock or time.monotonic
     _sleep = sleep or time.sleep
-    _symbols: Optional[Set[str]] = set(symbols) if symbols else None
-    _types: Optional[Set[str]] = set(types) if types else None
+    _symbols: set[str] | None = set(symbols) if symbols else None
+    _types: set[str] | None = set(types) if types else None
     _pace_s = (pace_ms or 0.0) / 1000.0
-    last_emit_t: Optional[float] = None
+    last_emit_t: float | None = None
 
     for rec in records:
         try:
@@ -330,7 +332,7 @@ def replay_events(
             # swallow and continue
 
 
-def run_replay_stream(*args, **kwargs) -> Iterator[Dict[str, Any]]:
+def run_replay_stream(*args, **kwargs) -> Iterator[dict[str, Any]]:
     """Back-compat wrapper for callers using an older name."""
     return replay_events(*args, **kwargs)
 

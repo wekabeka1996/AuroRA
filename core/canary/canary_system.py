@@ -13,18 +13,14 @@ Features:
 - Comprehensive metrics collection
 """
 
-import time
-import threading
-import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Callable
 from enum import Enum
-from pathlib import Path
-import json
+import threading
+import time
 
-from core.execution.execution_router_v1 import ExecutionRouter, ExecutionContext
-from core.tca.tca_analyzer import TCAMetrics
 from common.events import EventEmitter
+from core.execution.execution_router_v1 import ExecutionContext, ExecutionRouter
 
 
 class KillSwitchType(Enum):
@@ -55,7 +51,7 @@ class CanaryConfig:
     max_position_usd: float = 100.0  # Max $100 per position
 
     # Symbols
-    symbols: List[str] = field(default_factory=lambda: ["BTCUSDT"])
+    symbols: list[str] = field(default_factory=lambda: ["BTCUSDT"])
     maker_only: bool = True
 
     # Kill switch thresholds
@@ -85,14 +81,14 @@ class CanaryMetrics:
     avg_fill_latency_ms: float = 0.0
     cancel_ratio: float = 0.0
     maker_fill_ratio: float = 0.0
-    decision_latencies_ms: List[float] = field(default_factory=list)
-    kill_switches_triggered: List[Dict] = field(default_factory=list)
+    decision_latencies_ms: list[float] = field(default_factory=list)
+    kill_switches_triggered: list[dict] = field(default_factory=list)
 
 
 class CanarySystem:
     """Canary deployment system with kill switches and monitoring"""
 
-    def __init__(self, config: Optional[CanaryConfig] = None):
+    def __init__(self, config: CanaryConfig | None = None):
         self.config = config or CanaryConfig()
         self.state = CanaryState.INACTIVE
         self.metrics = CanaryMetrics(start_time_ns=time.time_ns())
@@ -108,8 +104,8 @@ class CanarySystem:
         self.last_alert_time = 0
 
         # Callbacks
-        self.on_kill_switch: Optional[Callable] = None
-        self.on_emergency_stop: Optional[Callable] = None
+        self.on_kill_switch: Callable | None = None
+        self.on_emergency_stop: Callable | None = None
 
         self._setup_kill_switches()
         self._setup_monitoring()
@@ -157,7 +153,7 @@ class CanarySystem:
         if self.on_emergency_stop:
             self.on_emergency_stop(reason)
 
-    def kill_switch_triggered(self, switch_type: KillSwitchType, details: Dict):
+    def kill_switch_triggered(self, switch_type: KillSwitchType, details: dict):
         """Handle kill switch activation"""
         self.state = CanaryState.KILLED
 
@@ -177,7 +173,7 @@ class CanarySystem:
         if self.on_kill_switch:
             self.on_kill_switch(switch_type, details)
 
-    def process_sizing_decision(self, context: ExecutionContext, market_data: Dict) -> bool:
+    def process_sizing_decision(self, context: ExecutionContext, market_data: dict) -> bool:
         """Process sizing decision with canary modifications"""
         if self.state != CanaryState.CANARY:
             return False
@@ -214,7 +210,7 @@ class CanarySystem:
 
         return len(children) > 0
 
-    def _evaluate_kill_switches(self, market_data: Dict) -> bool:
+    def _evaluate_kill_switches(self, market_data: dict) -> bool:
         """Evaluate all kill switches"""
         for switch_type, check_func in self.kill_switches.items():
             if check_func(market_data):
@@ -222,13 +218,13 @@ class CanarySystem:
                 return True
         return False
 
-    def _check_vol_spike(self, market_data: Dict) -> bool:
+    def _check_vol_spike(self, market_data: dict) -> bool:
         """Check for volatility spike"""
         vol_spike = market_data.get("vol_spike_detected", False)
         atr_mult = market_data.get("atr_mult", 1.0)
         return vol_spike or atr_mult > self.config.vol_spike_threshold_atr_mult
 
-    def _check_api_timeout(self, market_data: Dict) -> bool:
+    def _check_api_timeout(self, market_data: dict) -> bool:
         """Check for API timeouts"""
         consecutive_timeouts = market_data.get("consecutive_timeouts", 0)
         last_request_time = market_data.get("last_request_time_ns", time.time_ns())
@@ -237,17 +233,17 @@ class CanarySystem:
         return (consecutive_timeouts >= self.config.max_consecutive_timeouts or
                 time_since_last_request > self.config.api_timeout_threshold_ms)
 
-    def _check_spread_limit(self, market_data: Dict) -> bool:
+    def _check_spread_limit(self, market_data: dict) -> bool:
         """Check spread limit"""
         spread_bps = market_data.get("spread_bps", 0)
         return spread_bps > self.config.spread_limit_bps
 
-    def _check_cvar_breach(self, market_data: Dict) -> bool:
+    def _check_cvar_breach(self, market_data: dict) -> bool:
         """Check CVaR breach"""
         cvar_breached = market_data.get("cvar_breached", False)
         return cvar_breached
 
-    def _check_dd_intraday(self, market_data: Dict) -> bool:
+    def _check_dd_intraday(self, market_data: dict) -> bool:
         """Check intraday drawdown"""
         dd_pct = market_data.get("intraday_dd_pct", 0)
         return dd_pct > self.config.dd_intraday_limit_pct
@@ -336,7 +332,7 @@ class CanarySystem:
         # Implementation would integrate with exchange API
         self._log_event("ALL_ORDERS_CANCELLED", {"reason": "kill_switch"})
 
-    def _log_event(self, event_type: str, data: Dict):
+    def _log_event(self, event_type: str, data: dict):
         """Log canary event"""
         event = {
             "event_type": event_type,
@@ -346,7 +342,7 @@ class CanarySystem:
         }
         self.event_logger.emit(event_type, event, code=event_type)
 
-    def get_status(self) -> Dict:
+    def get_status(self) -> dict:
         """Get current canary status"""
         return {
             "state": self.state.value,

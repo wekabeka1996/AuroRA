@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import json
 import os
 import random
-import time
 import statistics
-import json
+import time
+
 from core.execution.sim_local_sink import SimLocalSink
 
 
@@ -95,7 +96,7 @@ def run_dryrun(n_orders=500, seed=123, speedup=10):
         fh.write('Metrics:\n')
         json.dump(metrics, fh, indent=2)
         fh.write('\n\n')
-        fh.write('\nVerdict: **{}**\n'.format(verdict))
+        fh.write(f'\nVerdict: **{verdict}**\n')
 
     print('Wrote reports/sim_local_metrics.json and reports/sim_local_summary.md')
 

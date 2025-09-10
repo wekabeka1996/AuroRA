@@ -3,24 +3,20 @@ from __future__ import annotations
 
 import json
 import os
-import signal
+from pathlib import Path
 import subprocess
 import sys
 import time
-from pathlib import Path
-from typing import Optional
 
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from observability.codes import AURORA_EXPECTED_RETURN_ACCEPT
-
 import typer
 
-from core.env import load_env
 from core.config_loader import load_config as load_cfg_model
-
+from core.env import load_env
+from observability.codes import AURORA_EXPECTED_RETURN_ACCEPT
 
 app = typer.Typer(add_completion=False, help="Aurora unified CLI")
 
@@ -130,7 +126,7 @@ def config_use(name: str = typer.Option(..., "--name", help="Config name without
 
 
 @app.command()
-def config_validate(name: Optional[str] = typer.Option(None, "--name", help="Override name; defaults to .env:AURORA_CONFIG_NAME")):
+def config_validate(name: str | None = typer.Option(None, "--name", help="Override name; defaults to .env:AURORA_CONFIG_NAME")):
     """Validate YAML config against schema and print normalized JSON."""
     try:
         cfg = load_cfg_model(name)
@@ -192,7 +188,7 @@ def stop_api(port: int = typer.Option(8000)):
 
 
 @app.command()
-def health(port: int = 8000, endpoint: str = typer.Option("health", help="health|liveness|readiness"), ops_token: Optional[str] = typer.Option(None, help="OPS token for protected endpoints")):
+def health(port: int = 8000, endpoint: str = typer.Option("health", help="health|liveness|readiness"), ops_token: str | None = typer.Option(None, help="OPS token for protected endpoints")):
     """HTTP GET health-like probe."""
     import requests
     ep = endpoint.strip("/")
@@ -372,7 +368,7 @@ def wallet_check():
 
 @app.command()
 def metrics(window: str = typer.Option("3600", "--window-sec", help="Window in seconds or arithmetic expression, e.g. 720*60"),
-            window_sec: Optional[str] = typer.Option(None, help="compat alias for --window-sec")):
+            window_sec: str | None = typer.Option(None, help="compat alias for --window-sec")):
     """Aggregate events.jsonl into summary JSON and artifacts."""
     # parse window as int or arithmetic expression (digits + +-*/())
     def _parse_sec(expr: str) -> int:
@@ -518,7 +514,7 @@ def metrics(window: str = typer.Option("3600", "--window-sec", help="Window in s
 
 
 @app.command()
-def disarm(ops_token: Optional[str] = typer.Option(None)):
+def disarm(ops_token: str | None = typer.Option(None)):
     """POST to /aurora/disarm."""
     import requests
     token = ops_token or os.getenv("AURORA_OPS_TOKEN")
@@ -529,7 +525,7 @@ def disarm(ops_token: Optional[str] = typer.Option(None)):
 
 
 @app.command()
-def cooloff(sec: int = typer.Option(120), ops_token: Optional[str] = typer.Option(None)):
+def cooloff(sec: int = typer.Option(120), ops_token: str | None = typer.Option(None)):
     """POST to /ops/cooloff/{sec}."""
     import requests
     token = ops_token or os.getenv("AURORA_OPS_TOKEN")
@@ -545,7 +541,7 @@ def one_click(
     minutes: int = typer.Option(15, help="Duration for the run"),
     preflight: bool = typer.Option(True, help="Run smoke/preflight before canary"),
     analytics: bool = typer.Option(False, help="Attempt to start monitoring stack (docker compose)"),
-    runner_config: Optional[str] = typer.Option(None, help="Path or name of runner YAML config to use (passed to run_canary/run_live_aurora)"),
+    runner_config: str | None = typer.Option(None, help="Path or name of runner YAML config to use (passed to run_canary/run_live_aurora)"),
     runner_in_testnet: bool = typer.Option(False, help="If true, start live runner even in testnet (AURORA_MODE=prod, EXCHANGE_TESTNET=true)"),
 ):
     """Run wallet-check → start API → wait healthy → canary → metrics → stop API."""

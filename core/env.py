@@ -1,25 +1,25 @@
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
+import os
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Any
 
 
-def _to_bool(v: Optional[str], default: bool = False) -> bool:
+def _to_bool(v: str | None, default: bool = False) -> bool:
     if v is None:
         return default
     return str(v).strip().lower() in {"1", "true", "yes", "on"}
 
 
-def _to_float(v: Optional[str], default: float) -> float:
+def _to_float(v: str | None, default: float) -> float:
     try:
         return float(v) if v is not None else default
     except Exception:
         return default
 
 
-def _to_int(v: Optional[str], default: int) -> int:
+def _to_int(v: str | None, default: int) -> int:
     try:
         return int(float(v)) if v is not None else default
     except Exception:
@@ -34,8 +34,8 @@ class EnvConfig:
     EXCHANGE_TESTNET: bool = True
     EXCHANGE_USE_FUTURES: bool = True
     DRY_RUN: bool = True
-    BINANCE_API_KEY: Optional[str] = None
-    BINANCE_API_SECRET: Optional[str] = None
+    BINANCE_API_KEY: str | None = None
+    BINANCE_API_SECRET: str | None = None
     BINANCE_RECV_WINDOW: int = 20000
 
     # pretrade/gates
@@ -54,9 +54,9 @@ class EnvConfig:
     AURORA_MAX_CONCURRENT: int = 1
 
     # optional ops/push
-    PUSHGATEWAY_URL: Optional[str] = None
+    PUSHGATEWAY_URL: str | None = None
 
-    def as_dict(self) -> Dict[str, Any]:
+    def as_dict(self) -> dict[str, Any]:
         return {
             "AURORA_MODE": self.AURORA_MODE,
             "EXCHANGE_ID": self.EXCHANGE_ID,
@@ -92,7 +92,7 @@ def apply_aliases_env():
             os.environ[new] = os.environ[old]
 
 
-def load_env(dotenv: bool = True, path: Optional[Path] = None) -> EnvConfig:
+def load_env(dotenv: bool = True, path: Path | None = None) -> EnvConfig:
     """Load .env into process env and return parsed EnvConfig.
 
     If python-dotenv is not available, we still proceed using existing env.

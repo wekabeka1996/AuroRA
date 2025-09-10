@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Literal, Optional, Dict, Any
+from typing import Any, Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -10,8 +11,8 @@ class DecisionFinal(BaseModel):
     symbol: str
     side: Literal['BUY', 'SELL']
     score: float
-    signals: Dict[str, Any] = Field(default_factory=dict)
-    intent: Dict[str, Any] = Field(default_factory=dict)
+    signals: dict[str, Any] = Field(default_factory=dict)
+    intent: dict[str, Any] = Field(default_factory=dict)
 
 
 class OrderBase(BaseModel):
@@ -22,15 +23,15 @@ class OrderBase(BaseModel):
     side: str
     qty: float
     # Correlation IDs
-    client_order_id: Optional[str] = None
-    exchange_order_id: Optional[str] = None
+    client_order_id: str | None = None
+    exchange_order_id: str | None = None
 
 
 class OrderSuccess(OrderBase):
     avg_price: float
     fees: float
     filled_pct: float
-    exchange_ts: Optional[str] = None
+    exchange_ts: str | None = None
 
 
 class OrderFailed(OrderBase):
@@ -42,7 +43,7 @@ class OrderFailed(OrderBase):
 
 class OrderDenied(OrderBase):
     gate_code: str
-    gate_detail: Dict[str, Any] = Field(default_factory=dict)
-    snapshot: Dict[str, Any] = Field(default_factory=dict)
+    gate_detail: dict[str, Any] = Field(default_factory=dict)
+    snapshot: dict[str, Any] = Field(default_factory=dict)
     # Normalized reject reason (AUR-003)
     reason_normalized: str = Field(default="UNKNOWN")

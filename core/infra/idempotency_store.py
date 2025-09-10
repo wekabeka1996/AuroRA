@@ -1,7 +1,9 @@
 from __future__ import annotations
-import time
+
 from dataclasses import dataclass
-from typing import Dict, Any, Optional
+import time
+from typing import Any
+
 
 @dataclass
 class _Entry:
@@ -18,12 +20,12 @@ class IdempotencyStore:
         assert ttl_sec > 0, "ttl_sec>0"
         self._ttl_ns = int(ttl_sec * 1e9)
         self._now_ns = now_ns_fn
-        self._data: Dict[str, _Entry] = {}
+        self._data: dict[str, _Entry] = {}
 
     def put(self, key: str, value: Any) -> None:
         self._data[key] = _Entry(value=value, last_seen_ns=self._now_ns())
 
-    def get(self, key: str) -> Optional[Any]:
+    def get(self, key: str) -> Any | None:
         e = self._data.get(key)
         return e.value if e else None
 

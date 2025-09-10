@@ -16,11 +16,12 @@ The policy intentionally uses *prefix semantics*:
 This module is standalone and can be used by ConfigManager or elsewhere.
 """
 
-import logging
-import threading
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
+import logging
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, Mapping, Optional, Set, Union
+import threading
+from typing import Any
 
 logger = logging.getLogger("aurora.config.hotreload")
 logger.setLevel(logging.INFO)
@@ -32,8 +33,8 @@ class HotReloadViolation(Exception):
 
 # -------------------- Utilities --------------------
 
-def _flatten(d: Mapping[str, Any], prefix: str = "") -> Dict[str, Any]:
-    out: Dict[str, Any] = {}
+def _flatten(d: Mapping[str, Any], prefix: str = "") -> dict[str, Any]:
+    out: dict[str, Any] = {}
     for k, v in d.items():
         key = f"{prefix}.{k}" if prefix else k
         if isinstance(v, Mapping):
@@ -43,11 +44,11 @@ def _flatten(d: Mapping[str, Any], prefix: str = "") -> Dict[str, Any]:
     return out
 
 
-def diff_dicts(old: Mapping[str, Any], new: Mapping[str, Any]) -> Set[str]:
+def diff_dicts(old: Mapping[str, Any], new: Mapping[str, Any]) -> set[str]:
     """Return set of fully-qualified keys that changed between two nested mappings."""
     a = _flatten(old)
     b = _flatten(new)
-    changed: Set[str] = set()
+    changed: set[str] = set()
     keys = set(a.keys()).union(b.keys())
     for k in keys:
         if a.get(k) != b.get(k):
@@ -58,10 +59,10 @@ def diff_dicts(old: Mapping[str, Any], new: Mapping[str, Any]) -> Set[str]:
 
 @dataclass
 class HotReloadPolicy:
-    whitelist: Set[str]
+    whitelist: set[str]
 
     @classmethod
-    def from_iterable(cls, items: Iterable[str]) -> "HotReloadPolicy":
+    def from_iterable(cls, items: Iterable[str]) -> HotReloadPolicy:
         return cls(whitelist={str(x).strip() for x in items if str(x).strip()})
 
     def is_allowed_key(self, key: str) -> bool:
@@ -73,8 +74,8 @@ class HotReloadPolicy:
                 return True
         return False
 
-    def violations(self, changed_keys: Iterable[str]) -> Set[str]:
-        v: Set[str] = set()
+    def violations(self, changed_keys: Iterable[str]) -> set[str]:
+        v: set[str] = set()
         for k in changed_keys:
             if not self.is_allowed_key(k):
                 v.add(k)
@@ -97,7 +98,7 @@ class FileWatcher:
 
     def __init__(
         self,
-        path: Union[str, Path],
+        path: str | Path,
         on_change: Callable[[Path, float], None],
         *,
         poll_interval_sec: float = 1.5,
@@ -105,8 +106,8 @@ class FileWatcher:
         self._path = Path(path).absolute()
         self._on_change = on_change
         self._poll = float(poll_interval_sec)
-        self._mtime: Optional[float] = None
-        self._thread: Optional[threading.Thread] = None
+        self._mtime: float | None = None
+        self._thread: threading.Thread | None = None
         self._stop_evt = threading.Event()
 
     @property

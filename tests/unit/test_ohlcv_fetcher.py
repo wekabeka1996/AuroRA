@@ -7,10 +7,7 @@ duplicate signature line) and cannot be imported. These tests are marked xfail a
 will activate once the module is repaired, serving as an executable spec.
 """
 
-import os
-import types
 import pytest
-
 
 pytestmark = pytest.mark.xfail(
     reason="Binance OHLCV fetcher module is syntactically invalid; fix source to enable tests",
@@ -23,7 +20,9 @@ def test_create_binance_client_env_missing_raises(monkeypatch):
     monkeypatch.delenv('BINANCE_API_KEY', raising=False)
     monkeypatch.delenv('BINANCE_API_SECRET', raising=False)
 
-    import importlib.util, importlib.machinery, pathlib
+    import importlib.machinery
+    import importlib.util
+    import pathlib
     path = pathlib.Path('???????.py')
     spec = importlib.util.spec_from_file_location('ohlcv_fetcher', path)
     mod = importlib.util.module_from_spec(spec)  # type: ignore
@@ -50,7 +49,9 @@ def test_fetch_ohlcv_df_success_with_stub_exchange(tmp_path, monkeypatch):
                 rows.append([ts, 1.0+i, 2.0+i, 0.5+i, 1.5+i, 10+i])
             return rows
 
-    import importlib.util, importlib.machinery, pathlib
+    import importlib.machinery
+    import importlib.util
+    import pathlib
     path = pathlib.Path('???????.py')
     spec = importlib.util.spec_from_file_location('ohlcv_fetcher', path)
     mod = importlib.util.module_from_spec(spec)  # type: ignore

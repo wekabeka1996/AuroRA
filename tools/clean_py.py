@@ -1,5 +1,5 @@
-import sys
 import pathlib
+import sys
 import unicodedata
 
 # Default to current directory if no argument provided

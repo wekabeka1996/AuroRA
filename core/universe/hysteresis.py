@@ -24,7 +24,6 @@ Usage
 """
 
 from dataclasses import dataclass
-from typing import Optional
 
 
 @dataclass
@@ -46,7 +45,7 @@ class Hysteresis:
         self._ticks = 0
         self._score = 0.0
 
-    def reset(self, *, start_active: Optional[bool] = None) -> None:
+    def reset(self, *, start_active: bool | None = None) -> None:
         if start_active is not None:
             self.active = bool(start_active)
         self._ticks = 0
@@ -70,11 +69,11 @@ class Hysteresis:
 
 
 class EmaSmoother:
-    def __init__(self, *, alpha: float = 0.2, init: Optional[float] = None) -> None:
+    def __init__(self, *, alpha: float = 0.2, init: float | None = None) -> None:
         if not (0.0 < alpha <= 1.0):
             raise ValueError("alpha in (0,1]")
         self.alpha = float(alpha)
-        self._y: Optional[float] = float(init) if init is not None else None
+        self._y: float | None = float(init) if init is not None else None
 
     def update(self, x: float) -> float:
         x = float(x)
@@ -84,7 +83,7 @@ class EmaSmoother:
             self._y = self.alpha * x + (1.0 - self.alpha) * self._y
         return self._y
 
-    def value(self) -> Optional[float]:
+    def value(self) -> float | None:
         return self._y
 
 

@@ -4,9 +4,9 @@ Purpose: ensure basic endpoint logic works without requiring FastAPI runtime
 by stubbing minimal interfaces; validates health, pretrade, and version flows.
 """
 
+import asyncio
 import sys
 import types
-import asyncio
 
 
 def _install_fastapi_stub():

@@ -7,12 +7,11 @@ Produces at least 3 part files when writing many small events. Verifies:
  - timestamps in ISO-8601Z in the 'details' if present
  - retention: only N recent gz archives kept (we'll use retention_days=0 to force purge)
 """
-from pathlib import Path
-import time
 import json
-import shutil
-import sys
 from pathlib import Path
+import sys
+import time
+
 # Ensure repo root is on sys.path for local imports
 repo_root = Path(__file__).resolve().parents[1]
 if str(repo_root) not in sys.path:

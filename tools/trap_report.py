@@ -3,17 +3,16 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import statistics
-import time
 from pathlib import Path
+import time
 
 import numpy as np
 
 from core.scalper.trap import TrapWindow, trap_from_book_deltas, trap_score_from_features
 from tests.helpers.trap_sequences import (
-    make_neutral_sequence,
-    make_fake_wall_sequence,
     make_cancel_then_replenish,
+    make_fake_wall_sequence,
+    make_neutral_sequence,
 )
 
 

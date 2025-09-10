@@ -32,14 +32,13 @@ Usage
 """
 
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
 
 
 @dataclass
 class GLRResult:
     triggered: bool
     stat: float
-    k_hat: Optional[int]  # argmax split index within window (1..n-1)
+    k_hat: int | None  # argmax split index within window (1..n-1)
     n: int
 
 
@@ -49,7 +48,7 @@ class GLRMeanShift:
         *,
         window: int = 512,
         threshold: float = 50.0,
-        sigma2: Optional[float] = None,
+        sigma2: float | None = None,
         reset_on_trigger: bool = True,
         min_samples: int = 30,
     ) -> None:
@@ -61,7 +60,7 @@ class GLRMeanShift:
         self.reset_on_trigger = bool(reset_on_trigger)
         self.min_samples = int(min_samples)
         # buffers
-        self._x: List[float] = []
+        self._x: list[float] = []
         self._n = 0
 
     def reset(self) -> None:
@@ -81,7 +80,7 @@ class GLRMeanShift:
         var = sum((xi - mean) ** 2 for xi in self._x) / max(1, n - 1)
         return max(var, 1e-18)
 
-    def _statistic(self) -> Tuple[float, Optional[int]]:
+    def _statistic(self) -> tuple[float, int | None]:
         x = self._x
         n = len(x)
         if n < 2:
@@ -92,7 +91,7 @@ class GLRMeanShift:
             S[i] = S[i - 1] + x[i - 1]
         sigma2 = self.sigma2_known if self.sigma2_known is not None else self._window_sigma2()
         best = 0.0
-        k_hat: Optional[int] = None
+        k_hat: int | None = None
         for k in range(1, n):
             n1 = k
             n2 = n - k

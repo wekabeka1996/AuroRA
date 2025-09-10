@@ -21,10 +21,9 @@ Design goals
 
 from collections import deque
 from dataclasses import dataclass
-from typing import Deque, Dict, Iterable, List, Optional, Tuple
 
-from core.config.loader import get_config, ConfigError
 from core.calibration.calibrator import PrequentialMetrics
+from core.config.loader import ConfigError, get_config
 
 NS_PER_SEC = 1_000_000_000
 
@@ -35,7 +34,7 @@ class RollingWindow:
 
     def __init__(self, window_ns: int) -> None:
         self._win = int(window_ns)
-        self._dq: Deque[Tuple[int, float]] = deque()
+        self._dq: deque[tuple[int, float]] = deque()
 
     def push(self, ts_ns: int, value: float) -> None:
         t = int(ts_ns)
@@ -48,7 +47,7 @@ class RollingWindow:
         while dq and dq[0][0] < cutoff:
             dq.popleft()
 
-    def stats(self, now_ns: Optional[int] = None) -> Tuple[int, float, float]:
+    def stats(self, now_ns: int | None = None) -> tuple[int, float, float]:
         """Return (count, mean, sum) over current window."""
         if not self._dq:
             return 0, 0.0, 0.0
@@ -58,11 +57,11 @@ class RollingWindow:
         s = sum(v for _, v in self._dq)
         return n, (s / n), s
 
-    def values(self) -> List[float]:
+    def values(self) -> list[float]:
         return [v for _, v in self._dq]
 
 
-def _quantile(xs: List[float], q: float) -> float:
+def _quantile(xs: list[float], q: float) -> float:
     if not xs:
         return 0.0
     q = 0.0 if q < 0.0 else 1.0 if q > 1.0 else q
@@ -85,7 +84,7 @@ class AlertResult:
 class BaseAlert:
     def __init__(self, *, min_interval_ns: int = 30 * NS_PER_SEC) -> None:
         self._min_interval = int(min_interval_ns)
-        self._last_ts: Optional[int] = None
+        self._last_ts: int | None = None
 
     def _debounced(self, ts_ns: int) -> bool:
         if self._last_ts is None or ts_ns - self._last_ts >= self._min_interval:
@@ -108,7 +107,7 @@ class NoTradesAlert(BaseAlert):
         except (ConfigError, Exception):
             self._window_ns = window_sec * NS_PER_SEC
 
-    def update(self, ts_ns: int, action: str) -> Optional[AlertResult]:
+    def update(self, ts_ns: int, action: str) -> AlertResult | None:
         self._win.push(ts_ns, 1.0 if action in ("enter", "exit") else 0.0)
         n, mean, s = self._win.stats()
         if n == 0:
@@ -132,7 +131,7 @@ class DenySpikeAlert(BaseAlert):
         except (ConfigError, Exception):
             pass
 
-    def update(self, ts_ns: int, action: str) -> Optional[AlertResult]:
+    def update(self, ts_ns: int, action: str) -> AlertResult | None:
         self._win.push(ts_ns, 1.0 if action == "deny" else 0.0)
         n, mean, s = self._win.stats()
         if n == 0:
@@ -155,7 +154,7 @@ class CalibrationDriftAlert(BaseAlert):
         except (ConfigError, Exception):
             pass
 
-    def update(self, ts_ns: int, p: float, y: int) -> Optional[AlertResult]:
+    def update(self, ts_ns: int, p: float, y: int) -> AlertResult | None:
         self._m.update(p, y)
         metrics = self._m.metrics()
         ece = metrics.ece
@@ -175,7 +174,7 @@ class CvarBreachAlert(BaseAlert):
     def __init__(self, *, window_size: int = 2000, alpha: float = 0.95, min_interval_ns: int = 60 * NS_PER_SEC) -> None:
         super().__init__(min_interval_ns=min_interval_ns)
         self._alpha = float(alpha)
-        self._rets: Deque[float] = deque(maxlen=int(window_size))
+        self._rets: deque[float] = deque(maxlen=int(window_size))
         try:
             cfg = get_config()
             self._limit = float(cfg.get("risk.cvar.limit", 0.02))
@@ -183,7 +182,7 @@ class CvarBreachAlert(BaseAlert):
         except (ConfigError, Exception):
             self._limit = 0.02
 
-    def update(self, ts_ns: int, ret: float) -> Optional[AlertResult]:
+    def update(self, ts_ns: int, ret: float) -> AlertResult | None:
         self._rets.append(float(ret))
         if len(self._rets) < 50:
             return None
@@ -207,3 +206,33 @@ __all__ = [
     "CalibrationDriftAlert",
     "CvarBreachAlert",
 ]
+
+
+# -------------------- minimal routing helper for tests --------------------
+
+def route_reason_for_context(ctx: dict) -> str:
+    """Return a normalized reason string for a given minimal context.
+
+    This is a lightweight helper used by tests to ensure a stable string output.
+    It does not perform any side effects and relies only on a few common keys.
+    """
+    try:
+        latency = float(ctx.get("latency_ms", 0.0) or 0.0)
+    except Exception:
+        latency = 0.0
+    if latency > 0:
+        return "latency_high" if latency >= 1000.0 else "latency"
+
+    reason = str(ctx.get("reason", ""))
+    if reason:
+        return reason
+
+    # Fallbacks based on boolean flags
+    if ctx.get("trap_flag"):
+        return "trap_guard"
+    if ctx.get("slippage_exceeded"):
+        return "slippage_guard"
+    if ctx.get("expected_return_low"):
+        return "expected_return_gate"
+
+    return "ok"

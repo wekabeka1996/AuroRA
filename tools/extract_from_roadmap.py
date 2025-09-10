@@ -1,6 +1,5 @@
-import re
-import os
 from pathlib import Path
+import re
 
 DOC_PATH = Path('docs') / 'Road_map.md'
 # Use a more generic output directory

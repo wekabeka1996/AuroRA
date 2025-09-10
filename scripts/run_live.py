@@ -33,22 +33,19 @@ Maker limit on Gate:
 """
 
 import argparse
-import json
+from collections.abc import Mapping
+from dataclasses import dataclass
+from pathlib import Path
 import ssl
 import sys
-import time
-from dataclasses import dataclass
-from typing import Any, Mapping, Optional
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
-from pathlib import Path
 
 from core.config.loader import load_config
-from core.execution.exchange.common import HttpClient, OrderRequest, OrderType, Side, TimeInForce
 from core.execution.exchange.binance import BinanceExchange
+from core.execution.exchange.common import HttpClient, OrderRequest, OrderType, Side, TimeInForce
 from core.execution.exchange.gate import GateExchange
-from core.execution.router import Router, QuoteSnapshot
-
+from core.execution.router import QuoteSnapshot, Router
 
 # --------------------- stdlib HTTP client ---------------------
 
@@ -58,9 +55,9 @@ class StdlibHttpClient(HttpClient):
         method: str,
         url: str,
         *,
-        params: Optional[Mapping[str, object]] = None,
-        headers: Optional[Mapping[str, str]] = None,
-        json: Optional[object] = None,
+        params: Mapping[str, object] | None = None,
+        headers: Mapping[str, str] | None = None,
+        json: object | None = None,
     ) -> Mapping[str, object]:
         if params:
             qs = urlencode(params, doseq=True)

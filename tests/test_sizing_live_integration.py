@@ -7,10 +7,11 @@ Test sizing integration in live pipeline for Step 2: Sizing/Portfolio.
 
 from __future__ import annotations
 
-import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
-from core.sizing.kelly import kelly_binary, fraction_to_qty
+import pytest
+
+from core.sizing.kelly import fraction_to_qty, kelly_binary
 from core.sizing.portfolio import PortfolioOptimizer
 
 

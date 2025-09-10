@@ -1,6 +1,6 @@
 import pytest
 
-from core.config.schema_validator import SchemaValidator, SchemaValidationError
+from core.config.schema_validator import SchemaValidationError, SchemaValidator
 
 
 def test_apply_defaults_and_required():

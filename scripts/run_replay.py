@@ -35,11 +35,11 @@ Notes
 """
 
 import argparse
-import os
+from collections.abc import Iterable, Mapping
 import json
 import math
 from pathlib import Path
-from typing import Any, Dict, Iterable, Iterator, Mapping, Optional
+from typing import Any
 
 from core.config.loader import load_config
 
@@ -51,15 +51,14 @@ except Exception:  # pragma: no cover
         import toml as _toml_early  # type: ignore
     except Exception:  # pragma: no cover
         _toml_early = None  # best-effort only
+from core.calibration.calibrator import ProbabilityCalibrator
 from core.ingestion.normalizer import Normalizer
 from core.ingestion.replay import Replay
 from core.ingestion.sync_clock import ReplayClock
 from core.signal.score import ScoreModel
-from core.calibration.calibrator import ProbabilityCalibrator
+from core.xai.alerts import CalibrationDriftAlert, CvarBreachAlert, DenySpikeAlert, NoTradesAlert
 from core.xai.logger import DecisionLogger
 from core.xai.schema import validate_decision
-from core.xai.alerts import NoTradesAlert, DenySpikeAlert, CalibrationDriftAlert, CvarBreachAlert
-
 
 # -------------------- IO --------------------
 
@@ -104,10 +103,10 @@ class InlineFeatures:
     """
 
     def __init__(self) -> None:
-        self._last_mp: Optional[float] = None
+        self._last_mp: float | None = None
 
-    def compute(self, evt: Mapping[str, Any]) -> Dict[str, float]:
-        out: Dict[str, float] = {}
+    def compute(self, evt: Mapping[str, Any]) -> dict[str, float]:
+        out: dict[str, float] = {}
         typ = evt.get("type")
         if typ == "quote":
             bid = float(evt["bid_px"])  # normalizer ensures presence
@@ -134,7 +133,7 @@ def make_decision(
     model: ScoreModel,
     calibrator: ProbabilityCalibrator,
     threshold: float,
-) -> Optional[Dict[str, Any]]:
+) -> dict[str, Any] | None:
     # Cross-asset terms are not used in this demo
     S = model.score_only(feats)
     p_raw = 1.0 / (1.0 + math.exp(-max(-40.0, min(40.0, S))))
@@ -324,7 +323,7 @@ def main() -> None:
 
     feats = InlineFeatures()
 
-    def on_evt(evt: Dict[str, Any]) -> None:
+    def on_evt(evt: dict[str, Any]) -> None:
         f = feats.compute(evt)
         if not f:
             return

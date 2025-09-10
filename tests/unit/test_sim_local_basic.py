@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import pytest
-
 from core.execution.sim_local_sink import SimLocalSink
 
 

@@ -21,7 +21,6 @@ Identity: IS_bps = raw_edge_bps + fees_bps + slippage_in_bps + slippage_out_bps 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Optional, List
 from datetime import datetime
 
 
@@ -36,9 +35,9 @@ class TCAInputs:
     arrival_price: float
     total_fees: float
     arrival_ts_ns: int
-    decision_ts_ns: Optional[int] = None
-    first_fill_ts_ns: Optional[int] = None
-    last_fill_ts_ns: Optional[int] = None
+    decision_ts_ns: int | None = None
+    first_fill_ts_ns: int | None = None
+    last_fill_ts_ns: int | None = None
     fill_ratio: float = 0.0
     maker_fill_ratio: float = 0.0
     taker_fill_ratio: float = 0.0
@@ -86,9 +85,9 @@ class TCAMetrics:
 
     # Timing
     arrival_ts_ns: int
-    decision_ts_ns: Optional[int] = None
-    first_fill_ts_ns: Optional[int] = None
-    last_fill_ts_ns: Optional[int] = None
+    decision_ts_ns: int | None = None
+    first_fill_ts_ns: int | None = None
+    last_fill_ts_ns: int | None = None
     decision_latency_ms: float = 0.0
     time_to_first_fill_ms: float = 0.0
     total_execution_time_ms: float = 0.0
@@ -97,7 +96,7 @@ class TCAMetrics:
     fill_ratio: float = 0.0
     maker_fill_ratio: float = 0.0
     taker_fill_ratio: float = 0.0
-    avg_queue_position: Optional[float] = None
+    avg_queue_position: float | None = None
 
     # Cost components (canonical)
     raw_edge_bps: float = 0.0
@@ -120,7 +119,7 @@ class TCAMetrics:
 
     # Metadata
     analysis_ts_ns: int = field(default_factory=lambda: int(datetime.now().timestamp() * 1e9))
-    error_msg: Optional[str] = None  # Error message for fallback analysis
+    error_msg: str | None = None  # Error message for fallback analysis
 
     # Legacy fields for backward compatibility (mapped from canonical)
     spread_cost_bps: float = field(init=False)  # maps to slippage_in_bps

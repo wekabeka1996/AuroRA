@@ -1,4 +1,5 @@
 import sys
+
 from skalp_bot.runner.run_live_aurora import main
 
 if __name__ == '__main__':

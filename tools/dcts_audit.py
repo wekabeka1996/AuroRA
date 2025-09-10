@@ -1,13 +1,17 @@
 #!/usr/bin/env python
 from __future__ import annotations
-import argparse, json, math, statistics, sys
+
+import argparse
+import json
+import math
 from pathlib import Path
-from typing import List, Dict, Any
+import statistics
+import sys
 
 
 def load_json(path: Path) -> dict | None:
     try:
-        with open(path, 'r', encoding='utf-8') as f:
+        with open(path, encoding='utf-8') as f:
             return json.load(f)
     except Exception:
         return None
@@ -44,7 +48,7 @@ def summarize(pairs: list[dict]) -> dict:
     robust_vals = [p['dcts_robust'] for p in pairs if isinstance(p.get('dcts_robust'), (int,float)) and math.isfinite(p['dcts_robust'])]
     min_vals = [p['dcts_min'] for p in pairs if isinstance(p.get('dcts_min'), (int,float)) and math.isfinite(p['dcts_min'])]
     n = max(len(base_vals), len(robust_vals))
-    grids_collect: Dict[str, list[float]] = {}
+    grids_collect: dict[str, list[float]] = {}
     for p in pairs:
         gm = p.get('dcts_grids')
         if isinstance(gm, dict):
@@ -121,7 +125,7 @@ def main():
     ap.add_argument('--out-json', required=True)
     ap.add_argument('--out-md', required=True)
     args = ap.parse_args()
-    files: List[Path] = []
+    files: list[Path] = []
     for patt in args.summaries:
         if any(ch in patt for ch in '*?['):
             import glob as _g
@@ -130,10 +134,10 @@ def main():
                 if p.is_file():
                     files.append(p)
         else:
-            p = Path(patt);
+            p = Path(patt)
             if p.is_file():
                 files.append(p)
-    pairs: List[dict] = []
+    pairs: list[dict] = []
     for f in files:
         obj = load_json(f)
         if not obj:

@@ -6,19 +6,17 @@ Minimal tests for exchange adapters without network calls.
 Tests quantization, validation, and idempotency key generation.
 """
 
-import pytest
-from unittest.mock import Mock
 
+import pytest
+
+from core.execution.exchange.binance import BinanceExchange
 from core.execution.exchange.common import (
     OrderRequest,
     OrderType,
     Side,
-    TimeInForce,
-    SymbolInfo,
     ValidationError,
     make_idempotency_key,
 )
-from core.execution.exchange.binance import BinanceExchange
 from core.execution.exchange.gate import GateExchange
 
 

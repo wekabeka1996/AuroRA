@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 import random
 import time
-from typing import Dict, Any, Optional, Callable
+from typing import Any
 
 from core.aurora_event_logger import AuroraEventLogger
 
@@ -16,9 +17,9 @@ class SimLocalSink:
 
     def __init__(
         self,
-        cfg: Optional[Dict[str, Any]] = None,
-        ev: Optional[AuroraEventLogger] = None,
-        time_func: Optional[Callable[[], float]] = None,
+        cfg: dict[str, Any] | None = None,
+        ev: AuroraEventLogger | None = None,
+        time_func: Callable[[], float] | None = None,
     ) -> None:
         cfg = cfg or {}
         self.cfg = cfg
@@ -47,10 +48,12 @@ class SimLocalSink:
         self._time = time_func or (lambda: int(time.time() * 1000))
 
         # internal orders store
-        self._orders: Dict[str, Dict[str, Any]] = {}
+        self._orders: dict[str, dict[str, Any]] = {}
 
         # emitted rng seed flag
         self._seed_emitted = False
+        # simple TTL queue for tests
+        self._q = []  # list of (expires_at, item)
 
     def _sample_latency(self) -> int:
         a, b = self.latency_ms_range
@@ -60,12 +63,12 @@ class SimLocalSink:
         a, b = self.slip_bps_range
         return float(self.rng.uniform(a, b))
 
-    def _emit_seed_if_needed(self, details: Dict[str, Any]) -> None:
+    def _emit_seed_if_needed(self, details: dict[str, Any]) -> None:
         if not self._seed_emitted and self.rng_seed is not None:
             details['rng_seed'] = self.rng_seed
             self._seed_emitted = True
 
-    def submit(self, order: Dict[str, Any], market: Optional[Dict[str, Any]] = None) -> str:
+    def submit(self, order: dict[str, Any], market: dict[str, Any] | None = None) -> str:
         oid = order.get('order_id') or f"sim-{int(self._time())}-{self.rng.randint(0, 9999)}"
         o = dict(order)
         o['order_id'] = oid
@@ -276,7 +279,7 @@ class SimLocalSink:
         del self._orders[order_id]
         return True
 
-    def amend(self, order_id: str, fields: Dict[str, Any]) -> bool:
+    def amend(self, order_id: str, fields: dict[str, Any]) -> bool:
         if order_id not in self._orders:
             return False
         self._orders[order_id].update(fields)
@@ -301,7 +304,7 @@ class SimLocalSink:
         self._ev.emit('ORDER_STATUS(sim)', evt)
         return True
 
-    def on_tick(self, market_snapshot: Dict[str, Any]) -> None:
+    def on_tick(self, market_snapshot: dict[str, Any]) -> None:
         # Iterate over orders and perform maker partial fills if applicable
         for oid, o in list(self._orders.items()):
             if o.get('order_type') != 'limit':
@@ -363,4 +366,23 @@ class SimLocalSink:
             self._ev.emit('ORDER_STATUS(sim)', evt)
             if o['remaining'] <= 0:
                 del self._orders[oid]
-            
+
+    # --- minimal test helpers ---
+    def emit(self, item: dict[str, Any], ttl: float) -> None:
+        """Queue an item with TTL in seconds (float)."""
+        now = time.time()
+        self._q.append((now + float(ttl), dict(item)))
+
+    def drain(self):
+        """Yield non-expired items ordered by ts field if present, else FIFO."""
+        now = time.time()
+        alive = [it for it in self._q if it[0] > now]
+        self._q = alive
+        items = [x[1] for x in alive]
+        try:
+            items.sort(key=lambda d: d.get("ts", 0))
+        except Exception:
+            pass
+        for it in items:
+            yield it
+

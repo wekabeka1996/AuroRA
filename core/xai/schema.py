@@ -35,8 +35,9 @@ Record layout (all keys snake_case):
 This schema purposefully avoids external deps and enforces only type/required checks.
 """
 
+from collections.abc import Mapping
 import json
-from typing import Any, Dict, Mapping, Optional
+from typing import Any
 
 SCHEMA_ID = "aurora.decisionlog/v1"
 

@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from typing import Dict, Any
+from typing import Any
 
 TERMINAL = {"FILLED", "CANCELLED", "EXPIRED"}
 
 
-def lifecycle_state_for(order_id: str, events: list[Dict[str, Any]]) -> str:
+def lifecycle_state_for(order_id: str, events: list[dict[str, Any]]) -> str:
     """Return lifecycle state for a given order_id based on list of order events.
     Events are dicts with at least {'order_id','status'} or similar.
     Priority: FILLED > CANCELLED > EXPIRED > PARTIAL > ACK > SUBMITTED > CREATED > UNKNOWN

@@ -1,7 +1,6 @@
-from core.execution.router import Router, QuoteSnapshot
+from core.execution.router import QuoteSnapshot, Router
 from core.tca.hazard_cox import CoxPH
 from core.tca.latency import SLAGate
-from core.execution.exchange.common import Fees
 
 # Setup like test fixture
 cox = CoxPH()
@@ -21,7 +20,6 @@ half = quote.half_spread_bps
 p_fill = router._estimate_p_fill(fill_features)
 
 # taker pre
-from core.execution.router import Router as _R
 
 # compute e_taker_pre
 e_taker_pre = E - half - router._fees.taker_fee_bps

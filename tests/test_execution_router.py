@@ -1,4 +1,4 @@
-from core.execution.router import Router, QuoteSnapshot
+from core.execution.router import QuoteSnapshot, Router
 from core.tca.latency import SLAGate
 
 

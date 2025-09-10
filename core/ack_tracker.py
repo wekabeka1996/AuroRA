@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 import time
-from typing import Dict, NamedTuple, Callable, Optional, Set
+from typing import NamedTuple
 
 
 class Pending(NamedTuple):
@@ -24,11 +25,11 @@ class AckTracker:
         self.events_emit = events_emit
         self.ttl_ns = int(ttl_s) * 1_000_000_000
         self.scan_period_s = max(0.1, float(scan_period_s))
-        self.pending: Dict[str, Pending] = {}
-        self.expired: Set[str] = set()
+        self.pending: dict[str, Pending] = {}
+        self.expired: set[str] = set()
         self._last_scan_ns: int = 0
 
-    def add_submit(self, symbol: str, cid: str, side: str, qty: float, t_submit_ns: Optional[int] = None) -> None:
+    def add_submit(self, symbol: str, cid: str, side: str, qty: float, t_submit_ns: int | None = None) -> None:
         if not cid:
             return
         if t_submit_ns is None:
@@ -44,7 +45,7 @@ class AckTracker:
             return
         self.pending.pop(cid, None)
 
-    def scan_once(self, now_ns: Optional[int] = None) -> int:
+    def scan_once(self, now_ns: int | None = None) -> int:
         now_ns = now_ns or time.time_ns()
         expired_count = 0
         to_expire = [cid for cid, p in list(self.pending.items()) if (now_ns - p.t_submit_ns) > self.ttl_ns]

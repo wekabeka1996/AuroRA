@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-import pytest
-import time
 import statistics
-from unittest.mock import Mock
-from core.tca.tca_analyzer import (
-    TCAAnalyzer, OrderExecution, FillEvent, TCAMetrics
-)
+import time
+
+import pytest
+
+from core.tca.tca_analyzer import FillEvent, OrderExecution, TCAAnalyzer
 
 
 class TestTCAAnalyzer:

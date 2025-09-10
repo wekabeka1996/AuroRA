@@ -43,13 +43,12 @@ and returns rich metadata (direction, statistic, extrema, sample index).
 """
 
 from dataclasses import dataclass
-from typing import Optional
 
 
 @dataclass
 class PHResult:
     triggered: bool
-    direction: Optional[str]  # 'up' | 'down' | None
+    direction: str | None  # 'up' | 'down' | None
     stat: float
     ph: float
     ph_min: float
@@ -81,7 +80,7 @@ class PageHinkley:
         self._ph_min = 0.0
         self._ph_max = 0.0
 
-    def reset(self, *, mean_init: Optional[float] = None) -> None:
+    def reset(self, *, mean_init: float | None = None) -> None:
         self._n = 0
         if mean_init is not None:
             self._mean = float(mean_init)
@@ -127,7 +126,7 @@ class PageHinkley:
 
         # two-sided tests (after warmup)
         trig = False
-        direction: Optional[str] = None
+        direction: str | None = None
         stat = 0.0
         if self._n >= self.min_samples:
             up_stat = self._ph - self._ph_min

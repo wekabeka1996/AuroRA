@@ -15,12 +15,11 @@ Features are designed for low-latency processing with minimal allocations.
 """
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Sequence, Tuple
-import math
 
 try:  # pragma: no cover
-    from core.types import MarketSnapshot, Trade, Side, OrderType, ExecMode
+    from core.types import ExecMode, MarketSnapshot, OrderType, Side, Trade
 except Exception:  # pragma: no cover - fallback for standalone testing
     from enum import Enum
 
@@ -104,13 +103,13 @@ class MicrostructureEngine:
 
     def __init__(self, max_depth: int = 20) -> None:
         self.max_depth = max_depth
-        self._prev_trades: List[Trade] = []
+        self._prev_trades: list[Trade] = []
         self._trade_window_s = 30.0  # Window for realized spread
 
     def compute_features(
         self,
         snapshot: MarketSnapshot,
-        recent_trades: Optional[Sequence[Trade]] = None,
+        recent_trades: Sequence[Trade] | None = None,
     ) -> MicrostructureFeatures:
         """Compute all microstructure features from current snapshot."""
 
@@ -185,7 +184,7 @@ class MicrostructureEngine:
 
         return micro_price
 
-    def _compute_volume_profile(self, trades: Sequence[Trade]) -> Tuple[float, float]:
+    def _compute_volume_profile(self, trades: Sequence[Trade]) -> tuple[float, float]:
         """Compute volume imbalance and ratio from recent trades."""
         buy_vol = sum(trade.size for trade in trades if trade.side == Side.BUY)
         sell_vol = sum(trade.size for trade in trades if trade.side == Side.SELL)
@@ -196,7 +195,7 @@ class MicrostructureEngine:
 
         return imbalance, ratio
 
-    def _compute_absorption(self, snapshot: MarketSnapshot) -> Tuple[float, float]:
+    def _compute_absorption(self, snapshot: MarketSnapshot) -> tuple[float, float]:
         """Compute absorption ratio and available depth."""
         # Absorption ratio: how much volume is needed to move price by 1%
         price_move_pct = 0.01
@@ -218,7 +217,7 @@ class MicrostructureEngine:
 
         return absorption_ratio, total_depth
 
-    def _estimate_ttf(self, snapshot: MarketSnapshot) -> Tuple[float, float]:
+    def _estimate_ttf(self, snapshot: MarketSnapshot) -> tuple[float, float]:
         """Estimate time-to-fill and queue position for a market order."""
         # Simplified TTF estimation based on order book depth
         avg_spread = snapshot.quoted_spread
@@ -289,7 +288,7 @@ def _create_test_snapshot() -> MarketSnapshot:
     )
 
 
-def _create_test_trades() -> List[Trade]:
+def _create_test_trades() -> list[Trade]:
     """Create test trades for volume profile."""
     return [
         Trade(995.0, 99.99, 10.0, Side.BUY),

@@ -25,9 +25,8 @@ No external dependencies; NumPy optional. Provides fallback `Trade`/`Side` when
 from __future__ import annotations
 
 from collections import deque
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Deque, Dict, Iterable, List, Optional, Sequence, Tuple
-import math
 import time
 
 try:  # optional, used only if available
@@ -36,7 +35,7 @@ except Exception:  # pragma: no cover
     np = None  # type: ignore
 
 # -------- Import from core types -------
-from core.types import Trade, Side
+from core.types import Side, Trade
 
 # =============================
 # Pure helpers
@@ -64,7 +63,7 @@ def vpin_volume_buckets(trades: Sequence[Trade], bucket_volume: float, max_bucke
     V = max(1e-9, float(bucket_volume))
     B = 0.0
     S = 0.0
-    imbalances: List[float] = []
+    imbalances: list[float] = []
     for tr in trades:
         # how much of trade fits into current bucket
         remain = V - (B + S)
@@ -111,7 +110,7 @@ class TFIStream:
         self.win = _Rolling(window_s)
         self.bucket_volume = float(bucket_volume)
         self.max_trades = int(max_trades)
-        self._trades: Deque[Trade] = deque()
+        self._trades: deque[Trade] = deque()
 
     def ingest_trade(self, tr: Trade) -> None:
         ts = float(tr.timestamp)
@@ -127,7 +126,7 @@ class TFIStream:
         while self._trades and float(self._trades[0].timestamp) < cutoff:
             self._trades.popleft()
 
-    def features(self, now_ts: Optional[float] = None) -> Dict[str, float]:
+    def features(self, now_ts: float | None = None) -> dict[str, float]:
         if now_ts is None:
             now_ts = time.time()
         b, s = self.win.sums(now_ts)
@@ -156,7 +155,7 @@ class _Rolling:
     """Rolling event-time window for buy/sell volumes with O(1) evictions."""
     def __init__(self, horizon_s: float) -> None:
         self.h = float(horizon_s)
-        self.q: Deque[_WinTrade] = deque()
+        self.q: deque[_WinTrade] = deque()
         self.bsum = 0.0
         self.ssum = 0.0
 
@@ -173,7 +172,7 @@ class _Rolling:
             self.bsum -= t.buy
             self.ssum -= t.sell
 
-    def sums(self, now_ts: float) -> Tuple[float, float]:
+    def sums(self, now_ts: float) -> tuple[float, float]:
         self._evict(now_ts)
         return self.bsum, self.ssum
 
@@ -182,11 +181,11 @@ class _Rolling:
 # Self-tests (synthetic)
 # =============================
 
-def _make_trades_imbalanced(n: int = 200, seed: int = 1) -> List[Trade]:
+def _make_trades_imbalanced(n: int = 200, seed: int = 1) -> list[Trade]:
     import random
     random.seed(seed)
     t0 = time.time()
-    out: List[Trade] = []
+    out: list[Trade] = []
     ts = t0
     for i in range(n):
         # 70% buys, 30% sells, sizes around 10±3
@@ -197,11 +196,11 @@ def _make_trades_imbalanced(n: int = 200, seed: int = 1) -> List[Trade]:
     return out
 
 
-def _make_trades_balanced(n: int = 200, seed: int = 2) -> List[Trade]:
+def _make_trades_balanced(n: int = 200, seed: int = 2) -> list[Trade]:
     import random
     random.seed(seed)
     t0 = time.time()
-    out: List[Trade] = []
+    out: list[Trade] = []
     ts = t0
     for i in range(n):
         is_buy = (i % 2 == 0)

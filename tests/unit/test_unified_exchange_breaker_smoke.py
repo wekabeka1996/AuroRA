@@ -1,5 +1,6 @@
-import pytest
 import time
+
+import pytest
 
 eh = pytest.importorskip("core.execution.exchange.error_handling", reason="error_handling missing")
 

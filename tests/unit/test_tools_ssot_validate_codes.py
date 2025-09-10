@@ -1,8 +1,5 @@
-import json
-from pathlib import Path
-from unittest.mock import patch
-import sys
-from tools.ssot_validate import check_missing_required_keys, _check_unknown_top_level, check_unknown_and_nulls
+from tools.ssot_validate import _check_unknown_top_level, check_missing_required_keys, check_unknown_and_nulls
+
 
 def test_ssot_validate_exit_codes(tmp_path):
     # Test missing required key -> exit 50

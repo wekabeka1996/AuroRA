@@ -1,5 +1,5 @@
 import json
-import os
+
 from core.execution.sim_local_sink import SimLocalSink
 
 
@@ -76,8 +76,8 @@ def test_tca_identity_sum_long_short(tmp_path):
     # write an artifact with an example breakdown
     out = tmp_path / 'tca_identity_check.txt'
     with open(out, 'w', encoding='utf-8') as f:
-        f.write('Long: is_bps={}, breakdown={}\n'.format(is_l, json.dumps(tca_l)))
-        f.write('Short: is_bps={}, breakdown={}\n'.format(is_s, json.dumps(tca_s)))
+        f.write(f'Long: is_bps={is_l}, breakdown={json.dumps(tca_l)}\n')
+        f.write(f'Short: is_bps={is_s}, breakdown={json.dumps(tca_s)}\n')
 
 
 def test_seed_determinism_repro():

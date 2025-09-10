@@ -26,12 +26,13 @@ Usage:
 """
 from __future__ import annotations
 
-import json
-import re
+from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import dataclass
+import json
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional, Tuple, Union
+import re
+from typing import Any, Union
 
 # -------------------- Exceptions --------------------
 
@@ -43,7 +44,7 @@ class SchemaLoadError(Exception):
 
 # -------------------- Core --------------------
 
-_JSON = Union[Dict[str, Any], List[Any], str, int, float, bool, None]
+_JSON = Union[dict[str, Any], list[Any], str, int, float, bool, None]
 
 
 def _json_pointer(root: Mapping[str, Any], pointer: str) -> Any:
@@ -92,12 +93,12 @@ class SchemaValidator:
         self._schema: Mapping[str, Any] = schema
         self._allow_additional = allow_additional_properties
         # cache compiled regex patterns to avoid recompilation
-        self._re_cache: Dict[str, re.Pattern[str]] = {}
+        self._re_cache: dict[str, re.Pattern[str]] = {}
 
     # -------- Construction helpers --------
 
     @classmethod
-    def from_path(cls, path: Union[str, Path], *, allow_additional_properties: bool = True) -> "SchemaValidator":
+    def from_path(cls, path: str | Path, *, allow_additional_properties: bool = True) -> SchemaValidator:
         p = Path(path)
         try:
             obj = json.loads(p.read_text(encoding="utf-8"))
@@ -107,13 +108,13 @@ class SchemaValidator:
 
     # -------- Public API --------
 
-    def version(self) -> Optional[str]:
+    def version(self) -> str | None:
         return self._schema.get("$id") or self._schema.get("version")
 
     def raw(self) -> Mapping[str, Any]:
         return self._schema
 
-    def hotreload_whitelist(self) -> List[str]:
+    def hotreload_whitelist(self) -> list[str]:
         wl = self._schema.get("hotReloadWhitelist")
         return list(wl) if isinstance(wl, list) else []
 
@@ -154,7 +155,7 @@ class SchemaValidator:
             for i, sub in enumerate(schema["allOf"]):
                 value = self._validate_node(value, sub, path=path, ctx=ctx, apply_defaults=apply_defaults)
         if "anyOf" in schema:
-            errors: List[str] = []
+            errors: list[str] = []
             for sub in schema["anyOf"]:
                 try:
                     self._validate_node(value, sub, path=path, ctx=ctx, apply_defaults=apply_defaults)
@@ -167,7 +168,7 @@ class SchemaValidator:
         if "oneOf" in schema:
             matches = 0
             last_val = value
-            last_err: Optional[str] = None
+            last_err: str | None = None
             for sub in schema["oneOf"]:
                 try:
                     last_val = self._validate_node(value, sub, path=path, ctx=ctx, apply_defaults=apply_defaults)
@@ -238,7 +239,7 @@ class SchemaValidator:
         if not ok:
             raise SchemaValidationError(f"{path or '$'}: expected {typ}, got {type(value).__name__}")
 
-    def _validate_number(self, value: Union[int, float], schema: Mapping[str, Any], path: str, *, integer: bool) -> None:
+    def _validate_number(self, value: int | float, schema: Mapping[str, Any], path: str, *, integer: bool) -> None:
         if integer and not (isinstance(value, int) and not isinstance(value, bool)):
             raise SchemaValidationError(f"{path or '$'}: expected integer")
         if "multipleOf" in schema:
@@ -277,7 +278,7 @@ class SchemaValidator:
             if not self._re_cache[pat].search(value):
                 raise SchemaValidationError(f"{path or '$'}: value does not match pattern '{pat}'")
 
-    def _validate_array(self, value: List[Any], schema: Mapping[str, Any], *, path: str, ctx: _Ctx, apply_defaults: bool) -> List[Any]:
+    def _validate_array(self, value: list[Any], schema: Mapping[str, Any], *, path: str, ctx: _Ctx, apply_defaults: bool) -> list[Any]:
         if "minItems" in schema and len(value) < int(schema["minItems"]):
             raise SchemaValidationError(f"{path or '$'}: array length {len(value)} < minItems {schema['minItems']}")
         if "maxItems" in schema and len(value) > int(schema["maxItems"]):
@@ -306,11 +307,11 @@ class SchemaValidator:
                     out[i] = norm
         return out
 
-    def _validate_object(self, value: Mapping[str, Any], schema: Mapping[str, Any], *, path: str, ctx: _Ctx, apply_defaults: bool) -> Dict[str, Any]:
+    def _validate_object(self, value: Mapping[str, Any], schema: Mapping[str, Any], *, path: str, ctx: _Ctx, apply_defaults: bool) -> dict[str, Any]:
         props: Mapping[str, Any] = schema.get("properties", {}) if isinstance(schema.get("properties"), Mapping) else {}
-        required: List[str] = list(schema.get("required", []))
+        required: list[str] = list(schema.get("required", []))
         addl = schema.get("additionalProperties", self._allow_additional)
-        out: Dict[str, Any] = dict(value) if not apply_defaults else dict(value)  # Always start with input data
+        out: dict[str, Any] = dict(value) if not apply_defaults else dict(value)  # Always start with input data
 
         # First, apply defaults for missing properties
         for k, subschema in props.items():

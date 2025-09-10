@@ -8,8 +8,8 @@ Implements the specified API contracts for Step 2: Sizing/Portfolio.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Dict, Optional, Any, Tuple, List, Callable
 import math
 import time
 
@@ -23,7 +23,7 @@ def kelly_binary(
     p_win: float,
     rr: float,
     risk_aversion: float = 1.0,
-    clip: Tuple[float, float] = (0.0, 0.2)
+    clip: tuple[float, float] = (0.0, 0.2)
 ) -> float:
     """
     Kelly fraction for binary outcome with risk aversion and clipping.
@@ -85,7 +85,7 @@ def kelly_mu_sigma(
     mu: float,
     sigma: float,
     risk_aversion: float = 1.0,
-    clip: Tuple[float, float] = (0.0, 0.2)
+    clip: tuple[float, float] = (0.0, 0.2)
 ) -> float:
     """
     Kelly fraction using mean-variance approximation.
@@ -147,7 +147,7 @@ def fraction_to_qty(
     leverage: float = 1.0,
     initial_margin_pct: float = 0.1,
     maintenance_margin_pct: float = 0.05,
-    price_step: Optional[float] = None
+    price_step: float | None = None
 ) -> float:
     """
     Convert Kelly fraction to executable quantity with exchange constraints.
@@ -212,7 +212,7 @@ def fraction_to_qty(
     if leverage > 1.0:
         # Required margin for the position
         required_margin = notional_usd / leverage
-        
+
         # Check if we have sufficient margin
         available_margin = notional_usd * initial_margin_pct
         if required_margin > available_margin:
@@ -394,7 +394,7 @@ class KellyOrchestrator:
     """Legacy class - kept for compatibility."""
     cap: float = 1.0
 
-    def lambda_product(self, lambdas: Optional[Dict[str, float]]) -> float:
+    def lambda_product(self, lambdas: dict[str, float] | None) -> float:
         if not lambdas:
             return 1.0
         prod = 1.0
@@ -407,7 +407,7 @@ class KellyOrchestrator:
             prod *= x
         return max(0.0, min(1.0, prod))
 
-    def size(self, p: float, G: float, L: float, *, lambdas: Optional[Dict[str, float]] = None, f_max: Optional[float] = None) -> float:
+    def size(self, p: float, G: float, L: float, *, lambdas: dict[str, float] | None = None, f_max: float | None = None) -> float:
         f_raw = raw_kelly_fraction(p, G, L, f_max=self.cap if f_max is None else min(self.cap, float(f_max)))
         mult = self.lambda_product(lambdas)
         f_star = f_raw * mult
@@ -483,10 +483,10 @@ class SizingStabilizer:
     min_resize_interval_sec: float = 5.0  # Minimum time between resizes
     last_resize_time: float = 0.0
     # Optional injectable clock for testing; defaults to time.monotonic
-    clock: Optional[Callable[[], float]] = None
+    clock: Callable[[], float] | None = None
 
     # Bucket sizing parameters
-    bucket_sizes: Optional[List[float]] = None  # Discrete position sizes
+    bucket_sizes: list[float] | None = None  # Discrete position sizes
 
     def __post_init__(self):
         if self.bucket_sizes is None:

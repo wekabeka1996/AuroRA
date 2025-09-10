@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Direct test using _JsonlWriter to bypass dedupe and force rotations.
 """
+import json
 from pathlib import Path
-import time, json
 import sys
-from pathlib import Path
+import time
+
 repo_root = Path(__file__).resolve().parents[1]
 if str(repo_root) not in sys.path:
     sys.path.insert(0, str(repo_root))

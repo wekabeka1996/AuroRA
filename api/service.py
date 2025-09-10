@@ -1,18 +1,19 @@
-import os
-import sys
-import yaml
 import asyncio
-import uvicorn
-import json
-import time
-from fastapi import FastAPI, HTTPException, Request
 from contextlib import asynccontextmanager
-from fastapi.responses import RedirectResponse
+import json
+import os
 from pathlib import Path
+import sys
+import time
+from typing import Any, cast
+
+from dotenv import find_dotenv, load_dotenv
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import RedirectResponse
+from prometheus_client import Counter, Gauge, Histogram, make_asgi_app
 from pydantic import BaseModel
-from typing import Any, Dict, cast
-from prometheus_client import make_asgi_app, Histogram, Gauge, Counter
-from dotenv import load_dotenv, find_dotenv
+import uvicorn
+import yaml
 
 # Ensure project root is on sys.path when running directly (python api/service.py)
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -28,30 +29,25 @@ except Exception:
 
 # Lazy import TradingSystem to avoid heavy deps (e.g., torch) at module import time.
 # We'll attempt to import it during app lifespan and fall back gracefully if unavailable.
-from core.aurora.pretrade import gate_latency, gate_slippage, gate_expected_return, gate_trap
-from core.scalper.calibrator import IsotonicCalibrator, CalibInput
-from core.scalper.sprt import SPRT, SprtConfig
-from core.scalper.trap import TrapWindow
-from core.aurora.pipeline import PretradePipeline
-from common.config import load_sprt_cfg, load_config_any, load_config_precedence, apply_env_overrides
+from aurora.governance import Governance
+from aurora.health import HealthGuard
+from common.config import apply_env_overrides, load_config_precedence, load_sprt_cfg
 from common.events import EventEmitter
+from core.ack_tracker import AckTracker
+from core.aurora.pipeline import PretradePipeline
 from core.aurora_event_logger import AuroraEventLogger
 from core.order_logger import OrderLoggers
-from core.ack_tracker import AckTracker
+from core.scalper.trap import TrapWindow
+from observability.codes import POLICY_DECISION, POSTTRADE_LOG
 from risk.manager import RiskManager
-from aurora.health import HealthGuard
 from tools.build_version import build_version_record
-from aurora.governance import Governance
-from observability.codes import (
-    POLICY_DECISION, AURORA_RISK_WARN, AURORA_EXPECTED_RETURN_ACCEPT,
-    AURORA_EXPECTED_RETURN_LOW, AURORA_SLIPPAGE_GUARD, POSTTRADE_LOG
-)
+
 
 # Read version from VERSION file
 def get_version():
     try:
         version_file = os.path.join(PROJECT_ROOT, 'VERSION')
-        with open(version_file, 'r', encoding='utf-8') as f:
+        with open(version_file, encoding='utf-8') as f:
             return f.read().strip()
     except Exception:
         return os.getenv('AURORA_VERSION', 'unknown')
@@ -64,7 +60,6 @@ from api.models import (
     PretradeCheckRequest,
     PretradeCheckResponse,
 )
-
 
 # --- Initialization ---
 # Deprecated fallback kept for BC if precedence chain yields empty
@@ -84,7 +79,7 @@ async def lifespan(app: FastAPI):
         cfg = load_config_precedence()
         if not cfg:
             # final fallback for legacy deployments
-            cfg = yaml.safe_load(open(CONFIG_PATH, 'r', encoding='utf-8')) or {}
+            cfg = yaml.safe_load(open(CONFIG_PATH, encoding='utf-8')) or {}
         cfg = apply_env_overrides(cfg)
     except Exception:
         cfg = {}
@@ -188,7 +183,7 @@ async def lifespan(app: FastAPI):
                     pass
                 try:
                     await _aio.wait_for(app.state._ack_scan_stop.wait(), timeout=period)
-                except _aio.TimeoutError:
+                except TimeoutError:
                     continue
 
         # start scan task
@@ -363,8 +358,7 @@ OPS_AUTH_FAIL = Counter('aurora_ops_auth_fail_total', 'Total failed OPS auth att
 
 
 # --- Security middleware for OPS ---
-from fastapi import Depends
-from fastapi import Header
+from fastapi import Depends, Header
 
 
 def _ops_auth(x_ops_token: str | None = Header(default=None, alias="X-OPS-TOKEN")):
@@ -422,7 +416,7 @@ async def predict(request: PredictionRequest):
             regime=result['regime'],
             latency_ms=result['latency_ms'],
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         slo = ((getattr(app.state, 'cfg', {}) or {}).get('trading', {}) or {}).get('max_latency_ms', 1000)
         raise HTTPException(status_code=503, detail=f"Prediction timeout: Service busy or latency SLO ({slo}ms) exceeded.")
     except Exception as e:
@@ -485,18 +479,18 @@ async def readiness(_: bool = Depends(_ops_auth)):
 async def pretrade_check(request: Request, req: PretradeCheckRequest):
     try:
         # Уніфікувати представлення у dict, навіть якщо це Pydantic-моделі
-        def _as_dict(v: Any) -> Dict[str, Any]:
+        def _as_dict(v: Any) -> dict[str, Any]:
             try:
-                return cast(Dict[str, Any], v.model_dump())  # type: ignore[attr-defined]
+                return cast(dict[str, Any], v.model_dump())  # type: ignore[attr-defined]
             except Exception:
                 try:
                     return dict(v)  # type: ignore[arg-type]
                 except Exception:
-                    return cast(Dict[str, Any], v or {})
+                    return cast(dict[str, Any], v or {})
 
-        acc: Dict[str, Any] = _as_dict(req.account)
-        o: Dict[str, Any] = _as_dict(req.order)
-        m: Dict[str, Any] = _as_dict(req.market)
+        acc: dict[str, Any] = _as_dict(req.account)
+        o: dict[str, Any] = _as_dict(req.order)
+        m: dict[str, Any] = _as_dict(req.market)
     except Exception as e:
         # Невалідний формат запиту
         raise HTTPException(status_code=422, detail=str(e))
@@ -525,7 +519,7 @@ async def pretrade_check(request: Request, req: PretradeCheckRequest):
     # Anti-churn precheck (rate-limit opens and respect cooldown after close)
     allow: bool = False
     reason: str = "uninitialized"
-    obs: Dict[str, Any]
+    obs: dict[str, Any]
     risk_scale: float = 1.0
     obs = {"reasons": []}
     pipeline = None
@@ -670,7 +664,7 @@ async def pretrade_check(request: Request, req: PretradeCheckRequest):
             # extract numbers for payload when possible
             spread_bps_val = obs.get('spread_bps') if isinstance(obs, dict) else None
             cfg_all_s = getattr(request.app.state, 'cfg', {}) or {}
-            spread_limit_bps = float(((cfg_all_s.get('guards') or {}).get('spread_bps_limit', 100.0)))
+            spread_limit_bps = float((cfg_all_s.get('guards') or {}).get('spread_bps_limit', 100.0))
             emitter.emit(
                 type="SPREAD_GUARD_TRIP",
                 severity="warning",
@@ -771,7 +765,7 @@ async def posttrade_log(request: Request, payload: dict):
             default_orders = (getattr(request.app.state, 'session_dir', Path('logs')) / 'orders.jsonl')
             cfg_orders = ((cfg_all.get('logging') or {}).get('orders_path'))
             # Always place consolidated orders file under session dir, keep only basename
-            orders_path = str((getattr(request.app.state, 'session_dir', Path('logs')) / (Path(cfg_orders).name if cfg_orders else default_orders.name)))
+            orders_path = str(getattr(request.app.state, 'session_dir', Path('logs')) / (Path(cfg_orders).name if cfg_orders else default_orders.name))
         except Exception:
             orders_path = str(getattr(request.app.state, 'session_dir', Path('logs')) / 'orders.jsonl')
         try:
@@ -944,7 +938,7 @@ async def posttrade_log(request: Request, payload: dict):
                 except Exception:
                     return None
 
-            sym = _canon_symbol((payload.get('symbol') if isinstance(payload, dict) else None))
+            sym = _canon_symbol(payload.get('symbol') if isinstance(payload, dict) else None)
             action = (str(payload.get('action')).lower() if isinstance(payload, dict) and payload.get('action') is not None else None)
             # Some runners may signal close via boolean flags
             close_flag = False

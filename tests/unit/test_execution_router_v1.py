@@ -17,14 +17,17 @@ Comprehensive test suite covering:
 Total tests: 30+ covering all DoD invariants
 """
 
-import pytest
 import time
-from unittest.mock import Mock, patch
-from dataclasses import dataclass
+from unittest.mock import patch
+
+import pytest
 
 from core.execution.execution_router_v1 import (
-    ExecutionRouter, ExecutionContext, RouterConfig, ChildOrder,
-    OrderState, RejectReason
+    ExecutionContext,
+    ExecutionRouter,
+    OrderState,
+    RejectReason,
+    RouterConfig,
 )
 from core.tca.tca_analyzer import FillEvent
 

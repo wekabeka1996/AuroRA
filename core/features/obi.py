@@ -22,9 +22,7 @@ fallback `MarketSnapshot` if core types are unavailable).
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Dict, List, Mapping, Optional, Sequence, Tuple
-import math
+from collections.abc import Sequence
 import time
 
 try:  # optional pretty array ops only; core logic does not require NumPy
@@ -39,7 +37,7 @@ from core.types import MarketSnapshot
 # Pure feature functions
 # =============================
 
-def depth_sums(bid_volumes_l: Sequence[float], ask_volumes_l: Sequence[float], levels: int = 5) -> Tuple[float, float]:
+def depth_sums(bid_volumes_l: Sequence[float], ask_volumes_l: Sequence[float], levels: int = 5) -> tuple[float, float]:
     """Sum of depths on bid/ask over first k levels. Levels>len(list) → clamp."""
     k = max(1, int(levels))
     b = sum(float(x) for x in bid_volumes_l[:k])
@@ -91,7 +89,7 @@ class OBIStream:
     def __init__(self, levels: int = 5) -> None:
         self.levels = max(1, int(levels))
 
-    def update(self, snap: MarketSnapshot) -> Dict[str, float]:
+    def update(self, snap: MarketSnapshot) -> dict[str, float]:
         k = self.levels
         b, a = depth_sums(snap.bid_volumes_l, snap.ask_volumes_l, k)
         feats = {
@@ -111,9 +109,9 @@ class OBIStream:
 # Self-tests
 # =============================
 
-def _mock_snapseq() -> List[MarketSnapshot]:
+def _mock_snapseq() -> list[MarketSnapshot]:
     t0 = time.time()
-    snaps: List[MarketSnapshot] = []
+    snaps: list[MarketSnapshot] = []
     bid, ask = 100.00, 100.02
     qb1, qa1 = 500.0, 520.0
     for i in range(20):

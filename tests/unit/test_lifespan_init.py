@@ -1,9 +1,6 @@
-import os
-import time
-import types
-import pytest
-
 from typing import Any
+
+import pytest
 
 
 def _init_lifespan(config_path: str, schema_path: str, base_path: str):
@@ -11,8 +8,7 @@ def _init_lifespan(config_path: str, schema_path: str, base_path: str):
 
     Returns (cfg, logger, watcher) to allow assertions in tests.
     """
-    from core.config import loader as cfg_loader
-    from core.config import hotreload
+    from core.config import hotreload, loader as cfg_loader
     from core.xai.logger import DecisionLogger
 
     # Build logger first so we can emit a start log regardless of config outcome

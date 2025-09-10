@@ -1,4 +1,3 @@
-import time
 
 class FakeClock:
     def __init__(self, start_ns=0):

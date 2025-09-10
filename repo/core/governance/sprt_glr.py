@@ -35,7 +35,6 @@ API
 
 from dataclasses import dataclass
 from math import log
-from typing import Optional
 
 from repo.core.governance.alpha_ledger import AlphaLedger
 
@@ -77,11 +76,11 @@ class SPRT:
         self.reset_on_decision = bool(reset_on_decision)
         self._S = 0.0
         self._n = 0
-        self._ledger: Optional[AlphaLedger] = None
-        self._ticket: Optional[str] = None
+        self._ledger: AlphaLedger | None = None
+        self._ticket: str | None = None
         self._test_name: str = ""
 
-    def start(self, *, ledger: Optional[AlphaLedger] = None, test_name: str = "") -> None:
+    def start(self, *, ledger: AlphaLedger | None = None, test_name: str = "") -> None:
         self._S = 0.0
         self._n = 0
         self._ledger = ledger

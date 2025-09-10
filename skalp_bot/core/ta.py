@@ -1,10 +1,10 @@
 from __future__ import annotations
-from typing import List, Optional, Tuple
 
-def atr_wilder(high: List[float] | float, low: List[float] | float, close: List[float] | float,
+
+def atr_wilder(high: list[float] | float, low: list[float] | float, close: list[float] | float,
                period: int = 14,
-               prev_atr: Optional[float] = None,
-               prev_close: Optional[float] = None) -> Optional[float]:
+               prev_atr: float | None = None,
+               prev_close: float | None = None) -> float | None:
     """
     Wilder ATR (Average True Range)
     Modes:

@@ -34,8 +34,8 @@ No external dependencies; NumPy optional. Fully standalone.
 """
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Dict, Iterable, List, Mapping, MutableMapping, Optional, Tuple
 import math
 import random
 
@@ -48,7 +48,7 @@ except Exception:  # pragma: no cover
 # Utilities
 # =============================
 
-def _clip(x: float, lo: Optional[float], hi: Optional[float]) -> float:
+def _clip(x: float, lo: float | None, hi: float | None) -> float:
     if lo is not None and x < lo:
         return lo
     if hi is not None and x > hi:
@@ -89,12 +89,12 @@ class Welford:
 @dataclass
 class P2Quantile:
     q: float  # desired quantile in (0,1)
-    _init: List[float] = field(default_factory=list)
+    _init: list[float] = field(default_factory=list)
     # marker positions (n), desired positions (np), heights (q)
-    n: List[float] = field(default_factory=lambda: [0.0]*5)
-    np_des: List[float] = field(default_factory=lambda: [0.0]*5)
-    dn: List[float] = field(default_factory=lambda: [0.0]*5)
-    qh: List[float] = field(default_factory=lambda: [0.0]*5)
+    n: list[float] = field(default_factory=lambda: [0.0]*5)
+    np_des: list[float] = field(default_factory=lambda: [0.0]*5)
+    dn: list[float] = field(default_factory=lambda: [0.0]*5)
+    qh: list[float] = field(default_factory=lambda: [0.0]*5)
 
     def update(self, x: float) -> None:
         x = float(x)
@@ -187,8 +187,8 @@ class RobustMedianMAD:
 
 @dataclass
 class ZScoreScaler:
-    clip_lo: Optional[float] = -5.0
-    clip_hi: Optional[float] = 5.0
+    clip_lo: float | None = -5.0
+    clip_hi: float | None = 5.0
     stats: Welford = field(default_factory=Welford)
 
     def update(self, x: float) -> float:
@@ -209,8 +209,8 @@ class ZScoreScaler:
 
 @dataclass
 class RobustScaler:
-    clip_lo: Optional[float] = -5.0
-    clip_hi: Optional[float] = 5.0
+    clip_lo: float | None = -5.0
+    clip_hi: float | None = 5.0
     r: RobustMedianMAD = field(default_factory=RobustMedianMAD)
 
     def update(self, x: float) -> float:
@@ -235,8 +235,8 @@ class HysteresisMinMax:
     # expansion reacts fast (small alpha_expand), shrink reacts slow (alpha_shrink close to 1)
     alpha_expand: float = 0.1
     alpha_shrink: float = 0.995
-    lo: Optional[float] = None
-    hi: Optional[float] = None
+    lo: float | None = None
+    hi: float | None = None
 
     def update(self, x: float) -> float:
         x = float(x)
@@ -279,10 +279,10 @@ class DictFeatureScaler:
         dfs = DictFeatureScaler(mode="robust", clip=(-6, 6))
         y = dfs.update_batch({"obi": 0.2, "tfi": 15.0})
     """
-    def __init__(self, *, mode: str = "robust", clip: Tuple[Optional[float], Optional[float]] = (None, None)) -> None:
+    def __init__(self, *, mode: str = "robust", clip: tuple[float | None, float | None] = (None, None)) -> None:
         self.mode = mode
         self.clip = clip
-        self._scalers: Dict[str, object] = {}
+        self._scalers: dict[str, object] = {}
 
     def _make(self) -> object:
         lo, hi = self.clip
@@ -308,7 +308,7 @@ class DictFeatureScaler:
             self._scalers[key] = sc
         return sc.transform(float(x))  # type: ignore
 
-    def update_batch(self, feats: Mapping[str, float]) -> Dict[str, float]:
+    def update_batch(self, feats: Mapping[str, float]) -> dict[str, float]:
         return {k: self.update(k, v) for k, v in feats.items()}
 
 
@@ -364,21 +364,21 @@ def _test_robust_seed_stability() -> None:
     """Test that RobustScaler produces stable results with same seed."""
     seed = 42
     values = [1.0, 2.0, 3.0, 4.0, 5.0]
-    
+
     # First run
     rs1 = RobustScaler()
     rnd1 = random.Random(seed)
     for _ in range(100):
         rs1.update(rnd1.gauss(0.0, 1.0))
     result1 = rs1.transform(2.0)
-    
+
     # Second run with same seed
     rs2 = RobustScaler()
     rnd2 = random.Random(seed)
     for _ in range(100):
         rs2.update(rnd2.gauss(0.0, 1.0))
     result2 = rs2.transform(2.0)
-    
+
     assert abs(result1 - result2) < 1e-12, "RobustScaler should be deterministic with same seed"
 
 

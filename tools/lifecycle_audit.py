@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+from collections import defaultdict
 import json
 from pathlib import Path
-from collections import defaultdict
-from typing import Dict, Any, List
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def load_jsonl(path: Path) -> List[Dict[str, Any]]:
+def load_jsonl(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
     out = []
@@ -21,9 +21,9 @@ def load_jsonl(path: Path) -> List[Dict[str, Any]]:
     return out
 
 
-def build_graph(records: List[Dict[str, Any]]):
-    edges_by_order: Dict[str, List[str]] = defaultdict(list)
-    by_oid: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+def build_graph(records: list[dict[str, Any]]):
+    edges_by_order: dict[str, list[str]] = defaultdict(list)
+    by_oid: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for r in records:
         oid = str(r.get("order_id") or r.get("orderId") or "")
         if not oid:
@@ -54,7 +54,7 @@ def build_graph(records: List[Dict[str, Any]]):
             anomalies.append({"order_id": oid, "type": "MULTIPLE_TERMINALS", "states": states})
 
     # also group by decision_id for later diagnostics
-    dec_map: Dict[str, List[str]] = defaultdict(list)
+    dec_map: dict[str, list[str]] = defaultdict(list)
     for r in records:
         did = str(r.get("decision_id") or r.get("decisionId") or "")
         oid = str(r.get("order_id") or r.get("orderId") or "")

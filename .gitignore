@@ -1,3 +1,5 @@
+# Ignore Windows reserved device filename that may appear in workspace
+NUL
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

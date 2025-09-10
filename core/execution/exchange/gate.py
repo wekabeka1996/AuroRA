@@ -16,20 +16,19 @@ Notes
   `KEY`, `SIGN`, and `Content-Type: application/json`.
 """
 
-import json
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Mapping, Optional
-from urllib.parse import urlencode, urlsplit
+import json
+from urllib.parse import urlencode
 
 from core.execution.exchange.common import (
     AbstractExchange,
+    Fill,
     HttpClient,
     OrderRequest,
     OrderResult,
     OrderType,
     SymbolInfo,
-    Fill,
-    ValidationError,
     make_idempotency_key,
 )
 
@@ -43,7 +42,7 @@ class _Creds:
 class GateExchange(AbstractExchange):
     name = "gate"
 
-    def __init__(self, *, api_key: str, api_secret: str, http: Optional[HttpClient] = None, base_url: str = "https://api.gateio.ws/api/v4") -> None:
+    def __init__(self, *, api_key: str, api_secret: str, http: HttpClient | None = None, base_url: str = "https://api.gateio.ws/api/v4") -> None:
         super().__init__(http=http)
         self._creds = _Creds(api_key, api_secret)
         self._base = base_url.rstrip("/")

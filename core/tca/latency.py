@@ -24,9 +24,8 @@ Notes
 """
 
 from dataclasses import dataclass
-from typing import Optional
 
-from core.config.loader import get_config, ConfigError
+from core.config.loader import ConfigError, get_config
 
 
 def edge_after_latency(edge_bps: float, latency_ms: float, kappa_bps_per_ms: float) -> float:
@@ -43,6 +42,14 @@ def implied_kappa_bps_per_ms(edge_bps_before: float, edge_bps_after: float, late
     if latency_ms == 0:
         return 0.0
     return (float(edge_bps_before) - float(edge_bps_after)) / float(latency_ms)
+
+
+def compute_latency_penalty(kappa_bps_per_ms: float, latency_ms: float) -> float:
+    """Simple helper used in unit tests: return κ * L in bps.
+
+    Inputs are floats; output is float bps.
+    """
+    return float(kappa_bps_per_ms) * float(latency_ms)
 
 
 @dataclass
@@ -67,7 +74,7 @@ class SLAGate:
     def __init__(
         self,
         *,
-        max_latency_ms: Optional[float] = None,
+        max_latency_ms: float | None = None,
         kappa_bps_per_ms: float = 0.05,
         min_edge_after_bps: float = 0.0,
     ) -> None:
@@ -111,5 +118,22 @@ class SLAGate:
             max_latency_ms=self.max_latency_ms,
         )
 
+    # Backward-compat tiny helper used by tests
+    def check_latency(self, latency_ms: float) -> bool:
+        """Return True if L <= max_latency_ms, else False.
 
-__all__ = ["edge_after_latency", "implied_kappa_bps_per_ms", "SLAGate", "SLAGateResult"]
+        Meant for quick boundary checks in tests; full logic lives in gate().
+        """
+        try:
+            return float(latency_ms) <= float(self.max_latency_ms)
+        except Exception:
+            return False
+
+
+__all__ = [
+    "edge_after_latency",
+    "implied_kappa_bps_per_ms",
+    "compute_latency_penalty",
+    "SLAGate",
+    "SLAGateResult",
+]

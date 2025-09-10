@@ -13,9 +13,9 @@ Invariant: Any deny from Risk/Governance zeros target-size; Execution nets to 0 
 """
 
 from dataclasses import dataclass
-from typing import Literal, Optional, Dict, Any, List
 from enum import Enum
 import time
+from typing import Any, Literal
 
 
 class PositionState(Enum):
@@ -51,17 +51,17 @@ class PositionData:
     side: Literal['BUY', 'SELL']
     target_qty: float
     current_qty: float = 0.0
-    entry_price: Optional[float] = None
-    current_price: Optional[float] = None
+    entry_price: float | None = None
+    current_price: float | None = None
     realized_pnl: float = 0.0
     unrealized_pnl: float = 0.0
     fees_paid: float = 0.0
     state: PositionState = PositionState.FLAT
     created_ts: int = 0
     last_update_ts: int = 0
-    ttl_seconds: Optional[int] = None
-    exit_reason: Optional[str] = None
-    
+    ttl_seconds: int | None = None
+    exit_reason: str | None = None
+
     def __post_init__(self):
         if self.created_ts == 0:
             self.created_ts = int(time.time())
@@ -74,10 +74,10 @@ class TransitionResult:
     """Result of a state transition"""
     success: bool
     new_state: PositionState
-    actions: List[str]  # Actions to take (e.g., ["cancel_orders", "flatten_position"])
+    actions: list[str]  # Actions to take (e.g., ["cancel_orders", "flatten_position"])
     reason: str
-    metadata: Optional[Dict[str, Any]] = None
-    
+    metadata: dict[str, Any] | None = None
+
     def __post_init__(self):
         if self.metadata is None:
             self.metadata = {}
@@ -85,11 +85,11 @@ class TransitionResult:
 
 class PositionFSM:
     """Finite State Machine for position lifecycle management"""
-    
+
     def __init__(self):
         self._transitions = self._build_transition_table()
-    
-    def _build_transition_table(self) -> Dict[PositionState, Dict[PositionEvent, PositionState]]:
+
+    def _build_transition_table(self) -> dict[PositionState, dict[PositionEvent, PositionState]]:
         """Build the state transition table"""
         return {
             PositionState.FLAT: {
@@ -131,19 +131,19 @@ class PositionFSM:
                 # Terminal state - no transitions
             }
         }
-    
+
     def process_event(
-        self, 
-        position: PositionData, 
-        event: PositionEvent, 
-        event_data: Optional[Dict[str, Any]] = None
+        self,
+        position: PositionData,
+        event: PositionEvent,
+        event_data: dict[str, Any] | None = None
     ) -> TransitionResult:
         """Process an event and return transition result"""
         if event_data is None:
             event_data = {}
-        
+
         current_state = position.state
-        
+
         # Check if transition is allowed
         if current_state not in self._transitions:
             return TransitionResult(
@@ -152,7 +152,7 @@ class PositionFSM:
                 actions=[],
                 reason=f"Invalid current state: {current_state}"
             )
-        
+
         state_transitions = self._transitions[current_state]
         if event not in state_transitions:
             return TransitionResult(
@@ -161,20 +161,20 @@ class PositionFSM:
                 actions=[],
                 reason=f"Event {event.value} not allowed in state {current_state.value}"
             )
-        
+
         new_state = state_transitions[event]
         actions = self._get_actions_for_transition(current_state, new_state, event, event_data)
-        
+
         # Update position
         position.state = new_state
         position.last_update_ts = int(time.time())
-        
+
         # Set exit reason for terminal states
         if new_state == PositionState.CLOSED:
             position.exit_reason = event_data.get('reason', event.value)
         elif new_state == PositionState.FLAT and current_state != PositionState.FLAT:
             position.exit_reason = event_data.get('reason', f"force_close_{event.value}")
-        
+
         return TransitionResult(
             success=True,
             new_state=new_state,
@@ -187,29 +187,29 @@ class PositionFSM:
                 'position_id': position.position_id
             }
         )
-    
+
     def _get_actions_for_transition(
         self,
         from_state: PositionState,
         to_state: PositionState,
         event: PositionEvent,
-        event_data: Dict[str, Any]
-    ) -> List[str]:
+        event_data: dict[str, Any]
+    ) -> list[str]:
         """Determine actions to take for a state transition"""
         actions = []
-        
+
         # Emergency actions for risk/governance denials
         if event in [PositionEvent.RISK_DENY, PositionEvent.GOVERNANCE_KILL]:
             if to_state == PositionState.FLAT:
                 actions.extend(["cancel_all_orders", "flatten_position", "log_emergency_exit"])
             elif to_state == PositionState.REDUCE_PENDING:
                 actions.extend(["cancel_entry_orders", "reduce_to_zero", "log_risk_exit"])
-        
+
         # Fill handling
         elif event in [PositionEvent.FILL_PARTIAL, PositionEvent.FILL_FULL]:
             fill_qty = event_data.get('fill_qty', 0)
             fill_price = event_data.get('fill_price', 0)
-            
+
             if from_state == PositionState.ENTRY_PENDING and to_state == PositionState.OPEN:
                 actions.extend([
                     "update_entry_price",
@@ -228,7 +228,7 @@ class PositionFSM:
                     "cleanup_position",
                     "log_position_closed"
                 ])
-        
+
         # Order management
         elif from_state == PositionState.FLAT and to_state == PositionState.ENTRY_PENDING:
             actions.extend([
@@ -236,46 +236,46 @@ class PositionFSM:
                 "set_position_ttl",
                 "log_entry_attempt"
             ])
-        
+
         elif from_state == PositionState.OPEN and to_state == PositionState.SCALE_IN_PENDING:
             actions.extend([
                 "submit_scale_order",
                 "set_scale_ttl",
                 "log_scale_attempt"
             ])
-        
+
         elif from_state == PositionState.OPEN and to_state == PositionState.REDUCE_PENDING:
             actions.extend([
                 "submit_reduce_order",
                 "set_reduce_ttl",
                 "log_reduce_attempt"
             ])
-        
+
         # TTL handling
         elif event == PositionEvent.TTL_EXPIRED:
             if to_state in [PositionState.REDUCE_PENDING, PositionState.FLAT]:
                 actions.extend(["cancel_pending_orders", "force_close_position", "log_ttl_expired"])
-        
+
         return actions
-    
+
     def can_transition(self, position: PositionData, event: PositionEvent) -> bool:
         """Check if a transition is allowed from current state"""
         if position.state not in self._transitions:
             return False
         return event in self._transitions[position.state]
-    
-    def get_allowed_events(self, position: PositionData) -> List[PositionEvent]:
+
+    def get_allowed_events(self, position: PositionData) -> list[PositionEvent]:
         """Get all events allowed from current state"""
         if position.state not in self._transitions:
             return []
         return list(self._transitions[position.state].keys())
-    
+
     def is_terminal_state(self, state: PositionState) -> bool:
         """Check if a state is terminal (no outgoing transitions)"""
         return state not in self._transitions or not self._transitions[state]
 
 
 __all__ = [
-    "PositionState", "PositionEvent", "PositionData", 
+    "PositionState", "PositionEvent", "PositionData",
     "TransitionResult", "PositionFSM"
 ]

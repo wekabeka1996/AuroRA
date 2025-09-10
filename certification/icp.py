@@ -1,7 +1,9 @@
 
-import numpy as np
 from collections import deque
+
+import numpy as np
 from scipy.stats import norm
+
 
 class DynamicICP:
     """
@@ -20,7 +22,7 @@ class DynamicICP:
         self.window = window
         self.aci_influence = aci_influence
         self.transition_influence = transition_influence
-        
+
         # Використовуємо deque для ефективного зберігання останніх N скорів
         self.calibration_scores = deque(maxlen=window)
 
@@ -39,17 +41,17 @@ class DynamicICP:
         alpha(z, ACI) = clip(alpha_0 + alpha_1*1_{TRANS} + alpha_2*ACI_EMA, alpha_min, alpha_max)
         """
         is_transition = self._detect_transition(z)
-        
+
         # Розрахунок alpha
         alpha = self.alpha_base
         if is_transition:
             alpha += self.transition_influence
-        
+
         # Додаємо вплив ACI (ARMA Crossbar Index)
         # ACI - це метрика, що показує розбіжність між AR та ARMA моделями.
         # Високий ACI -> висока невизначеність -> більша alpha (ширший інтервал)
         alpha += self.aci_influence * min(aci, 1.0) # Обмежуємо вплив ACI
-        
+
         # Обмежуємо alpha в розумних межах
         alpha_final = np.clip(alpha, 0.01, 0.25)
         return alpha_final
@@ -66,7 +68,7 @@ class DynamicICP:
         """
         # 1. Обчислюємо динамічну alpha
         dynamic_alpha = self.compute_alpha(z, aci)
-        
+
         # 2. Обчислюємо квантиль з калібрувального набору
         # Якщо калібрувальний набір ще замалий, використовуємо Гауссівський квантиль
         if len(self.calibration_scores) < 50:
@@ -74,13 +76,13 @@ class DynamicICP:
         else:
             # Quantile_{1-alpha} {s_i}
             q = np.quantile(list(self.calibration_scores), 1 - dynamic_alpha)
-        
+
         # 3. Розраховуємо межі інтервалу
         # [y_hat +- q_alpha * sigma_hat]
         margin = q * sigma_hat
         lower_bound = y_hat - margin
         upper_bound = y_hat + margin
-        
+
         return lower_bound, upper_bound, dynamic_alpha
 
     def update(self, y_true, y_hat, sigma_hat):

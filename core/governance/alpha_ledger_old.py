@@ -21,9 +21,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, List, Optional, Sequence, Tuple, Any
 import math
 import time
+from typing import Any
 
 try:
     import numpy as np  # type: ignore
@@ -32,8 +32,8 @@ except Exception:  # pragma: no cover
 
 # -------- Core imports from our modules ---------
 try:  # pragma: no cover
-    from core.types import XAIRecord, WhyCode
     from common.events import aurora_event
+    from core.types import WhyCode, XAIRecord
 except Exception:  # pragma: no cover - minimal fallbacks
     class WhyCode(str, Enum):
         ALPHA_SPENT = "ALPHA_SPENT"
@@ -44,7 +44,7 @@ except Exception:  # pragma: no cover - minimal fallbacks
     class XAIRecord:
         timestamp: float = 0.0
         why_code: WhyCode = WhyCode.ALPHA_SPENT
-        details: Dict[str, Any] = field(default_factory=dict)
+        details: dict[str, Any] = field(default_factory=dict)
 
     def aurora_event(record: XAIRecord) -> None:  # pragma: no cover
         print(f"AURORA_EVENT: {record}")
@@ -71,7 +71,7 @@ class SpendingRecord:
     p_value: float
     confidence_level: float
     policy_used: AlphaSpendingPolicy
-    bootstrap_ci: Optional[Tuple[float, float]] = None
+    bootstrap_ci: tuple[float, float] | None = None
 
 
 @dataclass
@@ -126,16 +126,16 @@ class AlphaSpendingLedger:
             total_allocated=config.total_alpha,
             remaining=config.total_alpha
         )
-        self.spending_history: List[SpendingRecord] = []
-        self.active_tests: Dict[str, float] = {}  # test_id -> allocated_alpha
+        self.spending_history: list[SpendingRecord] = []
+        self.active_tests: dict[str, float] = {}  # test_id -> allocated_alpha
         self.test_counter = 0
 
     def request_alpha(
         self,
         evidence_strength: float,
         p_value: float,
-        test_context: Optional[Dict[str, Any]] = None,
-    ) -> Tuple[float, bool, str]:
+        test_context: dict[str, Any] | None = None,
+    ) -> tuple[float, bool, str]:
         """Request alpha allocation for a new test.
 
         Args:
@@ -312,7 +312,7 @@ class AlphaSpendingLedger:
         evidence_strength: float,
         p_value: float,
         proposed_allocation: float
-    ) -> Tuple[float, float]:
+    ) -> tuple[float, float]:
         """Calculate bootstrap confidence interval for allocation decision."""
         if not np or self.config.bootstrap_samples < 10:
             return proposed_allocation * 0.8, proposed_allocation * 1.2
@@ -387,7 +387,7 @@ class AlphaSpendingLedger:
         )
         aurora_event(xai_record)
 
-    def get_budget_summary(self) -> Dict[str, Any]:
+    def get_budget_summary(self) -> dict[str, Any]:
         """Get summary of current budget state."""
         return {
             "total_allocated": self.budget.total_allocated,
@@ -403,8 +403,8 @@ class AlphaSpendingLedger:
 
     def get_spending_history(
         self,
-        limit: Optional[int] = None
-    ) -> List[SpendingRecord]:
+        limit: int | None = None
+    ) -> list[SpendingRecord]:
         """Get spending history, most recent first."""
         history = self.spending_history[-limit:] if limit else self.spending_history
         return list(reversed(history))  # Most recent first

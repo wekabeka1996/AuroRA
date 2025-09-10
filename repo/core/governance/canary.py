@@ -23,14 +23,13 @@ Usage
 """
 
 from dataclasses import dataclass
-from typing import List, Optional
 
 from core.xai.alerts import (
-    NoTradesAlert,
-    DenySpikeAlert,
+    AlertResult,
     CalibrationDriftAlert,
     CvarBreachAlert,
-    AlertResult,
+    DenySpikeAlert,
+    NoTradesAlert,
 )
 
 
@@ -46,11 +45,11 @@ class Canary:
         self._den = DenySpikeAlert()
         self._cal = CalibrationDriftAlert()
         self._cvar = CvarBreachAlert()
-        self._queue: List[AlertResult] = []
+        self._queue: list[AlertResult] = []
 
     # ---------- event ingestion ----------
 
-    def on_decision(self, *, ts_ns: int, action: str, p: float, y: Optional[int] = None) -> None:
+    def on_decision(self, *, ts_ns: int, action: str, p: float, y: int | None = None) -> None:
         # no-trades and deny spike
         r1 = self._no.update(ts_ns, action)
         if r1 is not None:
@@ -72,7 +71,7 @@ class Canary:
 
     # ---------- polling ----------
 
-    def poll(self) -> List[AlertResult]:
+    def poll(self) -> list[AlertResult]:
         out = list(self._queue)
         self._queue.clear()
         return out

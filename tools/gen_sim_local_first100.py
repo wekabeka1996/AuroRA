@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-import os
-import json
-from core.execution.sim_local_sink import SimLocalSink
-from core.aurora_event_logger import AuroraEventLogger
 from pathlib import Path
+
+from core.aurora_event_logger import AuroraEventLogger
+from core.execution.sim_local_sink import SimLocalSink
 
 
 def main():

@@ -34,10 +34,9 @@ Notes
 - All units are *nanoseconds* at the API boundary.
 """
 
-import time
-import logging
 from dataclasses import dataclass
-from typing import Optional
+import logging
+import time
 
 logger = logging.getLogger("aurora.ingestion.sync_clock")
 logger.setLevel(logging.INFO)
@@ -80,7 +79,7 @@ class RealTimeClock(TickClock):
     Uses time.perf_counter_ns() for monotonic wall time.
     """
 
-    def __init__(self, max_sleep_ns: Optional[int] = None) -> None:
+    def __init__(self, max_sleep_ns: int | None = None) -> None:
         self.max_sleep_ns = max_sleep_ns
 
     def now_ns(self) -> int:
@@ -119,13 +118,13 @@ class ReplayClock(TickClock):
     speed: float = 1.0
     drift_tolerance_ns: int = 5_000_000  # 5 ms default tolerance
     allow_reanchor: bool = True
-    max_sleep_ns: Optional[int] = None
+    max_sleep_ns: int | None = None
 
     # internal anchors/state
-    _event_anchor_ns: Optional[int] = None
-    _wall_anchor_ns: Optional[int] = None
-    _last_event_ts_ns: Optional[int] = None
-    _last_wall_target_ns: Optional[int] = None
+    _event_anchor_ns: int | None = None
+    _wall_anchor_ns: int | None = None
+    _last_event_ts_ns: int | None = None
+    _last_wall_target_ns: int | None = None
 
     def __post_init__(self) -> None:
         if not (self.speed > 0):

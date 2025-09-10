@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 import argparse
-import os
-import sys
-import time
 import json
+import os
+from pathlib import Path
 import signal
 import subprocess
-from pathlib import Path
-from typing import Optional
+import sys
+import time
 
 try:
     import requests
@@ -76,7 +76,7 @@ def start_api(host: str, port: int) -> subprocess.Popen:
     return proc
 
 
-def stop_proc(proc: Optional[subprocess.Popen]) -> None:
+def stop_proc(proc: subprocess.Popen | None) -> None:
     if not proc:
         return
     try:
@@ -111,7 +111,7 @@ def health_check(base_url: str, allow_503_testnet: bool = True, timeout_sec: int
     return False
 
 
-def run_canary_harness(base_url: str, ops_token: Optional[str], minutes: int) -> int:
+def run_canary_harness(base_url: str, ops_token: str | None, minutes: int) -> int:
     script = TOOLS_DIR / 'canary_harness.py'
     if not script.exists():
         return 0
@@ -143,7 +143,7 @@ def start_live_runner(config_path: str) -> subprocess.Popen:
     return proc
 
 
-def resolve_runner_config(spec: Optional[str]) -> str:
+def resolve_runner_config(spec: str | None) -> str:
     """Resolve runner config path from a spec that can be:
     - absolute/relative path to a YAML file
     - bare name without extension; searched in `configs/runner/<name>.yaml` then `skalp_bot/configs/<name>.yaml`

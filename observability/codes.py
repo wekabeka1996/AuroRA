@@ -2,8 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Final, Dict, Any
-
+from typing import Any, Final
 
 # Event types/codes
 POLICY_DECISION: Final = "POLICY.DECISION"
@@ -80,7 +79,7 @@ def normalize_reason(reason: str) -> str:
     return r
 
 
-def validate_event(event_data: Dict[str, Any]) -> bool:
+def validate_event(event_data: dict[str, Any]) -> bool:
     """
     Validate event data against schema.json
     Returns True if valid, False otherwise.
@@ -90,23 +89,23 @@ def validate_event(event_data: Dict[str, Any]) -> bool:
         if not schema_path.exists():
             # No schema file - skip validation
             return True
-            
-        with open(schema_path, 'r', encoding='utf-8') as f:
+
+        with open(schema_path, encoding='utf-8') as f:
             schema = json.load(f)
-        
+
         # Basic validation - check required fields exist
         required_fields = schema.get('required', [])
         for field in required_fields:
             if field not in event_data:
                 return False
-                
+
         # Check event type is known if specified in schema
         event_type = event_data.get('type')
         if event_type and 'properties' in schema:
             type_prop = schema['properties'].get('type', {})
             if 'enum' in type_prop and event_type not in type_prop['enum']:
                 return False
-                
+
         return True
     except Exception:
         # Validation failed - assume invalid

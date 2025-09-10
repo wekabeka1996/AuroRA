@@ -25,8 +25,8 @@ No external deps; NumPy optional. Uses `core.types` as SSOT.
 """
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Sequence, Tuple
 import math
 import time
 
@@ -36,7 +36,7 @@ except Exception:  # pragma: no cover
     np = None  # type: ignore
 
 # -------- Imports from core.types (SSOT) -----
-from core.types import Trade, Side, MarketSnapshot
+from core.types import MarketSnapshot, Side, Trade
 
 # ------------------------------------------------------------------------------
 
@@ -44,7 +44,7 @@ from core.types import Trade, Side, MarketSnapshot
 class _EMA:
     half_life_s: float
     value: float = 0.0
-    _last_ts: Optional[float] = None
+    _last_ts: float | None = None
 
     def update(self, x: float, ts: float) -> float:
         if self._last_ts is None:
@@ -61,9 +61,9 @@ class _EMA:
 
 @dataclass
 class _State:
-    last_ts: Optional[float] = None
-    bid_p: Optional[float] = None
-    ask_p: Optional[float] = None
+    last_ts: float | None = None
+    bid_p: float | None = None
+    ask_p: float | None = None
     bid_q1: float = 0.0
     ask_q1: float = 0.0
 
@@ -99,7 +99,7 @@ class AbsorptionStream:
         self.replenish_rate_bid = _EMA(self.hl)
         self.replenish_rate_ask = _EMA(self.hl)
 
-    def update(self, snap: MarketSnapshot) -> Dict[str, float]:
+    def update(self, snap: MarketSnapshot) -> dict[str, float]:
         ts = float(snap.timestamp)
         # initialize
         if self.st.last_ts is None:
@@ -182,7 +182,7 @@ class AbsorptionStream:
         return self._features()
 
     # ---------------------- Feature synthesis ----------------------
-    def _features(self) -> Dict[str, float]:
+    def _features(self) -> dict[str, float]:
         eps = 1e-12
         rem_bid = self.sell_mo_rate.value + self.cancel_rate_bid.value
         rem_ask = self.buy_mo_rate.value + self.cancel_rate_ask.value
@@ -237,13 +237,13 @@ class AbsorptionStream:
 # Self-tests (synthetic)
 # =============================
 
-def _mock_stream() -> List[MarketSnapshot]:
+def _mock_stream() -> list[MarketSnapshot]:
     t0 = time.time()
-    snaps: List[MarketSnapshot] = []
+    snaps: list[MarketSnapshot] = []
     bid = 100.00
     ask = 100.02
     qb, qa = 600.0, 620.0
-    trades: List[Trade] = []
+    trades: list[Trade] = []
     for i in range(80):
         ts = t0 + 0.1 * i
         # generate trades: bursts of sellers hit bid on certain steps; buyers hit ask otherwise
@@ -310,14 +310,14 @@ def _test_absorption_properties() -> None:
     last = {}
     for s in snaps:
         last = ab.update(s)
-    
+
     # Property: absorption_frac in [0,1]
     assert 0.0 <= last["absorption_frac_bid"] <= 1.0
     assert 0.0 <= last["absorption_frac_ask"] <= 1.0
-    
+
     # Property: ttd >= 0 (can be inf when replenish >= removal)
     assert last["ttd_bid_s"] >= 0 and last["ttd_ask_s"] >= 0
-    
+
     # Property: rates >= 0
     assert last["rate_sell_mo_hit_bid"] >= 0
     assert last["rate_buy_mo_hit_ask"] >= 0
@@ -335,14 +335,14 @@ def _test_sell_mo_sensitivity() -> None:
     last_low = {}
     for s in snaps_low:
         last_low = ab_low.update(s)
-    
+
     # Create stream with amplified SELL-MO
     t0 = time.time()
-    snaps_high: List[MarketSnapshot] = []
+    snaps_high: list[MarketSnapshot] = []
     bid = 100.00
     ask = 100.02
     qb, qa = 600.0, 620.0
-    trades: List[Trade] = []
+    trades: list[Trade] = []
     for i in range(80):
         ts = t0 + 0.1 * i
         # Amplified SELL-MO hits
@@ -350,7 +350,7 @@ def _test_sell_mo_sensitivity() -> None:
             trades.append(Trade(timestamp=ts, price=bid, size=30.0, side=Side.SELL))  # 3x size
         if i % 6 == 2:
             trades.append(Trade(timestamp=ts, price=ask, size=12.0, side=Side.BUY))
-        
+
         # Same queue dynamics
         if i % 3 == 0:
             qb = max(80.0, qb - 25.0)
@@ -360,12 +360,12 @@ def _test_sell_mo_sensitivity() -> None:
             qa = max(80.0, qa - 30.0)
         else:
             qa = min(1000.0, qa + 12.0)
-        
+
         if i % 20 == 0 and i > 0:
             bid = round(bid + 0.01, 2)
         if i % 24 == 0 and i > 0:
             ask = round(ask + 0.01, 2)
-        
+
         snaps_high.append(MarketSnapshot(
             timestamp=ts,
             bid_price=bid,
@@ -374,12 +374,12 @@ def _test_sell_mo_sensitivity() -> None:
             ask_volumes_l=[qa, 380, 280, 180, 80],
             trades=tuple(tr for tr in trades if ts - tr.timestamp <= 5.0),
         ))
-    
+
     ab_high = AbsorptionStream(window_s=5.0, ema_half_life_s=1.0)
     last_high = {}
     for s in snaps_high:
         last_high = ab_high.update(s)
-    
+
     # Higher SELL-MO activity should increase pressure_bid
     assert last_high["pressure_bid"] > last_low["pressure_bid"]
 

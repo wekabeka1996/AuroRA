@@ -32,12 +32,11 @@ Usage
 
 from collections import deque
 from dataclasses import dataclass
-from typing import Deque, List, Optional, Tuple
 
-from core.config.loader import get_config, ConfigError
+from core.config.loader import ConfigError, get_config
 
 
-def _quantile(xs: List[float], q: float) -> float:
+def _quantile(xs: list[float], q: float) -> float:
     if not xs:
         return 0.0
     q = 0.0 if q < 0.0 else 1.0 if q > 1.0 else q
@@ -63,8 +62,8 @@ class RegimeManager:
     def __init__(
         self,
         *,
-        trend_q: Optional[float] = None,
-        grind_q: Optional[float] = None,
+        trend_q: float | None = None,
+        grind_q: float | None = None,
         window: int = 2000,
         min_dwell: int = 250,
     ) -> None:
@@ -87,8 +86,8 @@ class RegimeManager:
         self.W = int(max(10, window))
         self.min_dwell = int(max(1, min_dwell))
 
-        self._rets: Deque[float] = deque(maxlen=self.W)
-        self._absrets: Deque[float] = deque(maxlen=self.W)
+        self._rets: deque[float] = deque(maxlen=self.W)
+        self._absrets: deque[float] = deque(maxlen=self.W)
         self._n = 0
         self._ticks_since_change = 0
         self._regime: str = "grind"  # conservative start
@@ -106,7 +105,7 @@ class RegimeManager:
             return 0.0
         return _quantile(list(self._absrets), 0.5)
 
-    def _thresholds(self) -> Tuple[float, float]:
+    def _thresholds(self) -> tuple[float, float]:
         arr = list(self._absrets)
         if not arr:
             return 0.0, 0.0
@@ -143,3 +142,17 @@ class RegimeManager:
             proxy=proxy,
             n=self._n,
         )
+
+    # Convenience helper for unit tests
+    def update_with_series(self, series) -> bool:
+        """Feed a series of returns; return True if regime changed at least once."""
+        changed_any = False
+        try:
+            for x in series:
+                st = self.update(float(x))
+                changed_any = changed_any or bool(st.changed)
+        except Exception:
+            # fall back: single value
+            st = self.update(float(series))
+            changed_any = changed_any or bool(st.changed)
+        return changed_any

@@ -1,5 +1,8 @@
-import time, pytest
-from core.tca.tca_analyzer import TCAAnalyzer, OrderExecution, FillEvent
+import time
+
+import pytest
+
+from core.tca.tca_analyzer import FillEvent, OrderExecution, TCAAnalyzer
 
 
 def make_exec(side, liq, fee, price=100.0, spread=1.0, lat_ms=10.0):

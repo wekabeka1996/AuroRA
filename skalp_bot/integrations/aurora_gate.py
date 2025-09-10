@@ -1,6 +1,7 @@
 
-import time
 import os
+import time
+
 import requests
 
 # Більш реалістичний таймаут; можна перевизначити через ENV AURORA_GATE_TIMEOUT_S

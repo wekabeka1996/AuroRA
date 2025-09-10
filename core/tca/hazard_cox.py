@@ -36,14 +36,15 @@ Example
     hr = cox.hazard_ratio({'obi': 0.15, 'microprice': 0.00})
 """
 
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Tuple, Any
 import math
+from typing import Any
 
 
 @dataclass
 class CoxResult:
-    beta: Dict[str, float]
+    beta: dict[str, float]
     loglik: float
     iters: int
 
@@ -54,14 +55,14 @@ class CoxPH:
         self.max_iter = int(max_iter)
         self.tol = float(tol)
         self.step = float(step)
-        self._beta: Dict[str, float] = {}
-        self._feat: List[str] = []
+        self._beta: dict[str, float] = {}
+        self._feat: list[str] = []
 
     # ---------- utilities ----------
 
     @staticmethod
-    def _features_union(data: Iterable[Mapping[str, Any]]) -> List[str]:
-        feats: Dict[str, None] = {}
+    def _features_union(data: Iterable[Mapping[str, Any]]) -> list[str]:
+        feats: dict[str, None] = {}
         for rec in data:
             z_dict = rec.get('z', {})
             if isinstance(z_dict, Mapping):
@@ -77,16 +78,16 @@ class CoxPH:
         return s
 
     @staticmethod
-    def _add_scaled(dst: Dict[str, float], src: Mapping[str, float], scale: float) -> None:
+    def _add_scaled(dst: dict[str, float], src: Mapping[str, float], scale: float) -> None:
         for k, v in src.items():
             dst[k] = dst.get(k, 0.0) + scale * float(v)
 
     # ---------- core computations ----------
 
-    def _sorted_by_time(self, data: Sequence[Mapping[str, Any]]) -> List[Mapping[str, Any]]:
+    def _sorted_by_time(self, data: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
         return sorted(data, key=lambda r: float(r.get('t', 0)))
 
-    def _risk_sums(self, sorted_data: List[Mapping[str, Any]], beta: Mapping[str, float]) -> Tuple[List[float], List[Dict[str, float]]]:
+    def _risk_sums(self, sorted_data: list[Mapping[str, Any]], beta: Mapping[str, float]) -> tuple[list[float], list[dict[str, float]]]:
         """Compute cumulative risk set sums from the end for Breslow handling.
 
         Returns
@@ -96,9 +97,9 @@ class CoxPH:
         """
         n = len(sorted_data)
         S = [0.0] * n
-        ZS: List[Dict[str, float]] = [dict() for _ in range(n)]
+        ZS: list[dict[str, float]] = [dict() for _ in range(n)]
         acc_S = 0.0
-        acc_ZS: Dict[str, float] = {}
+        acc_ZS: dict[str, float] = {}
         for i in range(n - 1, -1, -1):
             rec = sorted_data[i]
             z_dict = rec.get('z', {})
@@ -121,11 +122,11 @@ class CoxPH:
             ZS[i] = dict(acc_ZS)
         return S, ZS
 
-    def _partial_loglik_and_grad(self, data: Sequence[Mapping[str, Any]], beta: Mapping[str, float]) -> Tuple[float, Dict[str, float]]:
+    def _partial_loglik_and_grad(self, data: Sequence[Mapping[str, Any]], beta: Mapping[str, float]) -> tuple[float, dict[str, float]]:
         d_sorted = self._sorted_by_time(data)
         S, ZS = self._risk_sums(d_sorted, beta)
         ll = 0.0
-        grad: Dict[str, float] = {k: 0.0 for k in self._feat}
+        grad: dict[str, float] = {k: 0.0 for k in self._feat}
         n = len(d_sorted)
         i = 0
         while i < n:
@@ -133,7 +134,7 @@ class CoxPH:
             t_i = float(rec_i.get('t', 0))
             # collect tied events at time t_i
             j = i
-            events: List[Mapping[str, Any]] = []
+            events: list[Mapping[str, Any]] = []
             while j < n and abs(float(d_sorted[j].get('t', 0)) - t_i) < 1e-12:
                 rec_j = d_sorted[j]
                 if int(rec_j.get('d', 0)) == 1:
@@ -144,7 +145,7 @@ class CoxPH:
                 # Breslow approximation
                 # sum z for events and count m
                 m = len(events)
-                sum_z_e: Dict[str, float] = {}
+                sum_z_e: dict[str, float] = {}
                 for e in events:
                     z_dict = e.get('z', {})
                     if isinstance(z_dict, Mapping):
@@ -154,7 +155,7 @@ class CoxPH:
                 denom_S = S[i]
                 ll -= m * math.log(max(denom_S, 1e-300))
                 # gradient: sum z_e - m * (∑ z_k e^{η_k} / ∑ e^{η_k})
-                frac: Dict[str, float] = {}
+                frac: dict[str, float] = {}
                 for k in self._feat:
                     frac[k] = ZS[i].get(k, 0.0) / max(denom_S, 1e-300)
                 for k, v in sum_z_e.items():
@@ -175,7 +176,7 @@ class CoxPH:
         if not data:
             raise ValueError("empty data")
         self._feat = self._features_union(data)
-        beta: Dict[str, float] = {k: 0.0 for k in self._feat}
+        beta: dict[str, float] = {k: 0.0 for k in self._feat}
         last_ll = float("-inf")
         it = 0
         for it in range(1, self.max_iter + 1):
@@ -203,7 +204,7 @@ class CoxPH:
 
     # ---------- predictions ----------
 
-    def coef(self) -> Dict[str, float]:
+    def coef(self) -> dict[str, float]:
         return dict(self._beta)
 
     def hazard_ratio(self, z: Mapping[str, float]) -> float:

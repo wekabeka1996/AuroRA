@@ -1,20 +1,21 @@
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any
 
 # API contracts
-from api.models import AccountInfo, OrderInfo, MarketInfo
+from api.models import OrderInfo
+
 # Core schemas (downstream event/order structures)
-from core.schemas import OrderDenied, OrderSuccess, OrderFailed
+from core.schemas import OrderDenied, OrderFailed, OrderSuccess
 
 
 def api_order_to_denied_schema(
     *,
     decision_id: str,
-    order: OrderInfo | Dict[str, Any],
+    order: OrderInfo | dict[str, Any],
     deny_reason: str,
     reasons: list[str] | None = None,
-    observability: Dict[str, Any] | None = None,
+    observability: dict[str, Any] | None = None,
 ) -> OrderDenied:
     """Map API pretrade 'order' + decision context -> core OrderDenied schema.
 
@@ -63,7 +64,7 @@ __all__ = [
 ]
 
 
-def _get_ts_iso(snapshot: Dict[str, Any] | None) -> str:
+def _get_ts_iso(snapshot: dict[str, Any] | None) -> str:
     try:
         v = (snapshot or {}).get('ts_iso')
         return str(v) if v is not None else ''
@@ -72,10 +73,10 @@ def _get_ts_iso(snapshot: Dict[str, Any] | None) -> str:
 
 
 def posttrade_to_success_schema(
-    payload: Dict[str, Any],
+    payload: dict[str, Any],
     *,
     decision_id: str | None = None,
-    snapshot: Dict[str, Any] | None = None,
+    snapshot: dict[str, Any] | None = None,
 ) -> OrderSuccess:
     """Map a posttrade success payload into core OrderSuccess schema.
     decision_id may be unknown; pass None and keep it empty for now.
@@ -98,10 +99,10 @@ def posttrade_to_success_schema(
 
 
 def posttrade_to_failed_schema(
-    payload: Dict[str, Any],
+    payload: dict[str, Any],
     *,
     decision_id: str | None = None,
-    snapshot: Dict[str, Any] | None = None,
+    snapshot: dict[str, Any] | None = None,
 ) -> OrderFailed:
     """Map a posttrade failure payload into core OrderFailed schema."""
     d = dict(payload or {})

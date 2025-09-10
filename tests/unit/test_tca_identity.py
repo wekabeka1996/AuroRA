@@ -1,11 +1,10 @@
-import pytest
-from core.tca.tca_analyzer import TCAMetrics, TCAAnalyzer, OrderExecution, FillEvent
+from core.tca.tca_analyzer import FillEvent, OrderExecution, TCAAnalyzer
 
 
 def test_identity_long():
     """Test IS_bps == sum of components for long position"""
     analyzer = TCAAnalyzer()
-    
+
     # Create test execution for long
     fills = [
         FillEvent(ts_ns=1000000000, qty=1.0, price=101.0, fee=0.01, liquidity_flag='M')
@@ -22,15 +21,15 @@ def test_identity_long():
         arrival_spread_bps=2.0,
         latency_ms=10.0
     )
-    
+
     market_data = {
         'mid_price': 100.0,
         'micro_price': 100.0,
         'slip_bps': 5.0
     }
-    
+
     metrics = analyzer.analyze_order(execution, market_data)
-    
+
     # Check identity using legacy-positive decomposition: IS = raw + fees + spread_cost + latency_slippage + adverse_selection + temporary_impact + rebate
     components_sum = (
         metrics.raw_edge_bps +
@@ -43,7 +42,7 @@ def test_identity_long():
     )
 
     assert abs(metrics.implementation_shortfall_bps - components_sum) <= 1e-6
-    
+
     # Check sign conventions
     assert metrics.fees_bps <= 0
     assert metrics.slippage_in_bps <= 0  # Maker profile -> 0
@@ -57,7 +56,7 @@ def test_identity_long():
 def test_identity_short():
     """Test IS_bps == sum of components for short position"""
     analyzer = TCAAnalyzer()
-    
+
     # Create test execution for short
     fills = [
         FillEvent(ts_ns=1000000000, qty=1.0, price=99.0, fee=0.01, liquidity_flag='M')
@@ -74,15 +73,15 @@ def test_identity_short():
         arrival_spread_bps=2.0,
         latency_ms=10.0
     )
-    
+
     market_data = {
         'mid_price': 100.0,
         'micro_price': 100.0,
         'slip_bps': 5.0
     }
-    
+
     metrics = analyzer.analyze_order(execution, market_data)
-    
+
     # Check identity using legacy-positive decomposition
     components_sum = (
         metrics.raw_edge_bps +
@@ -95,7 +94,7 @@ def test_identity_short():
     )
 
     assert abs(metrics.implementation_shortfall_bps - components_sum) <= 1e-6
-    
+
     # Check sign conventions
     assert metrics.fees_bps <= 0
     assert metrics.slippage_in_bps <= 0  # Maker profile -> 0
@@ -109,7 +108,7 @@ def test_identity_short():
 def test_maker_profile_with_rebate():
     """Test maker profile with rebate_bps > 0"""
     analyzer = TCAAnalyzer()
-    
+
     # Create maker execution (>50% maker fills)
     fills = [
         FillEvent(ts_ns=1000000000, qty=0.6, price=100.0, fee=-0.001, liquidity_flag='M'),  # Maker rebate
@@ -127,25 +126,25 @@ def test_maker_profile_with_rebate():
         arrival_spread_bps=2.0,
         latency_ms=10.0
     )
-    
+
     market_data = {
         'mid_price': 100.0,
         'micro_price': 100.0,
         'slip_bps': 2.0,
         'rebate_bps': 5.0  # Maker rebate available
     }
-    
+
     metrics = analyzer.analyze_order(execution, market_data)
-    
+
     # Maker profile (>50% maker fills)
     assert metrics.maker_fill_ratio > 0.5
-    
+
     # Check rebate is applied
     assert metrics.rebate_bps >= 0
-    
+
     # For maker: slippage_in should be 0
     assert metrics.slippage_in_bps == 0.0
-    
+
     # Check identity using legacy-positive decomposition
     components_sum = (
         metrics.raw_edge_bps +
@@ -163,7 +162,7 @@ def test_maker_profile_with_rebate():
 def test_taker_profile_negative_slippage():
     """Test taker profile with negative slippage"""
     analyzer = TCAAnalyzer()
-    
+
     # Create taker execution (<50% maker fills)
     fills = [
         FillEvent(ts_ns=1000000000, qty=1.0, price=101.0, fee=0.01, liquidity_flag='T')
@@ -180,25 +179,25 @@ def test_taker_profile_negative_slippage():
         arrival_spread_bps=2.0,
         latency_ms=10.0
     )
-    
+
     market_data = {
         'mid_price': 100.0,
         'micro_price': 100.0,
         'slip_bps': 5.0
     }
-    
+
     metrics = analyzer.analyze_order(execution, market_data)
-    
+
     # Taker profile
     assert metrics.taker_fill_ratio == 1.0
     assert metrics.maker_fill_ratio == 0.0
-    
+
     # For taker: slippage_in should be negative
     assert metrics.slippage_in_bps < 0
-    
+
     # Rebate should be 0
     assert metrics.rebate_bps == 0.0
-    
+
     # Check identity using legacy-positive decomposition
     components_sum = (
         metrics.raw_edge_bps +
@@ -216,7 +215,7 @@ def test_taker_profile_negative_slippage():
 def test_sign_gates_positive_fees():
     """Test that positive fees_bps raises ValueError"""
     analyzer = TCAAnalyzer()
-    
+
     fills = [
         FillEvent(ts_ns=1000000000, qty=1.0, price=101.0, fee=0.01, liquidity_flag='T')
     ]
@@ -232,17 +231,17 @@ def test_sign_gates_positive_fees():
         arrival_spread_bps=2.0,
         latency_ms=10.0
     )
-    
+
     market_data = {
         'mid_price': 100.0,
         'micro_price': 100.0,
         'slip_bps': 5.0
     }
-    
+
     # This should raise ValueError due to sign gate violation
     # (we can't easily inject positive fees, but the gate is there for future violations)
     metrics = analyzer.analyze_order(execution, market_data)
-    
+
     # Verify sign conventions are enforced
     assert metrics.fees_bps <= 0
     assert metrics.slippage_in_bps <= 0
@@ -256,7 +255,7 @@ def test_sign_gates_positive_fees():
 def test_missing_timestamps_defaults_to_zero():
     """Test that missing timestamps don't break calculations, components contribute zero"""
     analyzer = TCAAnalyzer()
-    
+
     # Create execution without fills (missing timestamps)
     execution = OrderExecution(
         order_id="test_no_fills",
@@ -270,21 +269,21 @@ def test_missing_timestamps_defaults_to_zero():
         arrival_spread_bps=2.0,
         latency_ms=10.0
     )
-    
+
     market_data = {
         'mid_price': 100.0,
         'micro_price': 100.0
     }
-    
+
     metrics = analyzer.analyze_order(execution, market_data)
-    
+
     # Check that components are zero or reasonable defaults
     assert metrics.first_fill_ts_ns is None
     assert metrics.last_fill_ts_ns is None
     assert metrics.time_to_first_fill_ms == 0.0
     assert metrics.total_execution_time_ms == 0.0
     assert metrics.fill_ratio == 0.0
-    
+
     # Check sign conventions even for empty fills
     assert metrics.fees_bps == 0.0
     assert metrics.slippage_in_bps == 0.0

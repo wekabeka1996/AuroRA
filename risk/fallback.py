@@ -15,7 +15,7 @@ class FallbackController:
         #   kappa_plus: 0.9
         #   coverage_rate: 0.8
         #   max_drawdown: 0.15
-        
+
         # Визначаємо умови спрацювання
         self.triggers = {
             'latency': lambda m: m.get('latency_ms', 0) > self.triggers_config.get('latency_ms', 150),
@@ -54,7 +54,7 @@ class FallbackController:
             'coverage': self._widen_intervals,
             'drawdown': self._emergency_close_positions
         }
-        
+
         action_func = actions.get(trigger_name)
         if action_func:
             return action_func()
@@ -74,6 +74,6 @@ class FallbackController:
             if condition(metrics):
                 print(f"[ALERT] Fallback trigger '{name}' activated!")
                 return self.execute_fallback(name)
-        
+
         return None # Жоден тригер не спрацював
 ''

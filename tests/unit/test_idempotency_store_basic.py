@@ -26,7 +26,6 @@ def test_sweep_removes_expired():
     removed = store.sweep()
     assert removed == 1
     assert not store.seen("k")
-from core.infra.idempotency_store import IdempotencyStore
 
 
 def test_put_get_seen_and_sweep():

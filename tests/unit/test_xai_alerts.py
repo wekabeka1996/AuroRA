@@ -3,8 +3,7 @@ Tests for core/xai/alerts.py
 """
 from __future__ import annotations
 
-import pytest
-from core.xai.alerts import NoTradesAlert, DenySpikeAlert, CalibrationDriftAlert, CvarBreachAlert, AlertResult
+from core.xai.alerts import AlertResult, CalibrationDriftAlert, CvarBreachAlert, DenySpikeAlert, NoTradesAlert
 
 
 def test_no_trades_alert():

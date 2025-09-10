@@ -9,11 +9,11 @@ It also verifies last line of each archive is valid JSON and has 'ts' or 'ts_ns'
 from __future__ import annotations
 
 import json
-import time
-from pathlib import Path
+from pathlib import Path, Path as _P
 import random
 import sys
-from pathlib import Path as _P
+import time
+
 # Ensure repo root is on sys.path for direct script execution
 ROOT = _P(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
@@ -72,6 +72,7 @@ else:
 
 # Validate last line in each gz is valid JSON
 import gzip
+
 for p in gz:
     try:
         with gzip.open(p, 'rt', encoding='utf-8') as fh:

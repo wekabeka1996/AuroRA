@@ -8,16 +8,16 @@ for ExecutionRouter v1.1 with IdempotencyStore and PartialSlicer integration.
 
 from __future__ import annotations
 
-import pytest
-import time
-from unittest.mock import Mock, patch
 from dataclasses import dataclass
+import time
 
-from core.execution.execution_router_v1 import ExecutionRouter, ExecutionContext
+import pytest
+
+from core.execution.execution_router_v1 import ExecutionContext, ExecutionRouter
 from core.tca.tca_analyzer import FillEvent
 
 
-@dataclass 
+@dataclass
 class MockMarketData:
     """Mock market data for testing"""
     bid: float = 100.0
@@ -34,12 +34,12 @@ class TestEnhancedIdempotencyPartials:
         """Create test router"""
         return ExecutionRouter()
 
-    @pytest.fixture 
+    @pytest.fixture
     def sample_context(self):
         """Sample execution context"""
         return ExecutionContext(
             symbol="ETHUSDT",
-            side="BUY", 
+            side="BUY",
             target_qty=1.0,
             correlation_id="test_123",
             edge_bps=5.0,
@@ -63,18 +63,18 @@ class TestEnhancedIdempotencyPartials:
         """Test enhanced ACK idempotency with IdempotencyStore"""
         context = sample_context
         children = router.execute_sizing_decision(context, sample_market_data)
-        
+
         child = children[0]
         ack_ts = time.time_ns()
-        
+
         # First ACK should work
         router.handle_order_ack(child.order_id, ack_ts, 5.0)
         assert child.state.value == "open"
-        
+
         # Duplicate ACK with same timestamp should be ignored
         router.handle_order_ack(child.order_id, ack_ts, 5.0)
         assert child.state.value == "open"
-        
+
         # Different timestamp ACK should also be ignored (order already open)
         router.handle_order_ack(child.order_id, ack_ts + 1000, 5.0)
         assert child.state.value == "open"
@@ -83,10 +83,10 @@ class TestEnhancedIdempotencyPartials:
         """Test fill idempotency using trade_id"""
         context = sample_context
         children = router.execute_sizing_decision(context, sample_market_data)
-        
+
         child = children[0]
         router.handle_order_ack(child.order_id, time.time_ns(), 5.0)
-        
+
         # Create fill with trade_id
         fill = FillEvent(
             ts_ns=time.time_ns(),
@@ -96,12 +96,12 @@ class TestEnhancedIdempotencyPartials:
             liquidity_flag='M'
         )
         fill.trade_id = "trade_123"  # Add trade_id
-        
+
         # First fill
         router.handle_order_fill(child.order_id, fill)
         assert len(child.fills) == 1
         assert child.filled_qty == 0.1
-        
+
         # Duplicate fill with same trade_id should be ignored
         router.handle_order_fill(child.order_id, fill)
         assert len(child.fills) == 1
@@ -111,10 +111,10 @@ class TestEnhancedIdempotencyPartials:
         """Test fill idempotency by multiple criteria"""
         context = sample_context
         children = router.execute_sizing_decision(context, sample_market_data)
-        
+
         child = children[0]
         router.handle_order_ack(child.order_id, time.time_ns(), 5.0)
-        
+
         ts = time.time_ns()
         fill = FillEvent(
             ts_ns=ts,
@@ -123,11 +123,11 @@ class TestEnhancedIdempotencyPartials:
             fee=0.001,
             liquidity_flag='M'
         )
-        
+
         # First fill
         router.handle_order_fill(child.order_id, fill)
         assert len(child.fills) == 1
-        
+
         # Duplicate with same ts, qty, price should be ignored
         fill_dup = FillEvent(
             ts_ns=ts,
@@ -143,10 +143,10 @@ class TestEnhancedIdempotencyPartials:
         """Test PartialSlicer integration in router"""
         context = sample_context
         children = router.execute_sizing_decision(context, sample_market_data)
-        
+
         child = children[0]
         router.handle_order_ack(child.order_id, time.time_ns(), 5.0)
-        
+
         # First partial fill - use smaller qty than child.target_qty
         fill_qty = child.target_qty * 0.3  # 30% of child order, not context
         fill1 = FillEvent(
@@ -157,15 +157,15 @@ class TestEnhancedIdempotencyPartials:
             liquidity_flag='M'
         )
         router.handle_order_fill(child.order_id, fill1)
-        
+
         # Should be PARTIAL state since filled_qty < target_qty
         assert child.state.value == "partial"
-        
+
         # Check remaining quantity via router
         remaining = router.get_remaining_qty(child.order_id)
         expected_remaining = child.target_qty - fill_qty
         assert abs(remaining - expected_remaining) < 0.001  # Allow for floating point precision
-        
+
         # Get next slice
         slice_info = router.get_next_slice(child.order_id, p_fill=0.8)
         assert slice_info is not None
@@ -177,11 +177,11 @@ class TestEnhancedIdempotencyPartials:
         """Test slice idempotency keys"""
         context = sample_context
         children = router.execute_sizing_decision(context, sample_market_data)
-        
+
         child = children[0]
         router.handle_order_ack(child.order_id, time.time_ns(), 5.0)
-        
-        # Partial fill - use smaller qty than child.target_qty  
+
+        # Partial fill - use smaller qty than child.target_qty
         fill_qty = child.target_qty * 0.4  # 40% of child order
         fill = FillEvent(
             ts_ns=time.time_ns(),
@@ -191,17 +191,17 @@ class TestEnhancedIdempotencyPartials:
             liquidity_flag='M'
         )
         router.handle_order_fill(child.order_id, fill)
-        
+
         # Should be PARTIAL state
         assert child.state.value == "partial"
-        
+
         # Get first slice
         slice1 = router.get_next_slice(child.order_id)
         assert slice1["idempotent"] is True
-        
+
         # Mark slice as used in idempotency store
         router._idempotency_store.mark(slice1["slice_key"])
-        
+
         # Get same slice again - should not be idempotent
         slice2 = router.get_next_slice(child.order_id)
         # Note: next_slice generates new slice with idx+1, so this should be different
@@ -211,13 +211,13 @@ class TestEnhancedIdempotencyPartials:
         """Test late fill idempotency (after order cleanup)"""
         context = sample_context
         children = router.execute_sizing_decision(context, sample_market_data)
-        
+
         child = children[0]
         router.handle_order_ack(child.order_id, time.time_ns(), 5.0)
-        
+
         # Cancel order (cleanup)
         router.handle_order_cancel(child.order_id, time.time_ns())
-        
+
         # Late fill arrives
         fill = FillEvent(
             ts_ns=time.time_ns(),
@@ -226,10 +226,10 @@ class TestEnhancedIdempotencyPartials:
             fee=0.001,
             liquidity_flag='M'
         )
-        
+
         # Should not crash and should be logged
         router.handle_order_fill(child.order_id, fill)
-        
+
         # Duplicate late fill should be ignored by idempotency
         router.handle_order_fill(child.order_id, fill)
 
@@ -238,17 +238,17 @@ class TestEnhancedIdempotencyPartials:
         # Add some entries
         router._idempotency_store.mark("test1", ttl_sec=0.1)
         router._idempotency_store.mark("test2", ttl_sec=300)
-        
+
         initial_size = router._idempotency_store.size()
         assert initial_size >= 2
-        
+
         # Wait for first to expire
         time.sleep(0.2)
-        
+
         # Cleanup via router
         removed = router.cleanup_idempotency_store()
         assert removed >= 1
-        
+
         final_size = router._idempotency_store.size()
         assert final_size < initial_size
 
@@ -256,10 +256,10 @@ class TestEnhancedIdempotencyPartials:
         """Test state transitions with partial fills and slicing"""
         context = sample_context
         children = router.execute_sizing_decision(context, sample_market_data)
-        
+
         child = children[0]
         router.handle_order_ack(child.order_id, time.time_ns(), 5.0)
-        
+
         # First partial fill - use smaller qty than child.target_qty
         fill_qty = child.target_qty * 0.3  # 30% of child order
         fill1 = FillEvent(
@@ -271,7 +271,7 @@ class TestEnhancedIdempotencyPartials:
         )
         router.handle_order_fill(child.order_id, fill1)
         assert child.state.value == "partial"
-        
+
         # Complete the order (remaining 70%)
         remaining_qty = child.target_qty - fill_qty
         fill2 = FillEvent(
@@ -283,7 +283,7 @@ class TestEnhancedIdempotencyPartials:
         )
         router.handle_order_fill(child.order_id, fill2)
         assert child.state.value == "closed"
-        
+
         # Check partial slicer was cleaned up
         remaining = router.get_remaining_qty(child.order_id)
         assert remaining == 0.0

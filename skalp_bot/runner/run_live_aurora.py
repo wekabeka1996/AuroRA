@@ -1,33 +1,32 @@
 from __future__ import annotations
 
-import json
-import os
-import time
-import logging
 from dataclasses import dataclass
-import sys
-from typing import Any, Optional
+import json
+import logging
+import os
 from pathlib import Path
+import time
+from typing import Any
 
-# Local imports (kept simple/minimal to avoid heavy deps)
-from skalp_bot.exch.ccxt_binance import CCXTBinanceAdapter
-from core.execution.sim_local_sink import SimLocalSink
-from core.execution.sim_adapter import SimAdapter
-
-# B3.1 TCA/SLA/Router imports
-from core.tca.hazard_cox import CoxPH
-from core.tca.latency import SLAGate
-from core.execution.router import Router
-from core.execution.partials import PartialSlicer
-from core.execution.idempotency import IdempotencyStore
 from core.execution.exchange.common import Fees
+from core.execution.idempotency import IdempotencyStore
+from core.execution.partials import PartialSlicer
+from core.execution.router import Router
+from core.execution.sim_adapter import SimAdapter
 
 # Risk guards import
 from core.risk.guards import RiskGuards
 
 # Sizing imports
-from core.sizing.kelly import kelly_binary, fraction_to_qty, edge_to_pwin
+from core.sizing.kelly import fraction_to_qty, kelly_binary
 from core.sizing.portfolio import PortfolioOptimizer
+
+# B3.1 TCA/SLA/Router imports
+from core.tca.hazard_cox import CoxPH
+from core.tca.latency import SLAGate
+
+# Local imports (kept simple/minimal to avoid heavy deps)
+from skalp_bot.exch.ccxt_binance import CCXTBinanceAdapter
 
 
 # --- Lightweight gate client over Aurora API ---
@@ -91,7 +90,7 @@ def tfi_from_trades(trades: list[dict[str, Any]]) -> float:
     return (buy - sell) / den
 
 
-def compute_alpha_score(features: list[float], rp: float = 1.0, weights: Optional[list[float]] = None) -> float:
+def compute_alpha_score(features: list[float], rp: float = 1.0, weights: list[float] | None = None) -> float:
     # linear combo with sign clamp
     if weights and len(weights) == len(features):
         s = sum(f * w for f, w in zip(features, weights))
@@ -104,12 +103,12 @@ def compute_alpha_score(features: list[float], rp: float = 1.0, weights: Optiona
 # --- Minimal runner main ---
 @dataclass
 class _State:
-    position_side: Optional[str] = None  # 'LONG'|'SHORT'
+    position_side: str | None = None  # 'LONG'|'SHORT'
     position_qty: float = 0.0
-    last_open_price: Optional[float] = None
+    last_open_price: float | None = None
     # Track pending open to support cancel before fill
-    pending_open_order_id: Optional[str] = None
-    pending_open_status: Optional[str] = None  # e.g., 'open'
+    pending_open_order_id: str | None = None
+    pending_open_status: str | None = None  # e.g., 'open'
 
 
 def _session_dir() -> Path:
@@ -118,7 +117,7 @@ def _session_dir() -> Path:
     return p
 
 
-def create_adapter(cfg: Optional[dict] = None):
+def create_adapter(cfg: dict | None = None):
     """Factory that creates either a real adapter or a SimAdapter based on config.
 
     If cfg['order_sink']['mode'] == 'sim_local', returns SimAdapter. Otherwise returns CCXTBinanceAdapter.
@@ -165,7 +164,7 @@ def _log_order(kind: str, **kwargs: Any) -> None:
         pass
 
 
-def main(config_path: Optional[str] = None, base_url: Optional[str] = None) -> None:
+def main(config_path: str | None = None, base_url: str | None = None) -> None:
     # Environment/config
     base_url = base_url or os.getenv("AURORA_BASE_URL", "http://127.0.0.1:8000")
     mode = os.getenv("AURORA_MODE", "testnet")
@@ -187,7 +186,7 @@ def main(config_path: Optional[str] = None, base_url: Optional[str] = None) -> N
     # For now, use default coefficients; in production, load fitted model
     haz._beta = {'obi': 0.1, 'spread_bps': -0.05}  # Example coefficients
     haz._feat = ['obi', 'spread_bps']
-    
+
     sla = SLAGate(
         max_latency_ms=cfg.get('execution', {}).get('sla', {}).get('max_latency_ms', 250),
         kappa_bps_per_ms=cfg.get('execution', {}).get('sla', {}).get('kappa_bps_per_ms', 0.01),
@@ -410,10 +409,10 @@ def main(config_path: Optional[str] = None, base_url: Optional[str] = None) -> N
         # B3.1 TCA/SLA/Router integration
         # Build quote snapshot
         quote = {'bid_px': bids[0][0] if bids else mid, 'ask_px': asks[0][0] if asks else mid}
-        
+
         # Get fees from exchange (use defaults for CCXT adapter)
         fees = Fees(maker_fee_bps=0.0, taker_fee_bps=0.08)
-        
+
         # Make routing decision
         decision = router.decide(
             side=order["side"],
@@ -422,7 +421,7 @@ def main(config_path: Optional[str] = None, base_url: Optional[str] = None) -> N
             latency_ms=market["latency_ms"],
             fill_features={'obi': obi, 'spread_bps': spread_bps}
         )
-        
+
         # Log routing decision
         _log_events("POLICY.DECISION", {
             "details": {
@@ -431,7 +430,7 @@ def main(config_path: Optional[str] = None, base_url: Optional[str] = None) -> N
                 "scores": decision.scores
             }
         })
-        
+
         # Check if route is denied
         if decision.route == "deny":
             _log_events("RISK.DENY", {"details": {"reason": decision.why_code}})
@@ -451,7 +450,7 @@ def main(config_path: Optional[str] = None, base_url: Optional[str] = None) -> N
         else:
             # Should not reach here due to deny check above
             continue
-        
+
         # Risk guards pre-trade check with priced order
         account_state = {
             "equity_usd": 10000.0,  # Mock equity - in production get from exchange
@@ -462,7 +461,7 @@ def main(config_path: Optional[str] = None, base_url: Optional[str] = None) -> N
             "spread_bps": spread_bps,
             "latency_ms": market["latency_ms"]
         }
-        
+
         # --- Cancel pending before any new open if exit is desired ---
         # Ensure adapter has cancel_order alias for tests/fakes
         exchange = adapter
@@ -546,7 +545,7 @@ def main(config_path: Optional[str] = None, base_url: Optional[str] = None) -> N
         # Policy: trap OBI/TFI conflict to skip open with thresholds
         trap_obi = float(os.getenv("TRAP_OBI_THRESHOLD", "0.2"))
         trap_tfi = float(os.getenv("TRAP_TFI_THRESHOLD", "0.2"))
-        if ((obi * tfi) < 0 and abs(obi) >= trap_obi and abs(tfi) >= trap_tfi 
+        if ((obi * tfi) < 0 and abs(obi) >= trap_obi and abs(tfi) >= trap_tfi
             and st.position_side is None and not st.pending_open_order_id):
             _log_events("POLICY.DECISION", {
                 "details": {
@@ -580,12 +579,12 @@ def main(config_path: Optional[str] = None, base_url: Optional[str] = None) -> N
                 if max_ticks and tick >= max_ticks:
                     break
                 continue
-            
+
             # Place order only if not already in position and no pending open
             if st.position_side is None and not st.pending_open_order_id:
                 try:
                     _log_events("ORDER.SUBMIT", {"order_type": "open", "details": {"close": False}})
-                    
+
                     # B3.1 Route order based on decision
                     if decision.route == "maker":
                         r = adapter.place_order(order_with_price["side"], order_with_price["qty"], price=order_with_price["price"])
@@ -594,10 +593,10 @@ def main(config_path: Optional[str] = None, base_url: Optional[str] = None) -> N
                     else:
                         # Should not reach here due to deny check above
                         continue
-                    
+
                     # Mark as seen for idempotency
                     idem.mark(client_oid)
-                    
+
                     status = str(r.get("status", "closed")).lower()
                     if status == "closed":
                         # immediate fill
@@ -631,7 +630,7 @@ def main(config_path: Optional[str] = None, base_url: Optional[str] = None) -> N
                         why_code = "WHY_RATE_LIMIT"
                     elif "timeout" in error_msg.lower() or "connection" in error_msg.lower():
                         why_code = "WHY_CONN_ERR"
-                    
+
                     _log_events("ORDER.REJECT", {
                         "details": {
                             "client_oid": client_oid,
@@ -687,7 +686,7 @@ def main(config_path: Optional[str] = None, base_url: Optional[str] = None) -> N
                     why_code = "WHY_RATE_LIMIT"
                 elif "timeout" in error_msg.lower() or "connection" in error_msg.lower():
                     why_code = "WHY_CONN_ERR"
-                
+
                 _log_events("ORDER.REJECT", {
                     "details": {
                         "close": True,

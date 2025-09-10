@@ -1,7 +1,11 @@
 # tools/test_rotation.py
 from __future__ import annotations
-import argparse, gzip, json, os, time
+
+import argparse
+import gzip
+import json
 from pathlib import Path
+import time
 
 
 def _last_line_is_valid_json(p: Path) -> bool:
@@ -24,7 +28,7 @@ def _last_line_is_valid_json(p: Path) -> bool:
 def _write_jsonl_stub(dst: Path, n: int = 1000) -> None:
     # детермінований рядок з ISO-Z
     row = {"time": "2025-01-01T00:00:00.000Z", "msg": "ok", "source": "rotation_test"}
-    with open(dst, "wt", encoding="utf-8") as f:
+    with open(dst, "w", encoding="utf-8") as f:
         for _ in range(n):
             f.write(json.dumps(row, ensure_ascii=False) + "\n")
 

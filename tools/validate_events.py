@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime
 import json
 from pathlib import Path
 
-from jsonschema import validate, ValidationError
-from datetime import datetime
+from jsonschema import ValidationError, validate
 
 
 def tail_lines(path: Path, n: int) -> list[str]:

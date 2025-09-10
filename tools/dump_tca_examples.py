@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import os
 import json
+import os
+
 from core.execution.sim_local_sink import SimLocalSink
 
 

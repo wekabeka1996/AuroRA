@@ -42,7 +42,7 @@ def main():
     req_fields = {'order_id', 'side', 'px', 'qty', 'status', 'reason', 'latency_ms_action', 'latency_ms_fill', 'fill_ratio', 'ttl_ms'}
 
     with open(out, 'w', encoding='utf8') as fout, open(val, 'w', encoding='utf8') as fv:
-        with open(src, 'r', encoding='utf8') as f:
+        with open(src, encoding='utf8') as f:
             for ln in f:
                 ln = ln.strip()
                 if not ln:

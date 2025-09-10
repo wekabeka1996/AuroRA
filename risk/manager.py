@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import os
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Optional, Tuple, Mapping
+import os
 
 
 @dataclass
@@ -18,7 +18,7 @@ class RiskManager:
     All inputs are taken from config with ENV overrides, and per-check state may override snapshot values.
     """
 
-    def __init__(self, cfg: Optional[dict] = None) -> None:
+    def __init__(self, cfg: dict | None = None) -> None:
         self.cfg = self.load(cfg or {}, dict(os.environ))
 
     @staticmethod
@@ -53,7 +53,7 @@ class RiskManager:
         return float(base_notional) * float(self.cfg.size_scale)
 
     @staticmethod
-    def check_dd_day(pnl_today_pct: Optional[float], cap_pct: float) -> Tuple[bool, Optional[dict]]:
+    def check_dd_day(pnl_today_pct: float | None, cap_pct: float) -> tuple[bool, dict | None]:
         if pnl_today_pct is None:
             return True, None
         used = -float(pnl_today_pct)  # losses are negative pnl, use positive used pct
@@ -62,14 +62,14 @@ class RiskManager:
         return True, None
 
     @staticmethod
-    def check_concurrency(open_positions: Optional[int], max_concurrent: int) -> Tuple[bool, Optional[dict]]:
+    def check_concurrency(open_positions: int | None, max_concurrent: int) -> tuple[bool, dict | None]:
         if open_positions is None:
             return True, None
         if int(open_positions) >= int(max_concurrent):
             return False, {'open_positions': int(open_positions), 'max_concurrent': int(max_concurrent)}
         return True, None
 
-    def decide(self, base_notional: float, *, pnl_today_pct: Optional[float], open_positions: Optional[int]) -> Tuple[bool, Optional[str], float, dict]:
+    def decide(self, base_notional: float, *, pnl_today_pct: float | None, open_positions: int | None) -> tuple[bool, str | None, float, dict]:
         """Return (allow, reason, scaled_notional, ctx)."""
         # size_scale checks first (fail-closed if zero)
         scaled = self.calc_notional(base_notional)

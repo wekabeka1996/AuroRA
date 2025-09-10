@@ -6,9 +6,9 @@ Validates ci_thresholds.yaml structure and data types using jsonschema.
 import argparse
 import json
 import sys
+
+from jsonschema import ValidationError, validate
 import yaml
-from jsonschema import validate, ValidationError, Draft7Validator
-from pathlib import Path
 
 # Schema definition for ci_thresholds.yaml
 CI_THRESHOLDS_SCHEMA = {
@@ -97,7 +97,7 @@ CI_THRESHOLDS_SCHEMA = {
                     "additionalProperties": False
                 },
                 "reasons": {
-                    "type": "object", 
+                    "type": "object",
                     "description": "Reasoning strings per metric",
                     "patternProperties": {
                         "^[a-zA-Z_][a-zA-Z0-9_\\.]*$": {
@@ -148,7 +148,7 @@ CI_THRESHOLDS_SCHEMA = {
                         "delta": {"type": "number"},
                         "hard_candidate": {"type": "boolean"},
                         "sample_count": {
-                            "type": "integer", 
+                            "type": "integer",
                             "minimum": 0
                         }
                     },
@@ -194,7 +194,7 @@ CI_THRESHOLDS_SCHEMA = {
 def load_yaml_file(filepath):
     """Load and parse YAML file."""
     try:
-        with open(filepath, 'r', encoding='utf-8') as f:
+        with open(filepath, encoding='utf-8') as f:
             return yaml.safe_load(f)
     except yaml.YAMLError as e:
         raise ValueError(f"Invalid YAML syntax: {e}")
@@ -207,7 +207,7 @@ def validate_ci_thresholds(data, schema=None):
     """Validate CI thresholds data against schema."""
     if schema is None:
         schema = CI_THRESHOLDS_SCHEMA
-    
+
     try:
         validate(instance=data, schema=schema)
         return True, []
@@ -217,51 +217,51 @@ def validate_ci_thresholds(data, schema=None):
 def validate_hard_meta_consistency(data):
     """Additional validation for hard_meta consistency."""
     errors = []
-    
+
     hard_meta = data.get("hard_meta", {})
     if not hard_meta:
         return errors
-    
+
     # Check schema version
     schema_version = hard_meta.get("schema_version")
     if schema_version != 1:
         errors.append(f"hard_meta.schema_version should be 1, got {schema_version}")
-    
+
     # Check candidate/reasons consistency
     candidates = hard_meta.get("hard_candidate", {})
     reasons = hard_meta.get("reasons", {})
-    
+
     # All candidates should have reasons
     for metric in candidates:
         if metric not in reasons:
             errors.append(f"hard_candidate '{metric}' missing corresponding reason")
-    
+
     # All reasons should have candidates
     for metric in reasons:
         if metric not in candidates:
             errors.append(f"reason for '{metric}' exists but metric not in hard_candidate")
-    
+
     # Check enabled metrics are candidates
     for key, value in hard_meta.items():
         if isinstance(value, dict) and "hard_enabled" in value:
             if value["hard_enabled"] and not candidates.get(key, False):
                 errors.append(f"metric '{key}' has hard_enabled=true but hard_candidate=false")
-    
+
     return errors
 
 def validate_threshold_naming(data):
     """Validate threshold naming conventions."""
     errors = []
     thresholds = data.get("thresholds", {})
-    
+
     # Check naming pattern (letters, numbers, dots, underscores)
     import re
     pattern = re.compile(r'^[a-zA-Z_][a-zA-Z0-9_\.]*$')
-    
+
     for threshold_name in thresholds:
         if not pattern.match(threshold_name):
             errors.append(f"Invalid threshold name '{threshold_name}': must start with letter/underscore, contain only letters/numbers/dots/underscores")
-    
+
     return errors
 
 def main():
@@ -278,48 +278,48 @@ Examples:
     )
     parser.add_argument("file", help="CI thresholds YAML file to validate")
     parser.add_argument("--schema", help="Custom JSON schema file (optional)")
-    parser.add_argument("--check-consistency", action="store_true", 
+    parser.add_argument("--check-consistency", action="store_true",
                        help="Enable additional consistency checks")
     parser.add_argument("--output-format", choices=["text", "json"], default="text",
                        help="Output format for validation results")
     parser.add_argument("--verbose", "-v", action="store_true",
                        help="Verbose output with detailed validation info")
-    
+
     args = parser.parse_args()
-    
+
     # Load custom schema if provided
     schema = CI_THRESHOLDS_SCHEMA
     if args.schema:
         try:
-            with open(args.schema, 'r') as f:
+            with open(args.schema) as f:
                 schema = json.load(f)
         except Exception as e:
             print(f"Error loading custom schema: {e}", file=sys.stderr)
             return 1
-    
+
     # Load and validate YAML file
     try:
         data = load_yaml_file(args.file)
     except ValueError as e:
         print(f"Error loading YAML: {e}", file=sys.stderr)
         return 1
-    
+
     if args.verbose:
         print(f"Loaded YAML file: {args.file}")
         print(f"Using schema: {'custom' if args.schema else 'built-in'}")
-    
+
     # Perform schema validation
     is_valid, schema_errors = validate_ci_thresholds(data, schema)
-    
+
     all_errors = schema_errors.copy()
-    
+
     # Additional consistency checks
     if args.check_consistency:
         consistency_errors = validate_hard_meta_consistency(data)
         naming_errors = validate_threshold_naming(data)
         all_errors.extend(consistency_errors)
         all_errors.extend(naming_errors)
-    
+
     # Output results
     if args.output_format == "json":
         result = {
@@ -344,7 +344,7 @@ Examples:
             print(f"✗ {args.file} has {len(all_errors)} error(s):")
             for i, error in enumerate(all_errors, 1):
                 print(f"  {i}. {error}")
-    
+
     # Exit with non-zero code if validation failed
     return 0 if len(all_errors) == 0 else 1
 
