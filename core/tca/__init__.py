@@ -19,5 +19,6 @@ from .types import TCAInputs as TCAInputsType, TCAComponents as TCAComponentsTyp
 __all__ = [
     "latency", "hazard_cox", "hawkes",
     "TCAAnalyzer", "TCAMetrics", "FillEvent", "OrderExecution",
-    "TCAInputs", "TCAComponents"
+    "TCAInputs", "TCAComponents",
+    "TCAInputsType", "TCAComponentsType", "TCAMetricsType",
 ]
