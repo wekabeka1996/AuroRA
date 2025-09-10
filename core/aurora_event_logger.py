@@ -6,15 +6,11 @@ from observability.codes import (
     DQ_EVENT_ABNORMAL_SPREAD, DQ_EVENT_CYCLIC_SEQUENCE,
     AURORA_HALT, AURORA_RESUME, AURORA_EXPECTED_RETURN_ACCEPT,
     AURORA_EXPECTED_RETURN_LOW, AURORA_SLIPPAGE_GUARD,
-    # Step 3 events
-    EXEC_DECISION, ORDER_ACK, ORDER_CXL, ORDER_REPLACE, FILL_EVENT,
-    REWARD_UPDATE, POSITION_CLOSED, TCA_ANALYSIS
 )
 import json
 import time
-from collections import deque
 from pathlib import Path
-from typing import Any, Dict, Optional, Deque, Tuple
+from typing import Any, Dict, Optional
 
 # Reuse robust JSONL writer and small LRU from order logger
 from core.order_logger import _JsonlWriter, _LRUSet  # type: ignore
