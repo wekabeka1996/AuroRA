@@ -6,7 +6,7 @@ Aurora API Lite - Спрощений API для тестування інтег�
 import json
 import time
 import asyncio
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 import uvicorn
 
 # --- Створюємо FastAPI ---
