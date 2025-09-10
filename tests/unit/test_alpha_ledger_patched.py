@@ -1,12 +1,10 @@
 """Tests for patched AlphaLedger with monotonic time, audit history, and ε-tolerance."""
 
-import json
 import pytest
 import threading
-import time
 from unittest.mock import Mock
 
-from core.governance.alpha_ledger import AlphaLedger, AlphaTxn
+from core.governance.alpha_ledger import AlphaLedger
 
 
 class TestAlphaLedgerPatched:

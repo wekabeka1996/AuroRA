@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from tools.metrics_summary import main as metrics_main
 import time
 
 

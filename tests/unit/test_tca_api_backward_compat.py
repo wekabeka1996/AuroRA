@@ -1,4 +1,3 @@
-import pytest
 from core.tca.tca_analyzer import TCAMetrics, TCAAnalyzer, OrderExecution, FillEvent
 
 

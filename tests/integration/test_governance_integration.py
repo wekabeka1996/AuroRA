@@ -2,9 +2,8 @@
 
 import pytest
 import numpy as np
-from unittest.mock import patch
 
-from core.governance.alpha_ledger import AlphaLedger, AlphaTxn
+from core.governance.alpha_ledger import AlphaLedger
 from core.governance.sprt_glr import CompositeSPRT, SPRTConfig, SPRTOutcome
 
 

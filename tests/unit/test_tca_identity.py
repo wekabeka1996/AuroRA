@@ -1,5 +1,4 @@
-import pytest
-from core.tca.tca_analyzer import TCAMetrics, TCAAnalyzer, OrderExecution, FillEvent
+from core.tca.tca_analyzer import TCAAnalyzer, OrderExecution, FillEvent
 
 
 def test_identity_long():

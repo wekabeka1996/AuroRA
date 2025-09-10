@@ -1,8 +1,6 @@
 import subprocess
 import sys
-import json
 import os
-import hashlib
 
 
 def test_overlay_changes_expected_keys(tmp_path):

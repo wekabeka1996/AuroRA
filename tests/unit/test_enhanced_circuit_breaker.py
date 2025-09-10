@@ -10,8 +10,6 @@ from __future__ import annotations
 
 import pytest
 import time
-from unittest.mock import Mock, patch
-from dataclasses import dataclass
 
 from core.execution.exchange.error_handling import (
     ExchangeCircuitBreaker, 

@@ -10,10 +10,9 @@ from __future__ import annotations
 
 import pytest
 import time
-from unittest.mock import Mock
 
 from core.execution.idempotency import IdempotencyStore
-from core.execution.partials import PartialSlicer, SliceDecision
+from core.execution.partials import PartialSlicer
 
 
 class TestIdempotencyFills:

@@ -10,7 +10,7 @@ from __future__ import annotations
 import pytest
 from unittest.mock import MagicMock
 
-from core.risk.guards import RiskGuards, RiskLimits, RiskCheckResult
+from core.risk.guards import RiskGuards, RiskLimits
 
 
 class TestRiskGuardsLive:

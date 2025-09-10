@@ -3,10 +3,9 @@
 import math
 import pytest
 import numpy as np
-from unittest.mock import patch
 
 from core.governance.sprt_glr import (
-    SPRTConfig, SPRTState, SPRTDecision, SPRTOutcome, CompositeSPRT
+    SPRTConfig, SPRTState, SPRTOutcome, CompositeSPRT
 )
 
 

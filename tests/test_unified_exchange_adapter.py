@@ -11,10 +11,8 @@ Comprehensive tests for the unified exchange adapter interface:
 """
 
 import pytest
-import json
 import tempfile
 from pathlib import Path
-from unittest.mock import Mock, patch
 
 from core.execution.exchange.unified import (
     ExchangeAdapterFactory,
@@ -29,8 +27,6 @@ from core.execution.exchange.unified import (
 from core.execution.exchange.config import (
     ExchangeConfigManager,
     ExchangeConfig as ConfigConfig,
-    create_exchange_config,
-    get_exchange_config,
 )
 from core.execution.exchange.error_handling import (
     ExchangeErrorHandler,

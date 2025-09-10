@@ -1,4 +1,3 @@
-import math
 
 from core.tca.hawkes import HawkesParams, simulate, fit_em, loglik
 

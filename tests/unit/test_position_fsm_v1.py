@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 from core.position_fsm import (
-    PositionFSM, PositionState, PositionEvent, PositionData, TransitionResult
+    PositionFSM, PositionState, PositionEvent, PositionData
 )
 
 

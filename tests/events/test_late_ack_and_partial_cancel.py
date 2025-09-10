@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import time
 from core.aurora_event_logger import AuroraEventLogger
 from core.ack_tracker import AckTracker
 from pathlib import Path

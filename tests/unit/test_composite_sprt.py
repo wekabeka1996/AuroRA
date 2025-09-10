@@ -7,13 +7,12 @@
 import pytest
 import numpy as np
 import time
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 
 from core.governance.composite_sprt import (
     CompositeSPRT, AlphaSpendingLedger, AlphaSpendingEntry,
     GaussianKnownVarModel, StudentTModel, SubexponentialModel,
-    CompositeHypothesis, HypothesisType,
-    create_gaussian_sprt, create_t_test_sprt, create_subexponential_sprt
+    CompositeHypothesis
 )
 
 class TestAlphaSpendingLedger:
