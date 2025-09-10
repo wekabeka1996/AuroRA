@@ -176,3 +176,5 @@ CON
 AUX
 COM1
 LPT1
+# CI: ignore local analysis reports
+/reports/

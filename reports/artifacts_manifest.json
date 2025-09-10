@@ -1,6 +1,0 @@
-{
-  "metrics_file": "reports\\metrics_summary.json",
-  "ref_series_file": "reports\\ref_series.csv",
-  "optuna_study": "artifacts\\optuna_study.pkl",
-  "optuna_best_params": null
-}
