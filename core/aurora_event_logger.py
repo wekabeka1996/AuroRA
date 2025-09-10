@@ -39,6 +39,8 @@ class AuroraEventLogger:
     "ORDER_STATUS(SIM)",
     # accept canonical normalized form as well
     "ORDER.STATUS(SIM)",
+        # Order intent/deny and planning/router decisions (added for canary tools)
+    "ORDER.INTENT.RECEIVED", "ORDER.DENY", "ORDER.PLAN.BUILD", "ROUTER.DECISION", "KELLY.APPLIED",
         # Risk
     "RISK.DENY.POS_LIMIT", "RISK.DENY.DRAWDOWN", "RISK.DENY.CVAR", "RISK.DENY",
     "RISK.UPDATE",
@@ -56,6 +58,10 @@ class AuroraEventLogger:
     AURORA_EXPECTED_RETURN_ACCEPT, AURORA_EXPECTED_RETURN_LOW, AURORA_SLIPPAGE_GUARD,
     # SPRT decisions
     "SPRT.DECISION_H0", "SPRT.DECISION_H1", "SPRT.CONTINUE", "SPRT.ERROR",
+    # SLA checks/denies and governance transitions (for validator completeness)
+    "SLA.CHECK", "SLA.DENY", "GOVERNANCE.TRANSITION",
+    # Alpha ledger updates
+    "ALPHA.LEDGER.UPDATE",
     }
 
     def __init__(
