@@ -1,72 +1,121 @@
 from __future__ import annotations
 
-from observability.codes import (
-    POLICY_DECISION, POLICY_TRAP_GUARD, POLICY_TRAP_BLOCK,
-    POSTTRADE_LOG, DQ_EVENT_STALE_BOOK, DQ_EVENT_CROSSED_BOOK,
-    DQ_EVENT_ABNORMAL_SPREAD, DQ_EVENT_CYCLIC_SEQUENCE,
-    AURORA_HALT, AURORA_RESUME, AURORA_EXPECTED_RETURN_ACCEPT,
-    AURORA_EXPECTED_RETURN_LOW, AURORA_SLIPPAGE_GUARD,
-    # Step 3 events
-    EXEC_DECISION, ORDER_ACK, ORDER_CXL, ORDER_REPLACE, FILL_EVENT,
-    REWARD_UPDATE, POSITION_CLOSED, TCA_ANALYSIS
-)
 import json
+import os
 import time
 from collections import deque
 from pathlib import Path
-from typing import Any, Dict, Optional, Deque, Tuple
+from typing import Any, Deque, Dict, Optional, Tuple
 
 # Reuse robust JSONL writer and small LRU from order logger
 from core.order_logger import _JsonlWriter, _LRUSet  # type: ignore
-import os
+from observability.codes import (  # Step 3 events
+    AURORA_EXPECTED_RETURN_ACCEPT,
+    AURORA_EXPECTED_RETURN_LOW,
+    AURORA_HALT,
+    AURORA_RESUME,
+    AURORA_SLIPPAGE_GUARD,
+    DQ_EVENT_ABNORMAL_SPREAD,
+    DQ_EVENT_CROSSED_BOOK,
+    DQ_EVENT_CYCLIC_SEQUENCE,
+    DQ_EVENT_STALE_BOOK,
+    EXEC_DECISION,
+    FILL_EVENT,
+    ORDER_ACK,
+    ORDER_CXL,
+    ORDER_REPLACE,
+    POLICY_DECISION,
+    POLICY_TRAP_BLOCK,
+    POLICY_TRAP_GUARD,
+    POSITION_CLOSED,
+    POSTTRADE_LOG,
+    REWARD_UPDATE,
+    TCA_ANALYSIS,
+)
 
 
 class AuroraEventLogger:
     # Allowed event codes
     ALLOWED = {
         # Rewards
-        "REWARD.TP", "REWARD.TRAIL", "REWARD.BREAKEVEN", "REWARD.TIMEOUT", "REWARD.MAX_R",
+        "REWARD.TP",
+        "REWARD.TRAIL",
+        "REWARD.BREAKEVEN",
+        "REWARD.TIMEOUT",
+        "REWARD.MAX_R",
         # Health
-    "HEALTH.ERROR", "HEALTH.RECOVERY", "HEALTH.LATENCY_HIGH", "HEALTH.LATENCY_P95_HIGH",
+        "HEALTH.ERROR",
+        "HEALTH.RECOVERY",
+        "HEALTH.LATENCY_HIGH",
+        "HEALTH.LATENCY_P95_HIGH",
         # Lifecycle/ops
-    "AURORA.STARTUP.OK", "CONFIG.SWITCHED", "AURORA.ESCALATION",
-    "OPS.TOKEN_ROTATE", "OPS.RESET", "AURORA.COOL_OFF", "AURORA.ARM_STATE",
-    "OPS.TOKEN.ALIAS_USED",
+        "AURORA.STARTUP.OK",
+        "CONFIG.SWITCHED",
+        "AURORA.ESCALATION",
+        "OPS.TOKEN_ROTATE",
+        "OPS.RESET",
+        "AURORA.COOL_OFF",
+        "AURORA.ARM_STATE",
+        "OPS.TOKEN.ALIAS_USED",
         # Order lifecycle
-    "ORDER.SUBMIT", "ORDER.ACK", "ORDER.PARTIAL", "ORDER.FILL",
-    "ORDER.CANCEL", "ORDER.CANCEL.REQUEST", "ORDER.CANCEL.ACK",
-    "ORDER.REJECT", "ORDER.EXPIRE", "ORDER.STATUS",
-    "ORDER_STATUS(SIM)",
-    # accept canonical normalized form as well
-    "ORDER.STATUS(SIM)",
-        # Risk
-    "RISK.DENY.POS_LIMIT", "RISK.DENY.DRAWDOWN", "RISK.DENY.CVAR", "RISK.DENY",
-    "RISK.UPDATE",
-        # Guards
-    "SPREAD_GUARD_TRIP", "LATENCY_GUARD_TRIP", "VOLATILITY_GUARD_TRIP",
-        # Policy
-    POLICY_TRAP_GUARD, POLICY_TRAP_BLOCK, POLICY_DECISION,
-        # Post-trade
-    POSTTRADE_LOG,
-        # Data quality
-        DQ_EVENT_STALE_BOOK, DQ_EVENT_CROSSED_BOOK, DQ_EVENT_ABNORMAL_SPREAD, DQ_EVENT_CYCLIC_SEQUENCE,
-        # Halt
-        AURORA_HALT, AURORA_RESUME,
-    # Expected return + slippage guards
-    AURORA_EXPECTED_RETURN_ACCEPT, AURORA_EXPECTED_RETURN_LOW, AURORA_SLIPPAGE_GUARD,
-    # SPRT decisions
-    "SPRT.DECISION_H0", "SPRT.DECISION_H1", "SPRT.CONTINUE", "SPRT.ERROR",
-        # --- Execution / Routing v2 additions ---
-        # Intent ingress
+        "ORDER.SUBMIT",
+        "ORDER.ACK",
+        "ORDER.PARTIAL",
+        "ORDER.FILL",
+        "ORDER.CANCEL",
+        "ORDER.CANCEL.REQUEST",
+        "ORDER.CANCEL.ACK",
+        "ORDER.REJECT",
+        "ORDER.EXPIRE",
+        "ORDER.STATUS",
+        "ORDER_STATUS(SIM)",
+        # accept canonical normalized form as well
+        "ORDER.STATUS(SIM)",
+        # Order intent/deny and planning/router decisions (added for canary tools)
         "ORDER.INTENT.RECEIVED",
-        # Validation & plan lifecycle
-        "ROUTER.VALIDATION.FAIL", "ROUTER.DECISION", "ORDER.PLAN.BUILD", "ORDER.DENY",
-        # SLA
-        "SLA.CHECK", "SLA.DENY",
-        # Risk sizing / CVaR adjustments
-    "CVAR.SHIFT", "CVAR.EVT.FIT", "CVAR.GATE", "LAMBDA.UPDATE", "KELLY.APPLIED",
-        # Governance / Alpha ledger
-    "GOVERNANCE.EVAL", "GOVERNANCE.TRANSITION", "ALPHA.LEDGER.UPDATE",
+        "ORDER.DENY",
+        "ORDER.PLAN.BUILD",
+        "ROUTER.DECISION",
+        "KELLY.APPLIED",
+        # Risk
+        "RISK.DENY.POS_LIMIT",
+        "RISK.DENY.DRAWDOWN",
+        "RISK.DENY.CVAR",
+        "RISK.DENY",
+        "RISK.UPDATE",
+        # Guards
+        "SPREAD_GUARD_TRIP",
+        "LATENCY_GUARD_TRIP",
+        "VOLATILITY_GUARD_TRIP",
+        # Policy
+        POLICY_TRAP_GUARD,
+        POLICY_TRAP_BLOCK,
+        POLICY_DECISION,
+        # Post-trade
+        POSTTRADE_LOG,
+        # Data quality
+        DQ_EVENT_STALE_BOOK,
+        DQ_EVENT_CROSSED_BOOK,
+        DQ_EVENT_ABNORMAL_SPREAD,
+        DQ_EVENT_CYCLIC_SEQUENCE,
+        # Halt
+        AURORA_HALT,
+        AURORA_RESUME,
+        # Expected return + slippage guards
+        AURORA_EXPECTED_RETURN_ACCEPT,
+        AURORA_EXPECTED_RETURN_LOW,
+        AURORA_SLIPPAGE_GUARD,
+        # SPRT decisions
+        "SPRT.DECISION_H0",
+        "SPRT.DECISION_H1",
+        "SPRT.CONTINUE",
+        "SPRT.ERROR",
+        # SLA checks/denies and governance transitions (for validator completeness)
+        "SLA.CHECK",
+        "SLA.DENY",
+        "GOVERNANCE.TRANSITION",
+        # Alpha ledger updates
+        "ALPHA.LEDGER.UPDATE",
     }
 
     def __init__(
@@ -127,7 +176,9 @@ class AuroraEventLogger:
            otherwise, 'type' will be used.
         """
         # Back-compat mapping for legacy kwargs signature used by api/service.py
-        if (event_code is None or details is None) and ("type" in kwargs or "payload" in kwargs or "code" in kwargs):
+        if (event_code is None or details is None) and (
+            "type" in kwargs or "payload" in kwargs or "code" in kwargs
+        ):
             legacy_type = kwargs.get("type")
             legacy_code = kwargs.get("code")
             payload = kwargs.get("payload")

@@ -1,0 +1,51 @@
+default_stages: [commit]
+
+# Exclude common generated and vendor directories
+exclude: |
+  ^(
+    \.git|
+    \.venv|
+    venv|
+    build|
+    dist|
+    reports|
+    reports/jscpd|
+    __pycache__|
+    archive|
+    tmp_.*
+  )/
+
+repos:
+  # Basic, language-agnostic hygiene checks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-json
+      - id: check-added-large-files
+      - id: detect-private-key
+      - id: mixed-line-ending
+      - id: check-merge-conflict
+
+  # Python code formatting
+  - repo: https://github.com/psf/black
+    rev: 24.8.0
+    hooks:
+      - id: black
+        language_version: python3
+
+  # Import sorting (kept simple to avoid conflicts)
+  - repo: https://github.com/pycqa/isort
+    rev: 5.13.2
+    hooks:
+      - id: isort
+        args: ["--profile=black"]
+
+  # Linting via Flake8 (conservative baseline)
+  - repo: https://github.com/pycqa/flake8
+    rev: 7.1.0
+    hooks:
+      - id: flake8
+        additional_dependencies: []

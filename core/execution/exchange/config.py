@@ -12,15 +12,15 @@ Provides SSOT (Single Source of Truth) configuration management for exchanges:
 - Configuration persistence and loading
 """
 
-import os
 import json
 import logging
-from dataclasses import dataclass, asdict
-from typing import Dict, List, Optional, Any
+import os
+from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 from core.execution.exchange.common import Fees
-from core.execution.exchange.unified import ExchangeType, AdapterMode
+from core.execution.exchange.unified import AdapterMode, ExchangeType
 
 logger = logging.getLogger(__name__)
 
@@ -28,11 +28,12 @@ logger = logging.getLogger(__name__)
 @dataclass
 class ExchangeCredentials:
     """Exchange API credentials."""
+
     api_key: str
     api_secret: str
 
     @classmethod
-    def from_env(cls, exchange_name: str) -> 'ExchangeCredentials':
+    def from_env(cls, exchange_name: str) -> "ExchangeCredentials":
         """Load credentials from environment variables."""
         key_env = f"{exchange_name.upper()}_API_KEY"
         secret_env = f"{exchange_name.upper()}_API_SECRET"
@@ -46,6 +47,7 @@ class ExchangeCredentials:
 @dataclass
 class ExchangeSettings:
     """Exchange-specific settings."""
+
     type: ExchangeType
     adapter_mode: AdapterMode
     base_url: Optional[str]
@@ -59,7 +61,7 @@ class ExchangeSettings:
     leverage: Optional[float]
 
     @classmethod
-    def get_defaults(cls, exchange_type: ExchangeType) -> 'ExchangeSettings':
+    def get_defaults(cls, exchange_type: ExchangeType) -> "ExchangeSettings":
         """Get default settings for exchange type."""
         defaults = {
             ExchangeType.BINANCE: {
@@ -94,20 +96,21 @@ class ExchangeSettings:
                 "dry_run": True,
                 "symbol": "BTC/USDT",
                 "leverage": None,
-            }
+            },
         }
 
         default_settings = defaults.get(exchange_type, defaults[ExchangeType.BINANCE])
         return cls(
             type=exchange_type,
             adapter_mode=AdapterMode.DEPENDENCY_FREE,
-            **default_settings
+            **default_settings,
         )
 
 
 @dataclass
 class ExchangeConfig:
     """Complete exchange configuration."""
+
     name: str
     credentials: ExchangeCredentials
     settings: ExchangeSettings
@@ -115,9 +118,14 @@ class ExchangeConfig:
     metadata: Dict[str, Any]
 
     @classmethod
-    def create(cls, name: str, exchange_type: ExchangeType,
-               api_key: str = "", api_secret: str = "",
-               **overrides) -> 'ExchangeConfig':
+    def create(
+        cls,
+        name: str,
+        exchange_type: ExchangeType,
+        api_key: str = "",
+        api_secret: str = "",
+        **overrides,
+    ) -> "ExchangeConfig":
         """Create a complete exchange configuration."""
 
         # Load credentials
@@ -130,25 +138,28 @@ class ExchangeConfig:
         settings = ExchangeSettings.get_defaults(exchange_type)
 
         # Handle fees separately
-        fees_override = overrides.pop('fees', None)
+        fees_override = overrides.pop("fees", None)
         if fees_override:
             fees = fees_override
         else:
             fees = Fees.from_exchange_config(name)
 
-        # Apply remaining overrides to settings
+        # Apply remaining overrides to settings (preserve enum types)
         for key, value in overrides.items():
+            if key == "adapter_mode":
+                settings.adapter_mode = (
+                    value if isinstance(value, AdapterMode) else AdapterMode(value)
+                )
+                continue
             if hasattr(settings, key):
                 setattr(settings, key, value)
-            elif key == "adapter_mode":
-                settings.adapter_mode = AdapterMode(value)
 
         # Default metadata
         metadata = {
             "created_at": None,
             "updated_at": None,
             "version": "1.0",
-            "description": f"{name} exchange configuration"
+            "description": f"{name} exchange configuration",
         }
 
         return cls(
@@ -156,7 +167,7 @@ class ExchangeConfig:
             credentials=credentials,
             settings=settings,
             fees=fees,
-            metadata=metadata
+            metadata=metadata,
         )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -167,13 +178,36 @@ class ExchangeConfig:
             "settings": asdict(self.settings),
             "fees": {
                 "maker_fee_bps": self.fees.maker_fee_bps,
-                "taker_fee_bps": self.fees.taker_fee_bps
+                "taker_fee_bps": self.fees.taker_fee_bps,
             },
-            "metadata": self.metadata
+            "metadata": self.metadata,
         }
 
+    # ---- SSOT -> Adapter DTO mapping ----
+    def to_adapter_config(self):
+        """Map SSOT ExchangeConfig to adapter runtime config (unified.ExchangeConfig).
+
+        Import is local to avoid an import cycle at module import time.
+        """
+        from core.execution.exchange.unified import ExchangeConfig as AdapterConfig
+
+        return AdapterConfig(
+            exchange_type=self.settings.type,
+            adapter_mode=self.settings.adapter_mode,
+            api_key=self.credentials.api_key,
+            api_secret=self.credentials.api_secret,
+            base_url=self.settings.base_url,
+            futures=self.settings.futures,
+            testnet=self.settings.testnet,
+            recv_window_ms=self.settings.recv_window_ms,
+            timeout_ms=self.settings.timeout_ms,
+            enable_rate_limit=self.settings.enable_rate_limit,
+            dry_run=self.settings.dry_run,
+            fees=self.fees,
+        )
+
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'ExchangeConfig':
+    def from_dict(cls, data: Dict[str, Any]) -> "ExchangeConfig":
         """Create from dictionary."""
         credentials = ExchangeCredentials(**data["credentials"])
         settings_data = data["settings"]
@@ -188,12 +222,12 @@ class ExchangeConfig:
             enable_rate_limit=settings_data["enable_rate_limit"],
             dry_run=settings_data["dry_run"],
             symbol=settings_data["symbol"],
-            leverage=settings_data.get("leverage")
+            leverage=settings_data.get("leverage"),
         )
         fees_data = data["fees"]
         fees = Fees(
             maker_fee_bps=fees_data["maker_fee_bps"],
-            taker_fee_bps=fees_data["taker_fee_bps"]
+            taker_fee_bps=fees_data["taker_fee_bps"],
         )
 
         return cls(
@@ -201,7 +235,7 @@ class ExchangeConfig:
             credentials=credentials,
             settings=settings,
             fees=fees,
-            metadata=data.get("metadata", {})
+            metadata=data.get("metadata", {}),
         )
 
     def is_valid(self) -> bool:
@@ -248,7 +282,7 @@ class ExchangeConfigManager:
         """Load all configurations from disk."""
         for config_file in self.config_dir.glob("*.json"):
             try:
-                with open(config_file, 'r') as f:
+                with open(config_file, "r") as f:
                     data = json.load(f)
                 config = ExchangeConfig.from_dict(data)
                 self._configs[config.name] = config
@@ -260,17 +294,24 @@ class ExchangeConfigManager:
         """Save configuration to disk."""
         config_file = self.config_dir / f"{config.name}.json"
         try:
-            with open(config_file, 'w') as f:
+            with open(config_file, "w") as f:
                 json.dump(config.to_dict(), f, indent=2)
             logger.info(f"Saved config for {config.name}")
         except Exception as e:
             logger.error(f"Failed to save config {config.name}: {e}")
 
-    def create_config(self, name: str, exchange_type: ExchangeType,
-                     api_key: str = "", api_secret: str = "",
-                     **overrides) -> ExchangeConfig:
+    def create_config(
+        self,
+        name: str,
+        exchange_type: ExchangeType,
+        api_key: str = "",
+        api_secret: str = "",
+        **overrides,
+    ) -> ExchangeConfig:
         """Create and store a new configuration."""
-        config = ExchangeConfig.create(name, exchange_type, api_key, api_secret, **overrides)
+        config = ExchangeConfig.create(
+            name, exchange_type, api_key, api_secret, **overrides
+        )
         self._configs[name] = config
         self._save_config(config)
         return config
@@ -325,21 +366,8 @@ class ExchangeConfigManager:
         if not config:
             return None
 
-        from core.execution.exchange.unified import ExchangeConfig as AdapterConfig
-        return AdapterConfig(
-            exchange_type=config.settings.type,
-            adapter_mode=config.settings.adapter_mode,
-            api_key=config.credentials.api_key,
-            api_secret=config.credentials.api_secret,
-            base_url=config.settings.base_url,
-            futures=config.settings.futures,
-            testnet=config.settings.testnet,
-            recv_window_ms=config.settings.recv_window_ms,
-            timeout_ms=config.settings.timeout_ms,
-            enable_rate_limit=config.settings.enable_rate_limit,
-            dry_run=config.settings.dry_run,
-            fees=config.fees
-        )
+        # Use the SSOT->adapter mapper to avoid duplication
+        return config.to_adapter_config()
 
 
 # Global configuration manager instance
@@ -356,7 +384,9 @@ def get_config_manager() -> ExchangeConfigManager:
 
 def create_exchange_config(name: str, exchange_type: str, **kwargs) -> ExchangeConfig:
     """Convenience function to create exchange configuration."""
-    return get_config_manager().create_config(name, ExchangeType(exchange_type), **kwargs)
+    return get_config_manager().create_config(
+        name, ExchangeType(exchange_type), **kwargs
+    )
 
 
 def get_exchange_config(name: str) -> Optional[ExchangeConfig]:

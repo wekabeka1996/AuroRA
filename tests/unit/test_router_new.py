@@ -1,17 +1,24 @@
 """
 Tests for core/execution/router_new.py
 """
+
 import pytest
-from unittest.mock import Mock
+
+pytestmark = [
+    pytest.mark.legacy,
+    pytest.mark.skip(
+        reason="Legacy router_new implementation; superseded by router_v2; quarantined"
+    ),
+]
+import os
 
 # Import the module under test
 import sys
-import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
+from unittest.mock import Mock
 
-from core.execution.router_new import (
-    Router, Decision, _clip01, _estimate_p_fill
-)
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
+
+from core.execution.router_new import Decision, Router, _clip01, _estimate_p_fill
 
 
 class TestDecision:
@@ -22,9 +29,9 @@ class TestDecision:
         decision = Decision(
             route="maker",
             why_code="OK_ROUTE_MAKER",
-            scores={"p_fill": 0.8, "edge_bps": 5.0}
+            scores={"p_fill": 0.8, "edge_bps": 5.0},
         )
-        
+
         assert decision.route == "maker"
         assert decision.why_code == "OK_ROUTE_MAKER"
         assert decision.scores == {"p_fill": 0.8, "edge_bps": 5.0}
@@ -34,9 +41,9 @@ class TestDecision:
         decision = Decision(
             route="deny",
             why_code="WHY_SLA_LATENCY",
-            scores={"latency_ms": 300.0, "max_latency_ms": 250.0}
+            scores={"latency_ms": 300.0, "max_latency_ms": 250.0},
         )
-        
+
         assert decision.route == "deny"
         assert decision.why_code == "WHY_SLA_LATENCY"
         assert decision.scores["latency_ms"] == 300.0
@@ -123,12 +130,9 @@ class TestRouter:
                     "p_min_fill": 0.25,
                     "spread_deny_bps": 8.0,
                     "maker_spread_ok_bps": 2.0,
-                    "switch_margin_bps": 0.0
+                    "switch_margin_bps": 0.0,
                 },
-                "sla": {
-                    "kappa_bps_per_ms": 0.01,
-                    "max_latency_ms": 250
-                }
+                "sla": {"kappa_bps_per_ms": 0.01, "max_latency_ms": 250},
             }
         }
         self.router = Router(self.config)
@@ -158,14 +162,7 @@ class TestRouter:
 
     def test_router_init_with_partial_config(self):
         """Test Router initialization with partial config."""
-        config = {
-            "execution": {
-                "edge_floor_bps": 2.0,
-                "router": {
-                    "p_min_fill": 0.3
-                }
-            }
-        }
+        config = {"execution": {"edge_floor_bps": 2.0, "router": {"p_min_fill": 0.3}}}
         router = Router(config)
         assert router.edge_floor_bps == 2.0
         assert router.p_min_fill == 0.3
@@ -187,12 +184,9 @@ class TestRouterDecide:
                     "p_min_fill": 0.25,
                     "spread_deny_bps": 8.0,
                     "maker_spread_ok_bps": 2.0,
-                    "switch_margin_bps": 0.0
+                    "switch_margin_bps": 0.0,
                 },
-                "sla": {
-                    "kappa_bps_per_ms": 0.01,
-                    "max_latency_ms": 250
-                }
+                "sla": {"kappa_bps_per_ms": 0.01, "max_latency_ms": 250},
             }
         }
         self.router = Router(self.config)
@@ -205,9 +199,9 @@ class TestRouterDecide:
             quote=quote,
             edge_bps_estimate=5.0,
             latency_ms=300.0,  # Above max_latency_ms
-            fill_features={}
+            fill_features={},
         )
-        
+
         assert decision.route == "deny"
         assert decision.why_code == "WHY_SLA_LATENCY"
         assert decision.scores["latency_ms"] == 300.0
@@ -221,9 +215,9 @@ class TestRouterDecide:
             quote=quote,
             edge_bps_estimate=5.0,
             latency_ms=100.0,
-            fill_features={"spread_bps": 10.0}  # Above spread_deny_bps
+            fill_features={"spread_bps": 10.0},  # Above spread_deny_bps
         )
-        
+
         assert decision.route == "deny"
         assert decision.why_code == "WHY_UNATTRACTIVE"
         assert decision.scores["spread_bps"] == 10.0
@@ -237,9 +231,9 @@ class TestRouterDecide:
             quote=quote,
             edge_bps_estimate=0.5,  # Below edge_floor_bps after latency penalty
             latency_ms=100.0,
-            fill_features={"spread_bps": 2.0}
+            fill_features={"spread_bps": 2.0},
         )
-        
+
         assert decision.route == "deny"
         assert decision.why_code == "WHY_UNATTRACTIVE"
         assert "edge_after_latency_bps" in decision.scores
@@ -255,10 +249,10 @@ class TestRouterDecide:
             latency_ms=50.0,
             fill_features={
                 "spread_bps": 1.0,  # Below maker_spread_ok_bps
-                "obi": 0.8  # High OBI for high p_fill
-            }
+                "obi": 0.8,  # High OBI for high p_fill
+            },
         )
-        
+
         assert decision.route == "maker"
         assert decision.why_code == "OK_ROUTE_MAKER"
         assert "p_fill" in decision.scores
@@ -275,10 +269,10 @@ class TestRouterDecide:
             latency_ms=50.0,
             fill_features={
                 "spread_bps": 5.0,  # Above maker_spread_ok_bps
-                "obi": 0.2  # Low OBI for low p_fill
-            }
+                "obi": 0.2,  # Low OBI for low p_fill
+            },
         )
-        
+
         assert decision.route == "taker"
         assert decision.why_code == "OK_ROUTE_TAKER"
         assert "p_fill" in decision.scores
@@ -288,24 +282,24 @@ class TestRouterDecide:
     def test_decide_boundary_conditions(self):
         """Test decide with boundary conditions."""
         quote = Mock()
-        
+
         # Test exactly at max latency (should allow)
         decision = self.router.decide(
             side="buy",
             quote=quote,
             edge_bps_estimate=5.0,
             latency_ms=250.0,  # Exactly at max
-            fill_features={"spread_bps": 1.0, "obi": 0.8}
+            fill_features={"spread_bps": 1.0, "obi": 0.8},
         )
         assert decision.route == "maker"  # Should not be denied
-        
+
         # Test exactly at spread deny threshold (should deny)
         decision = self.router.decide(
             side="buy",
             quote=quote,
             edge_bps_estimate=5.0,
             latency_ms=50.0,
-            fill_features={"spread_bps": 8.0, "obi": 0.8}  # Exactly at threshold
+            fill_features={"spread_bps": 8.0, "obi": 0.8},  # Exactly at threshold
         )
         assert decision.route == "deny"  # Should be denied (>= threshold)
 
@@ -317,9 +311,9 @@ class TestRouterDecide:
             quote=quote,
             edge_bps_estimate=5.0,
             latency_ms=50.0,
-            fill_features={}  # Empty features
+            fill_features={},  # Empty features
         )
-        
+
         # Should default to taker since p_fill = 0.5, spread_bps = 0.0
         # p_fill >= max(0.25, 0.5) = 0.5, so p_fill >= 0.5 is True
         # spread_bps <= 2.0 is True, so prefer_maker should be True

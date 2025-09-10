@@ -7,20 +7,17 @@ Test Kelly sizing functions for Step 2: Sizing/Portfolio.
 
 from __future__ import annotations
 
-import pytest
 import math
 
+import pytest
+
 from core.sizing.kelly import (
+    KellyOrchestrator,
+    edge_to_pwin,
+    fraction_to_qty,
     kelly_binary,
     kelly_mu_sigma,
-    fraction_to_qty,
-    edge_to_pwin,
     raw_kelly_fraction,
-    KellyOrchestrator,
-    dd_haircut_factor,
-    apply_dd_haircut_to_kelly,
-    portfolio_kelly,
-    SizingStabilizer
 )
 
 
@@ -41,7 +38,7 @@ class TestKellySizing:
 
         # Test with risk aversion
         f_ra = kelly_binary(p_win=0.6, rr=1.0, risk_aversion=2.0)
-        assert abs(f_ra - expected/2.0) < 1e-6
+        assert abs(f_ra - expected / 2.0) < 1e-6
 
     def test_kelly_binary_clipping(self):
         """Test Kelly binary clipping bounds."""
@@ -189,13 +186,13 @@ class TestKellySizing:
         f2 = kelly_binary(p_win, rr, risk_aversion=2.0, clip=(0.0, 1.0))
 
         # Risk aversion should scale down proportionally
-        assert abs(f2 - f1/2.0) < 1e-10
+        assert abs(f2 - f1 / 2.0) < 1e-10
 
         # Test with different p_win values
         for p in [0.55, 0.65, 0.7]:
             f_low = kelly_binary(p, rr, risk_aversion=1.0, clip=(0.0, 1.0))
             f_high = kelly_binary(p, rr, risk_aversion=3.0, clip=(0.0, 1.0))
-            assert abs(f_high - f_low/3.0) < 1e-10
+            assert abs(f_high - f_low / 3.0) < 1e-10
 
     def test_kelly_mu_sigma_single_asset_closed_form(self):
         """Test Kelly mu-sigma single asset: Σ=I ⇒ w*=μ/γ."""
@@ -205,7 +202,7 @@ class TestKellySizing:
         gamma = 2.0
 
         f = kelly_mu_sigma(mu, sigma, risk_aversion=gamma, clip=(0.0, 1.0))
-        expected = (mu / (sigma ** 2)) / gamma  # 0.02 / 0.01 / 2 = 1.0
+        expected = (mu / (sigma**2)) / gamma  # 0.02 / 0.01 / 2 = 1.0
 
         assert abs(f - expected) < 1e-10
 
@@ -216,55 +213,63 @@ class TestKellySizing:
         assert abs(p - 0.5) < 1e-12
 
         p = edge_to_pwin(0.0, rr=2.0)
-        assert abs(p - 1.0/3.0) < 1e-10
+        assert abs(p - 1.0 / 3.0) < 1e-10
 
         # Saturation bounds - edge_to_pwin clamps to [0, 1]
         p_min = edge_to_pwin(-10000.0)  # Very negative edge
-        p_max = edge_to_pwin(10000.0)   # Very positive edge
+        p_max = edge_to_pwin(10000.0)  # Very positive edge
 
         assert p_min == 0.0  # Clamped to minimum
         assert p_max == 1.0  # Clamped to maximum
 
     def test_dd_haircut_factor(self):
         """Test DD haircut factor calculation."""
-        from core.sizing.kelly import dd_haircut_factor, apply_dd_haircut_to_kelly
+        from decimal import Decimal
+
+        from core.sizing.kelly import apply_dd_haircut_to_kelly, dd_haircut_factor
 
         # No drawdown
-        haircut = dd_haircut_factor(0.0)
-        assert haircut == 1.0
+        haircut = dd_haircut_factor(Decimal("0"))
+        assert haircut == Decimal("1")
 
         # Full drawdown
-        haircut = dd_haircut_factor(300.0)  # DD_max = 300
-        assert haircut == 0.0
+        haircut = dd_haircut_factor(Decimal("300"))  # DD_max = 300
+        assert haircut == Decimal("0")
 
         # Partial drawdown: D=150, DD_max=300, β=2
         # g = (1 - 150/300)^2 = (1 - 0.5)^2 = 0.5^2 = 0.25
-        haircut = dd_haircut_factor(150.0, dd_max_bps=300.0, beta=2.0)
-        assert abs(haircut - 0.25) < 1e-10
+        haircut = dd_haircut_factor(
+            Decimal("150"), dd_max_bps=Decimal("300"), beta=Decimal("2")
+        )
+        assert haircut == Decimal("0.25")
 
         # Test monotonicity: higher DD → lower haircut
-        h1 = dd_haircut_factor(100.0)
-        h2 = dd_haircut_factor(200.0)
+        h1 = dd_haircut_factor(Decimal("100"))
+        h2 = dd_haircut_factor(Decimal("200"))
         assert h2 < h1
 
     def test_dd_haircut_application(self):
         """Test DD haircut application to Kelly fraction."""
+        from decimal import Decimal
+
         from core.sizing.kelly import apply_dd_haircut_to_kelly
 
-        kelly_raw = 0.1
+        kelly_raw = Decimal("0.1")
 
         # No DD
-        adjusted = apply_dd_haircut_to_kelly(kelly_raw, 0.0)
+        adjusted = apply_dd_haircut_to_kelly(kelly_raw, Decimal("0"))
         assert adjusted == kelly_raw
 
         # Partial DD
-        adjusted = apply_dd_haircut_to_kelly(kelly_raw, 150.0, dd_max_bps=300.0, beta=2.0)
-        expected = kelly_raw * 0.25  # From previous test
-        assert abs(adjusted - expected) < 1e-10
+        adjusted = apply_dd_haircut_to_kelly(
+            kelly_raw, Decimal("150"), dd_max_bps=Decimal("300"), beta=Decimal("2")
+        )
+        expected = kelly_raw * Decimal("0.25")  # From previous test
+        assert adjusted == expected
 
         # Full DD
-        adjusted = apply_dd_haircut_to_kelly(kelly_raw, 300.0)
-        assert adjusted == 0.0
+        adjusted = apply_dd_haircut_to_kelly(kelly_raw, Decimal("300"))
+        assert adjusted == Decimal("0")
 
     def test_fraction_to_qty_exchange_compliance(self):
         """Test fraction_to_qty with full exchange compliance."""
@@ -279,14 +284,16 @@ class TestKellySizing:
         assert abs(qty_spot - expected_spot) < 1e-8
 
         # Futures with leverage (use sufficient margin allowance)
-        qty_futures = fraction_to_qty(notional, px, lot_step, 10.0, 5000.0, 
-                                    leverage=2.0, initial_margin_pct=0.6)
+        qty_futures = fraction_to_qty(
+            notional, px, lot_step, 10.0, 5000.0, leverage=2.0, initial_margin_pct=0.6
+        )
         # With leverage, effective position is larger but margin requirements apply
         assert qty_futures > 0.0
 
         # Insufficient margin for high leverage
-        qty_insuff = fraction_to_qty(notional, px, lot_step, 10.0, 5000.0,
-                                   leverage=10.0, initial_margin_pct=0.05)
+        qty_insuff = fraction_to_qty(
+            notional, px, lot_step, 10.0, 5000.0, leverage=10.0, initial_margin_pct=0.05
+        )
         assert qty_insuff == 0.0  # Should fail margin check
 
     def test_round_trip_compliance(self):
@@ -312,21 +319,24 @@ class TestKellySizing:
                 rounded_qty = round(qty / lot_step) * lot_step
 
                 if not (min_notional <= actual_notional <= max_notional):
-                    violations.append(f"Notional violation: {actual_notional} not in [{min_notional}, {max_notional}]")
+                    violations.append(
+                        f"Notional violation: {actual_notional} not in [{min_notional}, {max_notional}]"
+                    )
 
                 if abs(qty - rounded_qty) > 1e-12:
                     violations.append(f"Lot step violation: {qty} vs {rounded_qty}")
 
         # Should have no violations for valid cases
-        assert len(violations) == 0, f"Found {len(violations)} violations: {violations[:5]}"
+        assert (
+            len(violations) == 0
+        ), f"Found {len(violations)} violations: {violations[:5]}"
 
     def test_sizing_stabilizer_hysteresis(self):
         """Test hysteresis prevents small oscillations."""
         from core.sizing.kelly import SizingStabilizer
 
         stabilizer = SizingStabilizer(
-            hysteresis_threshold=0.1,
-            hysteresis_flip_threshold=0.2
+            hysteresis_threshold=0.1, hysteresis_flip_threshold=0.2
         )
 
         # Small change should be ignored
@@ -337,7 +347,9 @@ class TestKellySizing:
 
         # Large change should be applied
         target = 0.12  # Δ = 0.02 > τ = 0.01
-        stabilized, _ = stabilizer.stabilize_fraction(target, current, apply_bucket=False)
+        stabilized, _ = stabilizer.stabilize_fraction(
+            target, current, apply_bucket=False
+        )
         assert stabilized == target
 
         # Near-zero target with significant current should require larger change
@@ -355,21 +367,24 @@ class TestKellySizing:
 
         # Test various targets map to nearest bucket
         test_cases = [
-            (0.008, 0.01),   # 0.008 → 0.01
-            (0.03, 0.01),    # 0.03 → 0.01 (first in list with equal distance)
-            (0.12, 0.1),     # 0.12 → 0.1
-            (0.15, 0.1),     # 0.15 → 0.1 (first in list with equal distance)
-            (0.25, 0.2),     # 0.25 → 0.2
+            (0.008, 0.01),  # 0.008 → 0.01
+            (0.03, 0.01),  # 0.03 → 0.01 (first in list with equal distance)
+            (0.12, 0.1),  # 0.12 → 0.1
+            (0.15, 0.1),  # 0.15 → 0.1 (first in list with equal distance)
+            (0.25, 0.2),  # 0.25 → 0.2
         ]
 
         for target, expected in test_cases:
-            stabilized, _ = stabilizer.stabilize_fraction(target, apply_hysteresis=False, apply_time_guard=False)
+            stabilized, _ = stabilizer.stabilize_fraction(
+                target, apply_hysteresis=False, apply_time_guard=False
+            )
             assert stabilized == expected
 
     def test_sizing_stabilizer_time_guard(self):
         """Test time guard prevents too frequent resizes."""
-        from core.sizing.kelly import SizingStabilizer
         import time
+
+        from core.sizing.kelly import SizingStabilizer
 
         stabilizer = SizingStabilizer(min_resize_interval_sec=0.1)
 
@@ -391,16 +406,14 @@ class TestKellySizing:
 
     def test_portfolio_psd_projection(self):
         """Test PSD projection for invalid covariance matrices."""
-        from core.sizing.portfolio import PortfolioOptimizer
         import math
+
+        from core.sizing.portfolio import PortfolioOptimizer
 
         optimizer = PortfolioOptimizer()
 
         # Create non-PSD matrix (negative eigenvalue)
-        cov = [
-            [1.0, 0.0],
-            [0.0, -0.1]  # Negative diagonal
-        ]
+        cov = [[1.0, 0.0], [0.0, -0.1]]  # Negative diagonal
         mu = [0.02, 0.03]
 
         w = optimizer.optimize(cov, mu)
@@ -431,14 +444,12 @@ class TestKellySizing:
         from core.sizing.portfolio import PortfolioOptimizer
 
         # Test data
-        cov = [
-            [0.04, 0.01],
-            [0.01, 0.09]
-        ]
+        cov = [[0.04, 0.01], [0.01, 0.09]]
         mu = [0.02, 0.03]
 
         # Force fallback (no NumPy)
         import core.sizing.portfolio as port_mod
+
         original_np = port_mod.np
         port_mod.np = None
 
@@ -465,7 +476,9 @@ class TestKellySizing:
 
         # σ → large (zero Sharpe)
         f = kelly_mu_sigma(mu=0.02, sigma=100.0, clip=(0.0, 0.2))
-        assert abs(f - 0.000002) < 1e-8  # Kelly fraction is μ/σ² = 0.02/10000 = 0.000002
+        assert (
+            abs(f - 0.000002) < 1e-8
+        )  # Kelly fraction is μ/σ² = 0.02/10000 = 0.000002
 
         # μ → 0
         f = kelly_mu_sigma(mu=0.0, sigma=0.1, clip=(0.0, 0.2))
@@ -485,10 +498,7 @@ class TestKellySizing:
 
         optimizer = PortfolioOptimizer()
 
-        cov = [
-            [0.04, 0.01],
-            [0.01, 0.09]
-        ]
+        cov = [[0.04, 0.01], [0.01, 0.09]]
         mu = [0.02, 0.03]
 
         w = optimizer.optimize(cov, mu)
@@ -502,13 +512,19 @@ class TestKellySizing:
             "cvar_limit": optimizer.cvar_limit,
             "feasible": True,
             "w_raw": w,
-            "w_final": w
+            "w_final": w,
         }
 
         # Check all fields are present and valid types
         required_fields = [
-            "method", "gross_cap", "max_weight", "cvar_alpha", "cvar_limit",
-            "feasible", "w_raw", "w_final"
+            "method",
+            "gross_cap",
+            "max_weight",
+            "cvar_alpha",
+            "cvar_limit",
+            "feasible",
+            "w_raw",
+            "w_final",
         ]
 
         for field in required_fields:
@@ -534,433 +550,6 @@ class TestKellySizing:
         # Should be rejected due to max notional
         assert qty == 0.0
 
-    def test_kelly_binary_exception_handling(self):
-        """Test kelly_binary exception handling for invalid inputs."""
-        # Test non-numeric inputs that trigger exception handling
-        assert kelly_binary("invalid", 1.0) == 0.0
-        assert kelly_binary(0.5, "invalid") == 0.0
-        assert kelly_binary(0.5, 1.0, risk_aversion="invalid") == 0.0
-        assert kelly_binary(0.5, 1.0, clip="invalid") == 0.0
 
-    def test_kelly_binary_nan_inf_handling(self):
-        """Test kelly_binary handles NaN and Inf results."""
-        # These parameters might produce NaN/Inf in some edge cases
-        # The safety checks should catch them
-        f = kelly_binary(0.5, 1.0, risk_aversion=0.0)  # Division by zero scenario
-        assert f == 0.0  # Should be caught by input validation
-
-    def test_kelly_mu_sigma_exception_handling(self):
-        """Test kelly_mu_sigma exception handling for invalid inputs."""
-        # Test non-numeric inputs that trigger exception handling
-        assert kelly_mu_sigma("invalid", 0.1) == 0.0
-        assert kelly_mu_sigma(0.02, "invalid") == 0.0
-        assert kelly_mu_sigma(0.02, 0.1, risk_aversion="invalid") == 0.0
-        assert kelly_mu_sigma(0.02, 0.1, clip="invalid") == 0.0
-
-    def test_kelly_mu_sigma_nan_inf_handling(self):
-        """Test kelly_mu_sigma handles NaN and Inf results."""
-        # Test with sigma = 0 (would cause division by zero)
-        f = kelly_mu_sigma(0.02, 0.0)
-        assert f == 0.0  # Should be caught by input validation
-
-    def test_fraction_to_qty_exception_handling(self):
-        """Test fraction_to_qty exception handling for invalid inputs."""
-        # Test non-numeric inputs that trigger exception handling
-        assert fraction_to_qty("invalid", 50000.0, 0.00001, 10.0, 5000.0) == 0.0
-        assert fraction_to_qty(1000.0, "invalid", 0.00001, 10.0, 5000.0) == 0.0
-        assert fraction_to_qty(1000.0, 50000.0, "invalid", 10.0, 5000.0) == 0.0
-        assert fraction_to_qty(1000.0, 50000.0, 0.00001, "invalid", 5000.0) == 0.0
-        assert fraction_to_qty(1000.0, 50000.0, 0.00001, 10.0, "invalid") == 0.0
-
-    def test_fraction_to_qty_tiny_positions_skip(self):
-        """Test fraction_to_qty skips tiny positions."""
-        # Test notional < 10.0 (should return 0.0)
-        qty = fraction_to_qty(5.0, 50000.0, 0.00001, 10.0, 5000.0)
-        assert qty == 0.0
-
-    def test_fraction_to_qty_futures_margin_check(self):
-        """Test fraction_to_qty futures margin requirements."""
-        # Test insufficient margin for high leverage
-        qty = fraction_to_qty(1000.0, 50000.0, 0.00001, 10.0, 5000.0, 
-                            leverage=10.0, initial_margin_pct=0.05)
-        assert qty == 0.0  # Should fail margin check
-
-    def test_edge_to_pwin_exception_handling(self):
-        """Test edge_to_pwin exception handling for invalid inputs."""
-        # Test non-numeric inputs that trigger exception handling
-        assert edge_to_pwin("invalid") == 0.5
-        assert edge_to_pwin(100.0, "invalid") == 0.5
-
-    def test_edge_to_pwin_invalid_rr(self):
-        """Test edge_to_pwin with invalid rr values."""
-        # Test rr <= 0
-        assert edge_to_pwin(100.0, rr=0.0) == 0.5
-        assert edge_to_pwin(100.0, rr=-1.0) == 0.5
-
-    def test_edge_to_pwin_nan_inf_handling(self):
-        """Test edge_to_pwin handles NaN and Inf results."""
-        # Test extreme values that might produce NaN/Inf
-        p = edge_to_pwin(100.0, rr=1.0)
-        assert 0.0 <= p <= 1.0  # Should be clamped to valid range
-
-    def test_dd_haircut_factor_exception_handling(self):
-        """Test dd_haircut_factor exception handling for invalid inputs."""
-        # Test non-numeric inputs that trigger exception handling
-        assert dd_haircut_factor("invalid", 300.0, 2.0) == 1.0
-        assert dd_haircut_factor(150.0, "invalid", 2.0) == 1.0
-        assert dd_haircut_factor(150.0, 300.0, "invalid") == 1.0
-
-    def test_dd_haircut_factor_invalid_params(self):
-        """Test dd_haircut_factor with invalid parameters."""
-        # Test dd_max_bps <= 0
-        assert dd_haircut_factor(150.0, 0.0, 2.0) == 1.0
-        assert dd_haircut_factor(150.0, -100.0, 2.0) == 1.0
-        
-        # Test beta <= 0
-        assert dd_haircut_factor(150.0, 300.0, 0.0) == 1.0
-        assert dd_haircut_factor(150.0, 300.0, -1.0) == 1.0
-
-    def test_raw_kelly_fraction_exception_handling(self):
-        """Test raw_kelly_fraction exception handling."""
-        # This function doesn't have explicit exception handling in the current code
-        # but the existing tests should cover the main paths
-        pass
-
-    def test_kelly_orchestrator_lambda_product_exception_handling(self):
-        """Test KellyOrchestrator.lambda_product exception handling."""
-        ko = KellyOrchestrator()
-        
-        # Test with invalid lambda values
-        lambdas = {"valid": 0.5, "invalid": "not_a_number", "another": 0.8}
-        result = ko.lambda_product(lambdas)
-        assert 0.0 <= result <= 1.0
-
-    def test_portfolio_kelly_coverage(self):
-        """Test portfolio_kelly function coverage."""
-        # Test basic functionality
-        mu = [0.02, 0.03]
-        Sigma = [[0.04, 0.01], [0.01, 0.09]]
-        
-        w = portfolio_kelly(mu, Sigma)
-        assert len(w) == 2
-        assert all(isinstance(wi, float) for wi in w)
-
-    def test_portfolio_kelly_numpy_fallback(self):
-        """Test portfolio_kelly fallback when numpy is not available."""
-        # This is hard to test directly, but we can test the basic case
-        mu = [0.02, 0.03]
-        Sigma = [[0.04, 0.01], [0.01, 0.09]]
-        
-        w = portfolio_kelly(mu, Sigma)
-        assert len(w) == 2
-
-    def test_portfolio_kelly_edge_cases(self):
-        """Test portfolio_kelly edge cases."""
-        # Empty inputs
-        w = portfolio_kelly([], [])
-        assert w == []
-
-    def test_sizing_stabilizer_post_init_exception_handling(self):
-        """Test SizingStabilizer.__post_init__ exception handling."""
-        # Test with invalid clock
-        stabilizer = SizingStabilizer(clock="invalid")
-        # Should handle exception gracefully
-        assert stabilizer._clock is not None
-
-    def test_sizing_stabilizer_apply_hysteresis_exception_handling(self):
-        """Test SizingStabilizer.apply_hysteresis exception handling."""
-        stabilizer = SizingStabilizer()
-        
-        # Test with invalid inputs that might cause exceptions
-        result = stabilizer.apply_hysteresis(0.1, 0.0)
-        assert isinstance(result, float)
-
-    def test_sizing_stabilizer_stabilize_fraction_exception_handling(self):
-        """Test SizingStabilizer.stabilize_fraction exception handling."""
-        stabilizer = SizingStabilizer()
-        
-        # Test basic functionality
-        stabilized, metadata = stabilizer.stabilize_fraction(0.1, 0.0)
-        assert isinstance(stabilized, float)
-        assert isinstance(metadata, dict)
-
-    def test_sizing_stabilizer_comprehensive(self):
-        """Test SizingStabilizer comprehensive functionality."""
-        stabilizer = SizingStabilizer(
-            hysteresis_threshold=0.1,
-            hysteresis_flip_threshold=0.2,
-            min_resize_interval_sec=0.01,  # Short for testing
-            bucket_sizes=[0.0, 0.05, 0.1, 0.2, 0.5]
-        )
-
-        # Test hysteresis with zero current
-        result = stabilizer.apply_hysteresis(0.05, 0.0)
-        assert result == 0.05
-
-        # Test time guard
-        allowed = stabilizer.check_time_guard()
-        assert isinstance(allowed, bool)
-
-        # Test bucket sizing
-        bucketed = stabilizer.apply_bucket_sizing(0.12)
-        assert bucketed in stabilizer.bucket_sizes
-
-        # Test full stabilization
-        stabilized, meta = stabilizer.stabilize_fraction(0.12, 0.1)
-        assert isinstance(stabilized, float)
-        assert "time_guard_passed" in meta
-        assert "hysteresis_applied" in meta
-        assert "bucket_applied" in meta
-
-    def test_kelly_binary_invalid_probability_range(self):
-        """Test kelly_binary with invalid probability range."""
-        # Test p_win < 0
-        f = kelly_binary(p_win=-0.1, rr=1.0)
-        assert f == 0.0
-        
-        # Test p_win > 1
-        f = kelly_binary(p_win=1.1, rr=1.0)
-        assert f == 0.0
-
-    def test_kelly_binary_invalid_clip_bounds(self):
-        """Test kelly_binary with invalid clip bounds."""
-        # Test clip_min < 0
-        f = kelly_binary(p_win=0.6, rr=1.0, clip=(-0.1, 0.2))
-        assert f == 0.0
-        
-        # Test clip_max < clip_min
-        f = kelly_binary(p_win=0.6, rr=1.0, clip=(0.2, 0.1))
-        assert f == 0.0
-
-    def test_kelly_mu_sigma_invalid_clip_bounds(self):
-        """Test kelly_mu_sigma with invalid clip bounds."""
-        # Test clip_min < 0
-        f = kelly_mu_sigma(mu=0.02, sigma=0.1, clip=(-0.1, 0.2))
-        assert f == 0.0
-        
-        # Test clip_max < clip_min
-        f = kelly_mu_sigma(mu=0.02, sigma=0.1, clip=(0.2, 0.1))
-        assert f == 0.0
-
-    def test_fraction_to_qty_invalid_input_validation(self):
-        """Test fraction_to_qty with invalid input validation."""
-        # Test notional_usd <= 0
-        qty = fraction_to_qty(0.0, 50000.0, 0.00001, 10.0, 5000.0)
-        assert qty == 0.0
-        
-        # Test px <= 0
-        qty = fraction_to_qty(1000.0, 0.0, 0.00001, 10.0, 5000.0)
-        assert qty == 0.0
-        
-        # Test lot_step <= 0
-        qty = fraction_to_qty(1000.0, 50000.0, 0.0, 10.0, 5000.0)
-        assert qty == 0.0
-        
-        # Test leverage <= 0
-        qty = fraction_to_qty(1000.0, 50000.0, 0.00001, 10.0, 5000.0, leverage=0.0)
-        assert qty == 0.0
-        
-        # Test initial_margin_pct <= 0
-        qty = fraction_to_qty(1000.0, 50000.0, 0.00001, 10.0, 5000.0, initial_margin_pct=0.0)
-        assert qty == 0.0
-        
-        # Test maintenance_margin_pct <= 0
-        qty = fraction_to_qty(1000.0, 50000.0, 0.00001, 10.0, 5000.0, maintenance_margin_pct=0.0)
-        assert qty == 0.0
-
-    def test_fraction_to_qty_invalid_notional_bounds(self):
-        """Test fraction_to_qty with invalid notional bounds."""
-        # Test min_notional < 0
-        qty = fraction_to_qty(1000.0, 50000.0, 0.00001, -10.0, 5000.0)
-        assert qty == 0.0
-        
-        # Test max_notional < min_notional
-        qty = fraction_to_qty(1000.0, 50000.0, 0.00001, 5000.0, 10.0)
-        assert qty == 0.0
-
-    def test_edge_to_pwin_safety_checks(self):
-        """Test edge_to_pwin safety checks for NaN/Inf."""
-        # Test with extreme values that might produce NaN/Inf
-        p = edge_to_pwin(1e10, rr=1.0)  # Very large edge
-        assert p == 1.0
-        
-        p = edge_to_pwin(-1e10, rr=1.0)  # Very negative edge
-        assert p == 0.0
-
-    def test_raw_kelly_fraction_invalid_inputs(self):
-        """Test raw_kelly_fraction with invalid inputs."""
-        # Test L <= 0
-        f = raw_kelly_fraction(0.6, 2.0, 0.0)
-        assert f == 0.0
-        
-        # Test G <= 0
-        f = raw_kelly_fraction(0.6, 0.0, 1.0)
-        assert f == 0.0
-
-    def test_portfolio_kelly_numpy_solve_exception_lines_434_442(self):
-        """Test portfolio_kelly numpy solve exception handling (lines 434-442)."""
-        from unittest.mock import patch
-        import core.sizing.kelly as kelly_mod
-        
-        # Mock numpy.linalg.solve to raise an exception
-        with patch('numpy.linalg.solve', side_effect=Exception("Solve failed")), \
-             patch('numpy.linalg.pinv') as mock_pinv:
-            mock_pinv.return_value.dot.return_value = [0.5, 0.5]  # Mock pinv result
-            
-            mu = [0.02, 0.03]
-            Sigma = [[0.04, 0.01], [0.01, 0.09]]
-            
-            w = kelly_mod.portfolio_kelly(mu, Sigma)
-            assert len(w) == 2
-            # Should use pinv fallback (line 436)
-
-    def test_portfolio_kelly_long_only_projection(self):
-        """Test portfolio_kelly long-only projection."""
-        mu = [0.02, -0.01]  # One negative return
-        Sigma = [[0.04, 0.01], [0.01, 0.09]]
-        
-        w = portfolio_kelly(mu, Sigma, long_only=True)
-        assert len(w) == 2
-        assert all(wi >= 0.0 for wi in w)  # All weights should be non-negative
-
-    def test_portfolio_kelly_leverage_scaling(self):
-        """Test portfolio_kelly leverage scaling."""
-        mu = [0.02, 0.03]
-        Sigma = [[0.04, 0.01], [0.01, 0.09]]
-        
-        w = portfolio_kelly(mu, Sigma, leverage_cap=0.5)
-        lev = sum(abs(wi) for wi in w)
-        assert lev <= 0.5 + 1e-6  # Should respect leverage cap
-
-    def test_sizing_stabilizer_bucket_sizing_empty_buckets(self):
-        """Test SizingStabilizer bucket sizing with empty buckets."""
-        stabilizer = SizingStabilizer(bucket_sizes=[])
-        
-        result = stabilizer.apply_bucket_sizing(0.1)
-        assert result == 0.1  # Should return target unchanged
-
-    def test_sizing_stabilizer_hysteresis_current_zero(self):
-        """Test SizingStabilizer hysteresis when current is zero."""
-        stabilizer = SizingStabilizer()
-        
-        # When current is 0, should allow any positive target
-        result = stabilizer.apply_hysteresis(0.05, 0.0)
-        assert result == 0.05
-
-    def test_sizing_stabilizer_time_update_line_540(self):
-        """Test SizingStabilizer time update line 540."""
-        import time
-        stabilizer = SizingStabilizer(min_resize_interval_sec=1.0)
-        
-        # Set last resize time to past
-        stabilizer.last_resize_time = time.monotonic() - 2.0
-        
-        # Call stabilize_fraction with different target and current to trigger line 540
-        result, metadata = stabilizer.stabilize_fraction(0.2, 0.1, apply_time_guard=True)
-        assert result == 0.2  # Should accept the change
-        assert metadata["final_fraction"] == 0.2
-
-    def test_portfolio_kelly_fallback_line_431(self):
-        """Test portfolio_kelly fallback line 431 specifically."""
-        import core.sizing.kelly as kelly_mod
-        original_np = kelly_mod.np
-        kelly_mod.np = None
-        
-        try:
-            # Test with empty mu list to trigger line 431: if n == 0: return []
-            w = kelly_mod.portfolio_kelly([], [])
-            assert w == []  # Should return empty list
-        finally:
-            kelly_mod.np = original_np
-
-    def test_sizing_stabilizer_hysteresis_flip_lines_498_499(self):
-        """Test SizingStabilizer hysteresis flip threshold (lines 498-499)."""
-        stabilizer = SizingStabilizer()
-        
-        # Test the exact condition in lines 498-499:
-        # elif abs(target_fraction) < tau_flip and abs(current_fraction) >= tau_flip:
-        #     if abs_delta < tau_flip:
-        #         return current_fraction
-        
-        # Set current = 0.1, so tau_flip = 0.2 * 0.1 = 0.02
-        # Set target = 0.019 (< tau_flip), so abs(target) < tau_flip
-        # Set abs(current) = 0.1 >= tau_flip
-        # Set abs_delta = |0.019 - 0.1| = 0.081 > tau_flip (0.02)
-        # This should NOT trigger the return current_fraction because abs_delta > tau_flip
-        
-        result = stabilizer.apply_hysteresis(0.019, 0.1)
-        assert result == 0.019  # Should allow change since abs_delta > tau_flip
-
-    def test_sizing_stabilizer_time_update_line_540(self):
-        """Test SizingStabilizer time update (line 540)."""
-        import time
-        stabilizer = SizingStabilizer(min_resize_interval_sec=1.0)
-        
-        # Set last resize time to past
-        stabilizer.last_resize_time = time.monotonic() - 2.0
-        
-        # Call stabilize_fraction with different target and current to trigger line 540
-        result, metadata = stabilizer.stabilize_fraction(0.2, 0.1, apply_time_guard=True)
-        assert result == 0.2  # Should accept the change
-        assert metadata["final_fraction"] == 0.2
-
-    def test_kelly_binary_safety_check_line_79(self):
-        """Test kelly_binary safety check (line 79)."""
-        from unittest.mock import patch
-        import core.sizing.kelly as kelly_mod
-        
-        with patch('math.isnan', return_value=True), \
-             patch('math.isinf', return_value=False):
-            f = kelly_mod.kelly_binary(0.6, 2.0, 1.0)
-            assert f == 0.0  # Safety check should trigger
-
-    def test_kelly_mu_sigma_safety_check_line_136(self):
-        """Test kelly_mu_sigma safety check (line 136)."""
-        from unittest.mock import patch
-        import core.sizing.kelly as kelly_mod
-        
-        with patch('math.isnan', return_value=True), \
-             patch('math.isinf', return_value=False):
-            f = kelly_mod.kelly_mu_sigma(0.02, 0.04)
-            assert f == 0.0  # Safety check should trigger
-
-    def test_fraction_to_qty_safety_check_line_196(self):
-        """Test fraction_to_qty safety check (line 196)."""
-        from unittest.mock import patch
-        import core.sizing.kelly as kelly_mod
-        
-        # Patch math operations to return NaN
-        with patch('builtins.float', side_effect=lambda x: float('nan') if isinstance(x, float) and x == 0.02 else x), \
-             patch('math.isnan', return_value=True), \
-             patch('math.isinf', return_value=False):
-            qty = kelly_mod.fraction_to_qty(1000.0, 50000.0, 0.00001, 10.0, 100000.0)
-            assert qty == 0.0  # Safety check should trigger
-
-    def test_edge_to_pwin_safety_check_line_230(self):
-        """Test edge_to_pwin safety check (line 230)."""
-        from unittest.mock import patch
-        import core.sizing.kelly as kelly_mod
-        
-        # Patch math operations to return NaN
-        with patch('builtins.float', side_effect=lambda x: float('nan') if isinstance(x, float) and 0.0 <= x <= 1.0 else x), \
-             patch('math.isnan', return_value=True), \
-             patch('math.isinf', return_value=False):
-            p = kelly_mod.edge_to_pwin(50.0, 2.0)
-            assert p == 0.5  # Safety check should trigger
-
-    def test_portfolio_kelly_numpy_solve_exception_lines_434_442(self):
-        """Test portfolio_kelly numpy solve exception handling (lines 434-442)."""
-        from unittest.mock import patch
-        import core.sizing.kelly as kelly_mod
-        
-        # Mock numpy.linalg.solve to raise an exception
-        with patch('numpy.linalg.solve', side_effect=Exception("Solve failed")), \
-             patch('numpy.linalg.pinv') as mock_pinv:
-            mock_pinv.return_value.dot.return_value = [0.5, 0.5]  # Mock pinv result
-            
-            mu = [0.02, 0.03]
-            Sigma = [[0.04, 0.01], [0.01, 0.09]]
-            
-            w = kelly_mod.portfolio_kelly(mu, Sigma)
-            assert len(w) == 2
-            # Should use pinv fallback (line 436)
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])

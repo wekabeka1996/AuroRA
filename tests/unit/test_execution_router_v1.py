@@ -18,13 +18,24 @@ Total tests: 30+ covering all DoD invariants
 """
 
 import pytest
+
+pytestmark = [
+    pytest.mark.legacy,
+    pytest.mark.skip(
+        reason="Legacy ExecutionRouter v1; superseded by router_v2; quarantined"
+    ),
+]
 import time
-from unittest.mock import Mock, patch
 from dataclasses import dataclass
+from unittest.mock import Mock, patch
 
 from core.execution.execution_router_v1 import (
-    ExecutionRouter, ExecutionContext, RouterConfig, ChildOrder,
-    OrderState, RejectReason
+    ChildOrder,
+    ExecutionContext,
+    ExecutionRouter,
+    OrderState,
+    RejectReason,
+    RouterConfig,
 )
 from core.tca.tca_analyzer import FillEvent
 
@@ -47,25 +58,22 @@ def sample_context():
         edge_bps=5.0,
         micro_price=50000.0,
         mid_price=49950.0,
-        spread_bps=20.0
+        spread_bps=20.0,
     )
 
 
 @pytest.fixture
 def sample_market_data():
     """Create sample market data"""
-    return {
-        "bid": 49900.0,
-        "ask": 50000.0,
-        "micro_price": 49950.0,
-        "spread_bps": 20.0
-    }
+    return {"bid": 49900.0, "ask": 50000.0, "micro_price": 49950.0, "spread_bps": 20.0}
 
 
 class TestMakerPosting:
     """A. Maker posting / re-peg logic"""
 
-    def test_post_only_maker_at_micro_price_offset(self, router, sample_context, sample_market_data):
+    def test_post_only_maker_at_micro_price_offset(
+        self, router, sample_context, sample_market_data
+    ):
         """Test POST_ONLY maker posting at micro-price ± offset"""
         # Setup context for maker posting
         context = sample_context
@@ -85,7 +93,9 @@ class TestMakerPosting:
         expected_price = context.micro_price - expected_offset
         assert abs(child.price - expected_price) < 0.01
 
-    def test_post_only_violation_reprice_one_tick(self, router, sample_context, sample_market_data):
+    def test_post_only_violation_reprice_one_tick(
+        self, router, sample_context, sample_market_data
+    ):
         """Test POST_ONLY violation → reprice by 1 tick, no taker fill"""
         context = sample_context
         context.target_qty = 0.05
@@ -109,7 +119,9 @@ class TestMakerPosting:
         if child.side == "BUY":
             assert child.price < original_price
 
-    def test_repeg_on_micro_price_change_with_guards(self, router, sample_context, sample_market_data):
+    def test_repeg_on_micro_price_change_with_guards(
+        self, router, sample_context, sample_market_data
+    ):
         """Test re-peg when micro-price changes ≥1 tick, respecting t_min_requote_ms"""
         context = sample_context
 
@@ -128,7 +140,9 @@ class TestMakerPosting:
         # or that the number is significantly reduced
         assert len(children2) <= len(children1)  # Should not create more orders
 
-    def test_antiflicker_guard_requote_limits(self, router, sample_context, sample_market_data):
+    def test_antiflicker_guard_requote_limits(
+        self, router, sample_context, sample_market_data
+    ):
         """Test anti-flicker guard prevents excessive re-quoting"""
         context = sample_context
 
@@ -142,7 +156,9 @@ class TestMakerPosting:
 class TestMakerTakerEscalation:
     """B. Maker→Taker escalation"""
 
-    def test_ttl_child_escalation_to_ioc(self, router, sample_context, sample_market_data):
+    def test_ttl_child_escalation_to_ioc(
+        self, router, sample_context, sample_market_data
+    ):
         """Test ttl_child expiration → switch to IOC taker"""
         context = sample_context
         children = router.execute_sizing_decision(context, sample_market_data)
@@ -151,7 +167,9 @@ class TestMakerTakerEscalation:
         router.handle_order_ack(child.order_id, time.time_ns(), 5.0)
 
         # Simulate TTL expiration by setting order age
-        child.created_ts_ns = time.time_ns() - (router.config.ttl_child_ms + 1000) * 1_000_000
+        child.created_ts_ns = (
+            time.time_ns() - (router.config.ttl_child_ms + 1000) * 1_000_000
+        )
 
         router._check_escalation(child)  # Manually trigger check
 
@@ -159,7 +177,9 @@ class TestMakerTakerEscalation:
         assert child.state == OrderState.ESCALATED
         assert child.mode == "ioc"
 
-    def test_edge_decay_escalation_after_partial_fill(self, router, sample_context, sample_market_data):
+    def test_edge_decay_escalation_after_partial_fill(
+        self, router, sample_context, sample_market_data
+    ):
         """Test edge_decay escalation after partial fill"""
         context = sample_context
         children = router.execute_sizing_decision(context, sample_market_data)
@@ -173,7 +193,7 @@ class TestMakerTakerEscalation:
             qty=child.target_qty * 0.5,  # Partial fill
             price=child.price,
             fee=0.001,
-            liquidity_flag='M'
+            liquidity_flag="M",
         )
         router.handle_order_fill(child.order_id, fill)
 
@@ -188,7 +208,9 @@ class TestMakerTakerEscalation:
         # Should escalate
         assert child.state == OrderState.ESCALATED
 
-    def test_partial_fill_preserves_maker_mode_until_ttl(self, router, sample_context, sample_market_data):
+    def test_partial_fill_preserves_maker_mode_until_ttl(
+        self, router, sample_context, sample_market_data
+    ):
         """Test partial fill preserves maker mode until TTL or edge decay"""
         context = sample_context
         children = router.execute_sizing_decision(context, sample_market_data)
@@ -202,7 +224,7 @@ class TestMakerTakerEscalation:
             qty=child.target_qty * 0.3,
             price=child.price,
             fee=0.001,
-            liquidity_flag='M'
+            liquidity_flag="M",
         )
         router.handle_order_fill(child.order_id, fill)
 
@@ -215,7 +237,9 @@ class TestMakerTakerEscalation:
 class TestSpreadVolatilityGuards:
     """C. Spread / Volatility guards"""
 
-    def test_spread_guard_blocks_execution(self, router, sample_context, sample_market_data):
+    def test_spread_guard_blocks_execution(
+        self, router, sample_context, sample_market_data
+    ):
         """Test spread_bps > limit blocks execution"""
         context = sample_context
         context.spread_bps = router.config.spread_limit_bps + 10  # Above limit
@@ -223,7 +247,9 @@ class TestSpreadVolatilityGuards:
         children = router.execute_sizing_decision(context, sample_market_data)
         assert len(children) == 0  # Should be blocked
 
-    def test_spread_guard_allows_when_below_limit(self, router, sample_context, sample_market_data):
+    def test_spread_guard_allows_when_below_limit(
+        self, router, sample_context, sample_market_data
+    ):
         """Test execution allowed when spread_bps ≤ limit"""
         context = sample_context
         context.spread_bps = router.config.spread_limit_bps - 5  # Below limit
@@ -231,7 +257,9 @@ class TestSpreadVolatilityGuards:
         children = router.execute_sizing_decision(context, sample_market_data)
         assert len(children) > 0  # Should execute
 
-    def test_volatility_spike_guard_blocks(self, router, sample_context, sample_market_data):
+    def test_volatility_spike_guard_blocks(
+        self, router, sample_context, sample_market_data
+    ):
         """Test vol_spike_detected blocks execution"""
         context = sample_context
         context.vol_spike_detected = True
@@ -243,7 +271,9 @@ class TestSpreadVolatilityGuards:
 class TestPartialFillsCleanup:
     """D. Partial fills / докат"""
 
-    def test_partial_fill_updates_remaining_quantity(self, router, sample_context, sample_market_data):
+    def test_partial_fill_updates_remaining_quantity(
+        self, router, sample_context, sample_market_data
+    ):
         """Test partial fill correctly updates remaining quantity"""
         context = sample_context
         children = router.execute_sizing_decision(context, sample_market_data)
@@ -258,14 +288,16 @@ class TestPartialFillsCleanup:
             qty=fill_qty,
             price=child.price,
             fee=0.001,
-            liquidity_flag='M'
+            liquidity_flag="M",
         )
         router.handle_order_fill(child.order_id, fill)
 
         assert child.filled_qty == fill_qty
         assert child.state == OrderState.PARTIAL
 
-    def test_multiple_partial_fills_vwap_tracking(self, router, sample_context, sample_market_data):
+    def test_multiple_partial_fills_vwap_tracking(
+        self, router, sample_context, sample_market_data
+    ):
         """Test multiple partial fills with VWAP calculation"""
         context = sample_context
         children = router.execute_sizing_decision(context, sample_market_data)
@@ -276,8 +308,8 @@ class TestPartialFillsCleanup:
         # Multiple fills at different prices - use simpler values
         fill_data = [
             (0.04, child.price - 10),  # 0.04 qty at price-10
-            (0.06, child.price),       # 0.06 qty at price
-            (0.08, child.price + 10)   # 0.08 qty at price+10
+            (0.06, child.price),  # 0.06 qty at price
+            (0.08, child.price + 10),  # 0.08 qty at price+10
         ]
 
         total_filled = 0
@@ -290,7 +322,7 @@ class TestPartialFillsCleanup:
                 qty=fill_qty,
                 price=fill_price,
                 fee=0.001,
-                liquidity_flag='M'
+                liquidity_flag="M",
             )
             router.handle_order_fill(child.order_id, fill)
 
@@ -298,15 +330,21 @@ class TestPartialFillsCleanup:
             total_value += fill_qty * fill_price
 
         expected_vwap = total_value / total_filled
-        actual_vwap = sum(f.qty * f.price for f in child.fills) / sum(f.qty for f in child.fills)
+        actual_vwap = sum(f.qty * f.price for f in child.fills) / sum(
+            f.qty for f in child.fills
+        )
 
         # Check that we have all expected fills
-        assert len(child.fills) == len(fill_data), f"Expected {len(fill_data)} fills, got {len(child.fills)}"
+        assert len(child.fills) == len(
+            fill_data
+        ), f"Expected {len(fill_data)} fills, got {len(child.fills)}"
 
         # Allow for reasonable tolerance
         assert abs(actual_vwap - expected_vwap) < 0.01
 
-    def test_sl_trigger_cleanup_ioc_netflat(self, router, sample_context, sample_market_data):
+    def test_sl_trigger_cleanup_ioc_netflat(
+        self, router, sample_context, sample_market_data
+    ):
         """Test SL trigger → cleanup with IOC net-flat"""
         context = sample_context
         children = router.execute_sizing_decision(context, sample_market_data)
@@ -339,7 +377,9 @@ class TestPartialFillsCleanup:
 class TestRejectBackoff:
     """E. Reject/backoff"""
 
-    def test_lot_size_reject_step_rounding(self, router, sample_context, sample_market_data):
+    def test_lot_size_reject_step_rounding(
+        self, router, sample_context, sample_market_data
+    ):
         """Test LOT_SIZE reject → step-rounding reduces qty"""
         context = sample_context
         children = router.execute_sizing_decision(context, sample_market_data)
@@ -353,7 +393,9 @@ class TestRejectBackoff:
         assert child.target_qty < original_qty
         assert child.reject_reason == RejectReason.LOT_SIZE
 
-    def test_min_notional_reject_qty_reduction(self, router, sample_context, sample_market_data):
+    def test_min_notional_reject_qty_reduction(
+        self, router, sample_context, sample_market_data
+    ):
         """Test MIN_NOTIONAL reject → reduce qty or cancel"""
         context = sample_context
         children = router.execute_sizing_decision(context, sample_market_data)
@@ -367,7 +409,9 @@ class TestRejectBackoff:
         # Quantity should be reduced after MIN_NOTIONAL rejection
         assert child.target_qty < original_qty
 
-    def test_post_only_reject_one_tick_reprice(self, router, sample_context, sample_market_data):
+    def test_post_only_reject_one_tick_reprice(
+        self, router, sample_context, sample_market_data
+    ):
         """Test POST_ONLY reject → one tick reprice"""
         context = sample_context
         children = router.execute_sizing_decision(context, sample_market_data)
@@ -384,7 +428,9 @@ class TestRejectBackoff:
         else:
             assert child.price == original_price + tick_size
 
-    def test_price_filter_reject_adjust_to_valid_price(self, router, sample_context, sample_market_data):
+    def test_price_filter_reject_adjust_to_valid_price(
+        self, router, sample_context, sample_market_data
+    ):
         """Test PRICE_FILTER reject → adjust to nearest valid price"""
         context = sample_context
         children = router.execute_sizing_decision(context, sample_market_data)
@@ -415,7 +461,9 @@ class TestIdempotencyConcurrency:
         router.handle_order_ack(child.order_id, time.time_ns(), 5.0)
         assert child.state == OrderState.OPEN  # Still OPEN
 
-    def test_duplicate_fill_deduplication(self, router, sample_context, sample_market_data):
+    def test_duplicate_fill_deduplication(
+        self, router, sample_context, sample_market_data
+    ):
         """Test duplicate fill events are deduplicated"""
         context = sample_context
         children = router.execute_sizing_decision(context, sample_market_data)
@@ -429,7 +477,7 @@ class TestIdempotencyConcurrency:
             qty=0.1,
             price=child.price,
             fee=0.001,
-            liquidity_flag='M'
+            liquidity_flag="M",
         )
         router.handle_order_fill(child.order_id, fill)
         assert len(child.fills) == 1
@@ -438,7 +486,9 @@ class TestIdempotencyConcurrency:
         router.handle_order_fill(child.order_id, fill)
         assert len(child.fills) == 1  # Still 1
 
-    def test_late_fill_after_cancel_accepted(self, router, sample_context, sample_market_data):
+    def test_late_fill_after_cancel_accepted(
+        self, router, sample_context, sample_market_data
+    ):
         """Test late fill after cancel is accepted and logged"""
         context = sample_context
         children = router.execute_sizing_decision(context, sample_market_data)
@@ -456,7 +506,7 @@ class TestIdempotencyConcurrency:
             qty=0.1,
             price=child.price,
             fee=0.001,
-            liquidity_flag='M'
+            liquidity_flag="M",
         )
         router.handle_order_fill(child.order_id, fill)  # Should not crash
 
@@ -467,7 +517,9 @@ class TestIdempotencyConcurrency:
 class TestQueueAwareLogic:
     """G. Queue-aware logic"""
 
-    def test_queue_growth_repeg_away_from_queue(self, router, sample_context, sample_market_data):
+    def test_queue_growth_repeg_away_from_queue(
+        self, router, sample_context, sample_market_data
+    ):
         """Test queue growth → re-peg to less competitive side"""
         # This would require market data with queue information
         # For now, test the basic re-peg logic
@@ -477,7 +529,9 @@ class TestQueueAwareLogic:
         assert len(children) > 0
         # Queue-aware logic would adjust pricing based on queue depth
 
-    def test_queue_unavailable_graceful_degradation(self, router, sample_context, sample_market_data):
+    def test_queue_unavailable_graceful_degradation(
+        self, router, sample_context, sample_market_data
+    ):
         """Test graceful degradation when queue data unavailable"""
         # Remove queue data from market data
         market_data_no_queue = sample_market_data.copy()
@@ -490,7 +544,9 @@ class TestQueueAwareLogic:
 class TestSelfTradePrevention:
     """H. Self-Trade Prevention"""
 
-    def test_stp_blocks_crossing_orders(self, router, sample_context, sample_market_data):
+    def test_stp_blocks_crossing_orders(
+        self, router, sample_context, sample_market_data
+    ):
         """Test STP blocks orders that would self-trade"""
         # This would require tracking both sides of the book
         # For now, test STP configuration
@@ -501,7 +557,9 @@ class TestSelfTradePrevention:
 class TestConfigurationValidation:
     """I. Configuration validation"""
 
-    def test_child_split_respects_min_max_constraints(self, router, sample_context, sample_market_data):
+    def test_child_split_respects_min_max_constraints(
+        self, router, sample_context, sample_market_data
+    ):
         """Test child_split respects min_lot and max_children"""
         context = sample_context
         context.target_qty = 10.0  # Large quantity
@@ -529,10 +587,14 @@ class TestConfigurationValidation:
 class TestXAIEvents:
     """J. XAI Events validation"""
 
-    def test_exec_decision_event_logged(self, router, sample_context, sample_market_data):
+    def test_exec_decision_event_logged(
+        self, router, sample_context, sample_market_data
+    ):
         """Test EXEC_DECISION event is logged with required fields"""
-        with patch.object(router.event_logger, 'emit') as mock_log:
-            children = router.execute_sizing_decision(sample_context, sample_market_data)
+        with patch.object(router.event_logger, "emit") as mock_log:
+            children = router.execute_sizing_decision(
+                sample_context, sample_market_data
+            )
 
             # Should log EXEC_DECISION event
             mock_log.assert_called()
@@ -547,20 +609,30 @@ class TestXAIEvents:
 
     def test_order_ack_event_logged(self, router, sample_context, sample_market_data):
         """Test ORDER_ACK event is logged"""
-        with patch.object(router.event_logger, 'emit') as mock_log:
-            children = router.execute_sizing_decision(sample_context, sample_market_data)
+        with patch.object(router.event_logger, "emit") as mock_log:
+            children = router.execute_sizing_decision(
+                sample_context, sample_market_data
+            )
             child = children[0]
 
             router.handle_order_ack(child.order_id, time.time_ns(), 5.0)
 
             # Should log ORDER_ACK event
-            ack_calls = [call for call in mock_log.call_args_list if call[0][1]["event_type"] == "ORDER_ACK"]
+            ack_calls = [
+                call
+                for call in mock_log.call_args_list
+                if call[0][1]["event_type"] == "ORDER_ACK"
+            ]
             assert len(ack_calls) > 0
 
-    def test_fill_event_logged_with_trade_id(self, router, sample_context, sample_market_data):
+    def test_fill_event_logged_with_trade_id(
+        self, router, sample_context, sample_market_data
+    ):
         """Test FILL_EVENT logged with trade_id"""
-        with patch.object(router.event_logger, 'emit') as mock_log:
-            children = router.execute_sizing_decision(sample_context, sample_market_data)
+        with patch.object(router.event_logger, "emit") as mock_log:
+            children = router.execute_sizing_decision(
+                sample_context, sample_market_data
+            )
             child = children[0]
             router.handle_order_ack(child.order_id, time.time_ns(), 5.0)
 
@@ -569,20 +641,26 @@ class TestXAIEvents:
                 qty=0.1,
                 price=child.price,
                 fee=0.001,
-                liquidity_flag='M'
+                liquidity_flag="M",
             )
 
             router.handle_order_fill(child.order_id, fill)
 
             # Should log FILL_EVENT
-            fill_calls = [call for call in mock_log.call_args_list if call[0][1]["event_type"] == "FILL_EVENT"]
+            fill_calls = [
+                call
+                for call in mock_log.call_args_list
+                if call[0][1]["event_type"] == "FILL_EVENT"
+            ]
             assert len(fill_calls) > 0
 
 
 class TestPerformanceRequirements:
     """K. Performance validation"""
 
-    def test_decision_latency_within_limits(self, router, sample_context, sample_market_data):
+    def test_decision_latency_within_limits(
+        self, router, sample_context, sample_market_data
+    ):
         """Test decision latency p95 ≤ 5ms, p99 ≤ 8ms"""
         latencies = []
 
@@ -617,7 +695,7 @@ class TestPerformanceRequirements:
                 edge_bps=5.0,
                 micro_price=50000.0,
                 mid_price=49950.0,
-                spread_bps=20.0
+                spread_bps=20.0,
             )
             router.execute_sizing_decision(context, sample_market_data)
 

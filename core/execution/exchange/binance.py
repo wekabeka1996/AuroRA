@@ -20,17 +20,20 @@ Notes
 """
 
 from dataclasses import dataclass
-from typing import Mapping, Optional, Dict, Any, cast
+from decimal import ROUND_DOWN, Decimal
+from typing import Any, Dict, Mapping, Optional, cast
 from urllib.parse import urlencode
 
+from common.decimal_utils import q_dec, quantize_step, str_decimal, str_decimal_step
+from common.symbol_codec import BinanceCodec
 from core.execution.exchange.common import (
     AbstractExchange,
+    Fill,
     HttpClient,
     OrderRequest,
     OrderResult,
     OrderType,
     SymbolInfo,
-    Fill,
     ValidationError,
     make_idempotency_key,
 )
@@ -44,13 +47,24 @@ class _Creds:
 
 class BinanceExchange(AbstractExchange):
     name = "binance"
+    CODEC = BinanceCodec()
 
-    def __init__(self, *, api_key: str, api_secret: str, http: Optional[HttpClient] = None, futures: bool = False, base_url: Optional[str] = None) -> None:
+    def __init__(
+        self,
+        *,
+        api_key: str,
+        api_secret: str,
+        http: Optional[HttpClient] = None,
+        futures: bool = False,
+        base_url: Optional[str] = None,
+    ) -> None:
         super().__init__(http=http)
         self._creds = _Creds(api_key, api_secret)
         self._is_futures = bool(futures)
         if base_url is None:
-            base_url = "https://fapi.binance.com" if futures else "https://api.binance.com"
+            base_url = (
+                "https://fapi.binance.com" if futures else "https://api.binance.com"
+            )
         self._base = base_url.rstrip("/")
 
     # ------------- endpoints -------------
@@ -80,19 +94,37 @@ class BinanceExchange(AbstractExchange):
     def get_server_time_ms(self) -> int:
         if self._http is None:
             return int(self.server_time_ns_hint() // 1_000_000)
-        out = cast(Dict[str, Any], self._http.request("GET", self._ep(self._time_path())))
+        out = cast(
+            Dict[str, Any], self._http.request("GET", self._ep(self._time_path()))
+        )
         return int(out.get("serverTime", 0))
 
     def get_symbol_info(self, symbol: str) -> SymbolInfo:
-        sym = self.normalize_symbol(symbol)
+        base, quote = self.CODEC.decode(symbol)
+        sym = self.CODEC.encode(base, quote)
         if self._http is None:
             # Conservative defaults for offline validation; override in production
-            return SymbolInfo(symbol=sym, base=sym[:-4], quote=sym[-4:], tick_size=0.01, step_size=0.001, min_qty=0.001, min_notional=5.0)
-        data = cast(Dict[str, Any], self._http.request("GET", self._ep(self._exchange_info_path()), params={"symbol": sym}))
+            return SymbolInfo(
+                symbol=sym,
+                base=base,
+                quote=quote,
+                tick_size=0.01,
+                step_size=0.001,
+                min_qty=0.001,
+                min_notional=5.0,
+            )
+        data = cast(
+            Dict[str, Any],
+            self._http.request(
+                "GET", self._ep(self._exchange_info_path()), params={"symbol": sym}
+            ),
+        )
         symbols = cast(list, data.get("symbols")) or cast(list, data.get("symbols", []))
         if not symbols:
             # Some endpoints return single-symbol object under 'symbols' or 'symbol'
-            symbol_data = cast(Dict[str, Any], data.get("symbol")) if data.get("symbol") else None
+            symbol_data = (
+                cast(Dict[str, Any], data.get("symbol")) if data.get("symbol") else None
+            )
             symbols = [symbol_data] if symbol_data else []
         if not symbols:
             raise ValidationError(f"symbol {sym} not found")
@@ -114,66 +146,115 @@ class BinanceExchange(AbstractExchange):
                         min_qty = float(f.get("minQty", 0.0))
                     elif t == "MIN_NOTIONAL":
                         min_notional = float(f.get("minNotional", 0.0))
-        return SymbolInfo(symbol=sym, base=base, quote=quote, tick_size=tick or 0.0, step_size=step or 0.0, min_qty=min_qty or 0.0, min_notional=min_notional or 0.0)
+        return SymbolInfo(
+            symbol=sym,
+            base=base,
+            quote=quote,
+            tick_size=tick or 0.0,
+            step_size=step or 0.0,
+            min_qty=min_qty or 0.0,
+            min_notional=min_notional or 0.0,
+        )
 
     # ------------- order ops -------------
 
-    def _signed_request(self, method: str, path: str, params: Mapping[str, object]) -> Mapping[str, object]:
+    def _signed_request(
+        self, method: str, path: str, params: Mapping[str, object]
+    ) -> Mapping[str, object]:
         if self._http is None:
             raise RuntimeError("No HttpClient provided for BinanceExchange")
         qs = urlencode(params, doseq=True)
         sig = self._sign(qs)
         url = self._ep(path) + "?" + qs + "&signature=" + sig
-        return self._http.request(method, url, headers=self._auth_headers())
+        # Also pass params for observability/testing, even though they are embedded in the URL
+        return self._http.request(
+            method, url, params=dict(params), headers=self._auth_headers()
+        )
 
     def place_order(self, req: OrderRequest) -> OrderResult:
         # fetch symbol info for precise rounding
         info = self.get_symbol_info(req.symbol)
-        clean = self.validate_order(req, info)
+        # Convert inbound to Decimal
+        qty_in = q_dec(req.quantity)
+        price_in: Optional[Decimal] = (
+            q_dec(req.price) if req.price is not None else None
+        )
+        # Use Decimals for filters
+        tick = q_dec(info.tick_size)
+        step = q_dec(info.step_size)
+        min_notional = q_dec(info.min_notional)
+        min_qty = q_dec(info.min_qty)
+        # Quantize
+        qty_q = quantize_step(qty_in, step, ROUND_DOWN)
+        price_q: Optional[Decimal] = None
+        if req.type == OrderType.LIMIT:
+            if price_in is None:
+                raise ValidationError("LIMIT order requires price")
+            price_q = quantize_step(price_in, tick, ROUND_DOWN)
+        # Checks: enforce MIN_NOTIONAL first to align with validation semantics in tests
+        if req.type == OrderType.LIMIT:
+            notional = (price_q or Decimal("0")) * qty_q
+            if notional < min_notional:
+                raise ValidationError("MIN_NOTIONAL")
+        if qty_q < min_qty:
+            raise ValidationError(f"qty {qty_q} < min_qty {min_qty}")
         # idempotency key
-        coid = clean.client_order_id or make_idempotency_key("oid", {
-            "s": clean.symbol,
-            "sd": clean.side.value,
-            "t": clean.type.value,
-            "q": clean.quantity,
-            "p": clean.price if clean.price is not None else "",
-        })
+        coid = req.client_order_id or make_idempotency_key(
+            "oid",
+            {
+                "s": info.symbol,
+                "sd": req.side.value,
+                "t": req.type.value,
+                "q": str_decimal(qty_q),
+                "p": str_decimal(price_q) if price_q is not None else "",
+            },
+        )
         ts = self.get_server_time_ms()
         params = {
-            "symbol": self.normalize_symbol(clean.symbol),
-            "side": clean.side.value,
-            "type": clean.type.value,
-            "quantity": f"{clean.quantity}",
+            "symbol": self.CODEC.encode(info.base, info.quote),
+            "side": req.side.value,
+            "type": req.type.value,
+            # Preserve zeros according to step size
+            "quantity": str_decimal_step(qty_q, step),
             "newClientOrderId": coid,
             "timestamp": ts,
             "recvWindow": 5000,
         }
-        if clean.type == OrderType.LIMIT:
-            params.update({"price": f"{clean.price}", "timeInForce": clean.tif.value})
-        res = cast(Dict[str, Any], self._signed_request("POST", self._order_path(), params))
+        if req.type == OrderType.LIMIT and price_q is not None:
+            params.update(
+                {"price": str_decimal_step(price_q, tick), "timeInForce": req.tif.value}
+            )
+        res = cast(
+            Dict[str, Any], self._signed_request("POST", self._order_path(), params)
+        )
         # map result (fields follow Binance JSON structure; keep raw)
         fills = []
         fills_data = res.get("fills", [])
         if isinstance(fills_data, list):
             for f in fills_data:
                 if isinstance(f, dict):
-                    fills.append(Fill(
-                        price=float(f.get("price", 0.0)),
-                        qty=float(f.get("qty", 0.0)),
-                        fee=float(f.get("commission", 0.0)),
-                        fee_asset=str(f.get("commissionAsset", "")),
-                        ts_ns=int(self.server_time_ns_hint()),
-                    ))
-        executed_qty_val = res.get("executedQty", 0.0)
-        cumm_quote_cost_val = res.get("cummulativeQuoteQty", 0.0)
-        try:
-            executed_qty = float(str(executed_qty_val)) if executed_qty_val is not None else 0.0
-        except (ValueError, TypeError):
-            executed_qty = 0.0
-        try:
-            cumm_quote_cost = float(str(cumm_quote_cost_val)) if cumm_quote_cost_val is not None else 0.0
-        except (ValueError, TypeError):
-            cumm_quote_cost = 0.0
+                    price_s = str(f.get("price", "0"))
+                    qty_s = str(f.get("qty", "0"))
+                    fee_s = str(f.get("commission", "0"))
+                    fills.append(
+                        Fill(
+                            price=q_dec(price_s),
+                            qty=q_dec(qty_s),
+                            fee=q_dec(fee_s),
+                            fee_asset=str(f.get("commissionAsset", "")),
+                            ts_ns=int(self.server_time_ns_hint()),
+                        )
+                    )
+        executed_qty_val = res.get("executedQty", "0")
+        cumm_quote_cost_val = res.get("cummulativeQuoteQty", "0")
+        executed_qty = (
+            q_dec(executed_qty_val) if executed_qty_val is not None else Decimal("0")
+        )
+        cumm_quote_cost = (
+            q_dec(cumm_quote_cost_val)
+            if cumm_quote_cost_val is not None
+            else Decimal("0")
+        )
         return OrderResult(
             order_id=str(res.get("orderId", "")),
             client_order_id=str(res.get("clientOrderId", coid)),
@@ -185,10 +266,15 @@ class BinanceExchange(AbstractExchange):
             raw=res,
         )
 
-    def cancel_order(self, symbol: str, order_id: str | None = None, client_order_id: str | None = None) -> Mapping[str, object]:
+    def cancel_order(
+        self,
+        symbol: str,
+        order_id: str | None = None,
+        client_order_id: str | None = None,
+    ) -> Mapping[str, object]:
         ts = self.get_server_time_ms()
         params = {
-            "symbol": self.normalize_symbol(symbol),
+            "symbol": self.CODEC.encode(*self.CODEC.decode(symbol)),
             "timestamp": ts,
             "recvWindow": 5000,
         }
@@ -196,12 +282,19 @@ class BinanceExchange(AbstractExchange):
             params["orderId"] = order_id
         if client_order_id:
             params["origClientOrderId"] = client_order_id
-        return cast(Dict[str, Any], self._signed_request("DELETE", self._order_path(), params))
+        return cast(
+            Dict[str, Any], self._signed_request("DELETE", self._order_path(), params)
+        )
 
-    def get_order(self, symbol: str, order_id: str | None = None, client_order_id: str | None = None) -> Mapping[str, object]:
+    def get_order(
+        self,
+        symbol: str,
+        order_id: str | None = None,
+        client_order_id: str | None = None,
+    ) -> Mapping[str, object]:
         ts = self.get_server_time_ms()
         params = {
-            "symbol": self.normalize_symbol(symbol),
+            "symbol": self.CODEC.encode(*self.CODEC.decode(symbol)),
             "timestamp": ts,
             "recvWindow": 5000,
         }
@@ -209,7 +302,9 @@ class BinanceExchange(AbstractExchange):
             params["orderId"] = order_id
         if client_order_id:
             params["origClientOrderId"] = client_order_id
-        return cast(Dict[str, Any], self._signed_request("GET", self._order_path(), params))
+        return cast(
+            Dict[str, Any], self._signed_request("GET", self._order_path(), params)
+        )
 
 
 __all__ = ["BinanceExchange"]

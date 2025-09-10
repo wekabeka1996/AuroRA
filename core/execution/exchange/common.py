@@ -15,20 +15,21 @@ This module **does not** perform network I/O; concrete adapters may accept an
 HTTP client (protocol) or implement their own I/O.
 """
 
-from dataclasses import dataclass
-from decimal import Decimal, ROUND_DOWN, ROUND_HALF_UP, getcontext
-from enum import Enum
-from typing import Dict, List, Mapping, Optional, Protocol, Tuple
 import hashlib
 import hmac
 import threading
 import time
+from dataclasses import dataclass
+from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal, getcontext
+from enum import Enum
+from typing import Dict, List, Mapping, Optional, Protocol, Tuple
 
 # Higher precision for Decimal ops
 getcontext().prec = 28
 
 
 # --------------------------- Errors ---------------------------
+
 
 class ExchangeError(RuntimeError):
     pass
@@ -43,6 +44,7 @@ class RateLimitError(ExchangeError):
 
 
 # --------------------------- Models ---------------------------
+
 
 class Side(str, Enum):
     BUY = "BUY"
@@ -86,9 +88,9 @@ class OrderRequest:
 
 @dataclass
 class Fill:
-    price: float
-    qty: float
-    fee: float
+    price: Decimal
+    qty: Decimal
+    fee: Decimal
     fee_asset: str
     ts_ns: int
 
@@ -98,8 +100,8 @@ class OrderResult:
     order_id: str
     client_order_id: str
     status: str
-    executed_qty: float
-    cumm_quote_cost: float
+    executed_qty: Decimal
+    cumm_quote_cost: Decimal
     fills: List[Fill]
     ts_ns: int
     raw: Mapping[str, object]
@@ -108,30 +110,32 @@ class OrderResult:
 @dataclass
 class Fees:
     """Exchange fee structure with maker/taker rates and rebates."""
+
     maker_fee_bps: float  # Maker fee in basis points (e.g., -0.1 for 0.1% rebate)
     taker_fee_bps: float  # Taker fee in basis points (e.g., 0.1 for 0.1%)
-    
+
     @property
     def maker_fee_rate(self) -> float:
         """Maker fee as decimal (negative for rebates)."""
         return self.maker_fee_bps / 10000.0
-    
-    @property  
+
+    @property
     def taker_fee_rate(self) -> float:
         """Taker fee as decimal."""
         return self.taker_fee_bps / 10000.0
-    
+
     @classmethod
-    def from_exchange_config(cls, exchange_name: str) -> 'Fees':
+    def from_exchange_config(cls, exchange_name: str) -> "Fees":
         """Create Fees from SSOT config for given exchange."""
         try:
             from core.config.loader import get_config
+
             cfg = get_config()
             base_key = f"execution.exchange.{exchange_name}"
-            
+
             maker_bps = float(cfg.get(f"{base_key}.maker_fee_bps", 0.1))
             taker_bps = float(cfg.get(f"{base_key}.taker_fee_bps", 0.1))
-            
+
             return cls(maker_fee_bps=maker_bps, taker_fee_bps=taker_bps)
         except Exception:
             # Conservative defaults
@@ -139,6 +143,7 @@ class Fees:
 
 
 # --------------------------- Helpers ---------------------------
+
 
 def _quantize(x: float, step: float, *, mode: str = "floor") -> float:
     """Quantize x to a multiple of `step` using Decimal for exactness.
@@ -149,7 +154,7 @@ def _quantize(x: float, step: float, *, mode: str = "floor") -> float:
         return float(x)
     dx = Decimal(str(x))
     ds = Decimal(str(step))
-    q = (dx / ds)
+    q = dx / ds
     if mode == "round":
         q = q.to_integral_value(rounding=ROUND_HALF_UP)
     else:
@@ -198,6 +203,7 @@ def make_idempotency_key(prefix: str, payload: Mapping[str, object]) -> str:
 
 # --------------------------- Rate Limiter ---------------------------
 
+
 class TokenBucket:
     """Simple token-bucket rate limiter.
 
@@ -230,13 +236,21 @@ class TokenBucket:
 
 # --------------------------- HTTP Protocol ---------------------------
 
+
 class HttpClient(Protocol):
-    def request(self, method: str, url: str, *, params: Optional[Mapping[str, object]] = None,
-                headers: Optional[Mapping[str, str]] = None, json: Optional[object] = None) -> Mapping[str, object]:
-        ...
+    def request(
+        self,
+        method: str,
+        url: str,
+        *,
+        params: Optional[Mapping[str, object]] = None,
+        headers: Optional[Mapping[str, str]] = None,
+        json: Optional[object] = None,
+    ) -> Mapping[str, object]: ...
 
 
 # --------------------------- Abstract Exchange ---------------------------
+
 
 class AbstractExchange:
     name: str = "abstract"
@@ -253,21 +267,35 @@ class AbstractExchange:
     def normalize_symbol(self, symbol: str) -> str:
         return symbol.replace("-", "").replace("/", "").upper()
 
-    def get_symbol_info(self, symbol: str) -> SymbolInfo:  # pragma: no cover (interface)
+    def get_symbol_info(
+        self, symbol: str
+    ) -> SymbolInfo:  # pragma: no cover (interface)
         raise NotImplementedError
 
     # ---- orders ----
     def place_order(self, req: OrderRequest) -> OrderResult:  # pragma: no cover
         raise NotImplementedError
 
-    def cancel_order(self, symbol: str, order_id: str | None = None, client_order_id: str | None = None) -> Mapping[str, object]:  # pragma: no cover
+    def cancel_order(
+        self,
+        symbol: str,
+        order_id: str | None = None,
+        client_order_id: str | None = None,
+    ) -> Mapping[str, object]:  # pragma: no cover
         raise NotImplementedError
 
-    def get_order(self, symbol: str, order_id: str | None = None, client_order_id: str | None = None) -> Mapping[str, object]:  # pragma: no cover
+    def get_order(
+        self,
+        symbol: str,
+        order_id: str | None = None,
+        client_order_id: str | None = None,
+    ) -> Mapping[str, object]:  # pragma: no cover
         raise NotImplementedError
 
     # ---- utils ----
-    def validate_order(self, req: OrderRequest, info: Optional[SymbolInfo] = None) -> OrderRequest:
+    def validate_order(
+        self, req: OrderRequest, info: Optional[SymbolInfo] = None
+    ) -> OrderRequest:
         if info is None:
             info = self.get_symbol_info(req.symbol)
         clean = apply_symbol_filters(req, info)
@@ -280,28 +308,35 @@ class AbstractExchange:
                 quantity=clean.quantity,
                 price=clean.price,
                 tif=clean.tif,
-                client_order_id=make_idempotency_key("oid", {
-                    "s": clean.symbol,
-                    "sd": clean.side.value,
-                    "t": clean.type.value,
-                    "q": clean.quantity,
-                    "p": clean.price if clean.price is not None else "",
-                })
+                client_order_id=make_idempotency_key(
+                    "oid",
+                    {
+                        "s": clean.symbol,
+                        "sd": clean.side.value,
+                        "t": clean.type.value,
+                        "q": clean.quantity,
+                        "p": clean.price if clean.price is not None else "",
+                    },
+                ),
             )
         return clean
 
     @staticmethod
     def hmac_sha256(secret: str, msg: str) -> str:
-        return hmac.new(secret.encode("utf-8"), msg.encode("utf-8"), hashlib.sha256).hexdigest()
+        return hmac.new(
+            secret.encode("utf-8"), msg.encode("utf-8"), hashlib.sha256
+        ).hexdigest()
 
     @staticmethod
     def hmac_sha512(secret: str, msg: str) -> str:
-        return hmac.new(secret.encode("utf-8"), msg.encode("utf-8"), hashlib.sha512).hexdigest()
+        return hmac.new(
+            secret.encode("utf-8"), msg.encode("utf-8"), hashlib.sha512
+        ).hexdigest()
 
 
 __all__ = [
     "ExchangeError",
-    "ValidationError", 
+    "ValidationError",
     "RateLimitError",
     "Side",
     "OrderType",

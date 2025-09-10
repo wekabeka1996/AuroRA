@@ -1,5 +1,13 @@
 from __future__ import annotations
 
+import warnings
+
+warnings.warn(
+    "core.execution.execution_router_v1 is archived; prefer core.execution.router_v2",
+    DeprecationWarning,
+    stacklevel=2,
+)
+
 """
 Execution Router v1.0 — Production-Ready Order Lifecycle Manager
 ================================================================
@@ -23,18 +31,18 @@ Architecture:
 - Performance optimized (p95 ≤5ms, p99 ≤8ms)
 """
 
-from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Set, Tuple, Any
-from datetime import datetime
-import time
-import threading
 import json
-from pathlib import Path
-from enum import Enum
 import statistics
+import threading
+import time
+from dataclasses import dataclass, field
+from datetime import datetime
+from enum import Enum
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Set, Tuple
 
-from core.config.loader import get_config
 from common.events import EventEmitter
+from core.config.loader import get_config
 from core.tca.tca_analyzer import FillEvent, OrderExecution
 
 # Enhanced idempotency and partials support
@@ -44,18 +52,20 @@ from .partials import PartialSlicer
 
 class OrderState(Enum):
     """Order lifecycle states"""
-    PENDING = "pending"      # Order sent, waiting for ACK
-    OPEN = "open"           # Order acknowledged, active
-    PARTIAL = "partial"     # Partial fill received
-    ESCALATED = "escalated" # Escalated from maker to taker
-    CLEANUP = "cleanup"     # Cleanup in progress
-    CLOSED = "closed"       # Fully closed (filled or cancelled)
-    REJECTED = "rejected"   # Rejected by exchange
-    FAILED = "failed"       # Failed to send/cancel
+
+    PENDING = "pending"  # Order sent, waiting for ACK
+    OPEN = "open"  # Order acknowledged, active
+    PARTIAL = "partial"  # Partial fill received
+    ESCALATED = "escalated"  # Escalated from maker to taker
+    CLEANUP = "cleanup"  # Cleanup in progress
+    CLOSED = "closed"  # Fully closed (filled or cancelled)
+    REJECTED = "rejected"  # Rejected by exchange
+    FAILED = "failed"  # Failed to send/cancel
 
 
 class RejectReason(Enum):
     """Exchange reject reasons"""
+
     LOT_SIZE = "LOT_SIZE"
     MIN_NOTIONAL = "MIN_NOTIONAL"
     PRICE_FILTER = "PRICE_FILTER"
@@ -67,6 +77,7 @@ class RejectReason(Enum):
 @dataclass
 class ChildOrder:
     """Individual child order state"""
+
     order_id: str
     parent_id: str
     symbol: str
@@ -89,6 +100,7 @@ class ChildOrder:
 @dataclass
 class ExecutionContext:
     """Execution context for a sizing decision"""
+
     correlation_id: str
     symbol: str
     side: str
@@ -104,6 +116,7 @@ class ExecutionContext:
 @dataclass
 class RouterConfig:
     """Router configuration from SSOT"""
+
     # Maker posting
     mode_default: str = "maker"
     post_only: bool = True
@@ -138,7 +151,11 @@ class RouterConfig:
 class ExecutionRouter:
     """Execution Router v1.0 — Production-ready order lifecycle manager"""
 
-    def __init__(self, config: Optional[RouterConfig] = None, event_logger: Optional[EventEmitter] = None):
+    def __init__(
+        self,
+        config: Optional[RouterConfig] = None,
+        event_logger: Optional[EventEmitter] = None,
+    ):
         self.config = config or RouterConfig()
         self.event_logger = event_logger or EventEmitter()
 
@@ -154,7 +171,7 @@ class ExecutionRouter:
             alpha=0.5,  # 50% geometric decay
             q_min=0.01,  # Min slice size
             q_max=float("inf"),  # No max limit
-            use_p_fill=True
+            use_p_fill=True,
         )
 
         # Performance tracking
@@ -182,9 +199,7 @@ class ExecutionRouter:
     # ------------- MAIN API -------------
 
     def execute_sizing_decision(
-        self,
-        context: ExecutionContext,
-        market_data: Dict[str, Any]
+        self, context: ExecutionContext, market_data: Dict[str, Any]
     ) -> List[ChildOrder]:
         """Execute a sizing decision with full lifecycle management
 
@@ -198,33 +213,41 @@ class ExecutionRouter:
 
             # Check guards
             if not self._check_guards(context, market_data):
-                self._log_event("EXEC_DECISION", context.correlation_id, {
-                    "symbol": context.symbol,
-                    "side": context.side,
-                    "mode": "deny",
-                    "target_qty": context.target_qty,
-                    "reason": "GUARD_BLOCK",
-                    "spread_bps": context.spread_bps,
-                    "vol_spike": context.vol_spike_detected
-                })
+                self._log_event(
+                    "EXEC_DECISION",
+                    context.correlation_id,
+                    {
+                        "symbol": context.symbol,
+                        "side": context.side,
+                        "mode": "deny",
+                        "target_qty": context.target_qty,
+                        "reason": "GUARD_BLOCK",
+                        "spread_bps": context.spread_bps,
+                        "vol_spike": context.vol_spike_detected,
+                    },
+                )
                 return []
 
             # Calculate child split
             child_orders = self._calculate_child_split(context, market_data)
 
             # Log execution decision
-            self._log_event("EXEC_DECISION", context.correlation_id, {
-                "symbol": context.symbol,
-                "side": context.side,
-                "mode": self.config.mode_default,
-                "target_qty": context.target_qty,
-                "price_ref": "micro",
-                "ref_px": context.micro_price,
-                "spread_bps": context.spread_bps,
-                "ttl_ms": self.config.ttl_child_ms,
-                "children_count": len(child_orders),
-                "reason": "EXECUTE"
-            })
+            self._log_event(
+                "EXEC_DECISION",
+                context.correlation_id,
+                {
+                    "symbol": context.symbol,
+                    "side": context.side,
+                    "mode": self.config.mode_default,
+                    "target_qty": context.target_qty,
+                    "price_ref": "micro",
+                    "ref_px": context.micro_price,
+                    "spread_bps": context.spread_bps,
+                    "ttl_ms": self.config.ttl_child_ms,
+                    "children_count": len(child_orders),
+                    "reason": "EXECUTE",
+                },
+            )
 
             # Track decision latency
             latency_ms = (time.time_ns() - start_time) / 1e6
@@ -234,14 +257,16 @@ class ExecutionRouter:
 
             return child_orders
 
-    def handle_order_ack(self, order_id: str, ack_ts_ns: int, exchange_latency_ms: float):
+    def handle_order_ack(
+        self, order_id: str, ack_ts_ns: int, exchange_latency_ms: float
+    ):
         """Handle order acknowledgment with enhanced idempotency"""
         ack_event_id = f"ack:{order_id}:{ack_ts_ns}"
-        
+
         # Enhanced idempotency check
         if self._idempotency_store.seen(ack_event_id):
             return  # Duplicate ACK already processed
-        
+
         with self._lock:
             if order_id not in self._active_orders:
                 return  # Idempotency: ignore unknown orders
@@ -259,34 +284,44 @@ class ExecutionRouter:
             # Initialize partial slicing for this order
             self._partial_slicer.start(order_id, order.target_qty)
 
-            self._log_event("ORDER_ACK", order.correlation_id, {
-                "order_id": order_id,
-                "parent_id": order.parent_id,
-                "t_send": order.created_ts_ns,
-                "t_ack": ack_ts_ns,
-                "latency_ms": exchange_latency_ms
-            })
+            self._log_event(
+                "ORDER_ACK",
+                order.correlation_id,
+                {
+                    "order_id": order_id,
+                    "parent_id": order.parent_id,
+                    "t_send": order.created_ts_ns,
+                    "t_ack": ack_ts_ns,
+                    "latency_ms": exchange_latency_ms,
+                },
+            )
 
     def handle_order_fill(self, order_id: str, fill: FillEvent):
         """Handle fill event with enhanced idempotency and partial tracking"""
         # Enhanced fill deduplication
-        fill_event_id = f"fill:{order_id}:{fill.ts_ns}:{fill.qty}:{getattr(fill, 'trade_id', '')}"
-        
+        fill_event_id = (
+            f"fill:{order_id}:{fill.ts_ns}:{fill.qty}:{getattr(fill, 'trade_id', '')}"
+        )
+
         if self._idempotency_store.seen(fill_event_id):
             return  # Duplicate fill already processed
-        
+
         with self._lock:
             if order_id not in self._active_orders:
                 # Late fill after cleanup - still log for TCA
-                self._log_event("FILL_EVENT", "", {
-                    "order_id": order_id,
-                    "trade_id": getattr(fill, 'trade_id', ''),
-                    "qty": fill.qty,
-                    "px": fill.price,
-                    "fee": fill.fee,
-                    "liquidity": fill.liquidity_flag,
-                    "late_fill": True
-                })
+                self._log_event(
+                    "FILL_EVENT",
+                    "",
+                    {
+                        "order_id": order_id,
+                        "trade_id": getattr(fill, "trade_id", ""),
+                        "qty": fill.qty,
+                        "px": fill.price,
+                        "fee": fill.fee,
+                        "liquidity": fill.liquidity_flag,
+                        "late_fill": True,
+                    },
+                )
                 return
 
             order = self._active_orders[order_id]
@@ -296,9 +331,13 @@ class ExecutionRouter:
 
             # Enhanced deduplication: check if fill already processed by multiple criteria
             if any(
-                (f.ts_ns == fill.ts_ns and f.qty == fill.qty and f.price == fill.price) or
-                (hasattr(fill, 'trade_id') and hasattr(f, 'trade_id') and 
-                 getattr(fill, 'trade_id', '') and getattr(f, 'trade_id', '') == getattr(fill, 'trade_id', ''))
+                (f.ts_ns == fill.ts_ns and f.qty == fill.qty and f.price == fill.price)
+                or (
+                    hasattr(fill, "trade_id")
+                    and hasattr(f, "trade_id")
+                    and getattr(fill, "trade_id", "")
+                    and getattr(f, "trade_id", "") == getattr(fill, "trade_id", "")
+                )
                 for f in order.fills
             ):
                 return
@@ -318,17 +357,21 @@ class ExecutionRouter:
             else:
                 order.state = OrderState.PARTIAL
 
-            self._log_event("FILL_EVENT", order.correlation_id, {
-                "order_id": order_id,
-                "trade_id": getattr(fill, 'trade_id', ''),
-                "qty": fill.qty,
-                "px": fill.price,
-                "fee": fill.fee,
-                "liquidity": fill.liquidity_flag,
-                "remaining_qty": remaining_qty,
-                "total_filled": order.filled_qty,
-                "target_qty": order.target_qty
-            })
+            self._log_event(
+                "FILL_EVENT",
+                order.correlation_id,
+                {
+                    "order_id": order_id,
+                    "trade_id": getattr(fill, "trade_id", ""),
+                    "qty": fill.qty,
+                    "px": fill.price,
+                    "fee": fill.fee,
+                    "liquidity": fill.liquidity_flag,
+                    "remaining_qty": remaining_qty,
+                    "total_filled": order.filled_qty,
+                    "target_qty": order.target_qty,
+                },
+            )
 
             # Check for escalation after partial fill
             self._check_escalation(order)
@@ -346,12 +389,16 @@ class ExecutionRouter:
             order.state = OrderState.CLOSED
             order.last_update_ts_ns = cancel_ts_ns
 
-            self._log_event("ORDER_CXL", order.correlation_id, {
-                "order_id": order_id,
-                "parent_id": order.parent_id,
-                "t_cxl": cancel_ts_ns,
-                "remaining_qty": order.target_qty - order.filled_qty
-            })
+            self._log_event(
+                "ORDER_CXL",
+                order.correlation_id,
+                {
+                    "order_id": order_id,
+                    "parent_id": order.parent_id,
+                    "t_cxl": cancel_ts_ns,
+                    "remaining_qty": order.target_qty - order.filled_qty,
+                },
+            )
 
     def handle_order_reject(self, order_id: str, reject_reason: str, reject_ts_ns: int):
         """Handle order rejection with backoff logic"""
@@ -374,12 +421,16 @@ class ExecutionRouter:
             order.state = OrderState.REJECTED
             order.last_update_ts_ns = reject_ts_ns
 
-            self._log_event("ORDER_REJECT", order.correlation_id, {
-                "order_id": order_id,
-                "reason": reason.value,
-                "retry_count": order.retry_count,
-                "max_retries": order.max_retries
-            })
+            self._log_event(
+                "ORDER_REJECT",
+                order.correlation_id,
+                {
+                    "order_id": order_id,
+                    "reason": reason.value,
+                    "retry_count": order.retry_count,
+                    "max_retries": order.max_retries,
+                },
+            )
 
             # Handle backoff/retry logic
             self._handle_reject_backoff(order)
@@ -394,9 +445,11 @@ class ExecutionRouter:
 
             # Find active orders for this context
             active_orders = [
-                order for order in self._active_orders.values()
-                if order.correlation_id == correlation_id and
-                order.state in [OrderState.PENDING, OrderState.OPEN, OrderState.PARTIAL]
+                order
+                for order in self._active_orders.values()
+                if order.correlation_id == correlation_id
+                and order.state
+                in [OrderState.PENDING, OrderState.OPEN, OrderState.PARTIAL]
             ]
 
             if not active_orders:
@@ -407,22 +460,32 @@ class ExecutionRouter:
                 order.state = OrderState.CLEANUP
                 # In real implementation, would send cancel to exchange
 
-            self._log_event("CLEANUP", correlation_id, {
-                "reason": reason,
-                "orders_cancelled": len(active_orders),
-                "qty_cleaned": sum(o.target_qty - o.filled_qty for o in active_orders)
-            })
+            self._log_event(
+                "CLEANUP",
+                correlation_id,
+                {
+                    "reason": reason,
+                    "orders_cancelled": len(active_orders),
+                    "qty_cleaned": sum(
+                        o.target_qty - o.filled_qty for o in active_orders
+                    ),
+                },
+            )
 
     # ------------- GUARDS & CHECKS -------------
 
-    def _check_guards(self, context: ExecutionContext, market_data: Dict[str, Any]) -> bool:
+    def _check_guards(
+        self, context: ExecutionContext, market_data: Dict[str, Any]
+    ) -> bool:
         """Check all execution guards"""
         # Spread guard
         if context.spread_bps > self.config.spread_limit_bps:
             return False
 
         # Volatility guard - check both context and market_data
-        vol_spike_detected = context.vol_spike_detected or market_data.get("vol_spike_detected", False)
+        vol_spike_detected = context.vol_spike_detected or market_data.get(
+            "vol_spike_detected", False
+        )
         if vol_spike_detected:
             return False
 
@@ -466,7 +529,10 @@ class ExecutionRouter:
 
         # Edge decay escalation (would need edge monitoring)
         # For now, simplified check
-        if order.filled_qty > 0 and (order.target_qty - order.filled_qty) < self.config.min_lot:
+        if (
+            order.filled_qty > 0
+            and (order.target_qty - order.filled_qty) < self.config.min_lot
+        ):
             self._escalate_to_taker(order, "EDGE_DECAY")
 
     def _escalate_to_taker(self, order: ChildOrder, reason: str):
@@ -477,13 +543,17 @@ class ExecutionRouter:
         order.state = OrderState.ESCALATED
         order.mode = "ioc"  # Immediate or cancel
 
-        self._log_event("ORDER_ESCALATE", order.correlation_id, {
-            "order_id": order.order_id,
-            "from_mode": "maker",
-            "to_mode": "ioc",
-            "reason": reason,
-            "remaining_qty": order.target_qty - order.filled_qty
-        })
+        self._log_event(
+            "ORDER_ESCALATE",
+            order.correlation_id,
+            {
+                "order_id": order.order_id,
+                "from_mode": "maker",
+                "to_mode": "ioc",
+                "reason": reason,
+                "remaining_qty": order.target_qty - order.filled_qty,
+            },
+        )
 
     def _handle_reject_backoff(self, order: ChildOrder):
         """Handle rejection with backoff/retry logic"""
@@ -528,7 +598,9 @@ class ExecutionRouter:
 
     # ------------- CHILD ORDER MANAGEMENT -------------
 
-    def _calculate_child_split(self, context: ExecutionContext, market_data: Dict[str, Any]) -> List[ChildOrder]:
+    def _calculate_child_split(
+        self, context: ExecutionContext, market_data: Dict[str, Any]
+    ) -> List[ChildOrder]:
         """Calculate child order split"""
         remaining_qty = context.target_qty
         children = []
@@ -552,7 +624,9 @@ class ExecutionRouter:
         # Simple equal split for now
         return min(remaining_qty, remaining_qty / max(1, self.config.max_children))
 
-    def _create_child_order(self, context: ExecutionContext, qty: float, market_data: Dict[str, Any]) -> ChildOrder:
+    def _create_child_order(
+        self, context: ExecutionContext, qty: float, market_data: Dict[str, Any]
+    ) -> ChildOrder:
         """Create a child order"""
         order_id = f"{context.correlation_id}_{len(self._active_orders)}"
 
@@ -581,7 +655,7 @@ class ExecutionRouter:
             mode=self.config.mode_default,
             ttl_ms=self.config.ttl_child_ms,
             created_ts_ns=time.time_ns(),
-            correlation_id=context.correlation_id
+            correlation_id=context.correlation_id,
         )
 
     # ------------- EVENT LOGGING -------------
@@ -592,33 +666,35 @@ class ExecutionRouter:
             "event_type": event_type,
             "timestamp_ns": time.time_ns(),
             "correlation_id": correlation_id,
-            **data
+            **data,
         }
 
         self.event_logger.emit(event_type, event, code=event_type)
 
     # ------------- ENHANCED PARTIAL FILL SUPPORT -------------
 
-    def get_next_slice(self, order_id: str, p_fill: Optional[float] = None) -> Optional[Dict[str, Any]]:
+    def get_next_slice(
+        self, order_id: str, p_fill: Optional[float] = None
+    ) -> Optional[Dict[str, Any]]:
         """Get next slice for partial fill continuation"""
         with self._lock:
             if order_id not in self._active_orders:
                 return None
-            
+
             order = self._active_orders[order_id]
             if order.state != OrderState.PARTIAL:
                 return None
-            
+
             slice_decision = self._partial_slicer.next_slice(order_id, p_fill=p_fill)
             if slice_decision is None:
                 return None
-            
+
             return {
                 "slice_key": slice_decision.key,
                 "qty": slice_decision.qty,
                 "remaining_after": slice_decision.remaining_after,
                 "slice_idx": slice_decision.slice_idx,
-                "idempotent": not self._idempotency_store.seen(slice_decision.key)
+                "idempotent": not self._idempotency_store.seen(slice_decision.key),
             }
 
     def get_remaining_qty(self, order_id: str) -> float:
@@ -639,14 +715,26 @@ class ExecutionRouter:
 
         return {
             "p50_decision_latency_ms": statistics.median(self._decision_latencies),
-            "p95_decision_latency_ms": statistics.quantiles(self._decision_latencies, n=20)[18] if len(self._decision_latencies) >= 20 else max(self._decision_latencies),
-            "p99_decision_latency_ms": statistics.quantiles(self._decision_latencies, n=100)[98] if len(self._decision_latencies) >= 100 else max(self._decision_latencies),
+            "p95_decision_latency_ms": (
+                statistics.quantiles(self._decision_latencies, n=20)[18]
+                if len(self._decision_latencies) >= 20
+                else max(self._decision_latencies)
+            ),
+            "p99_decision_latency_ms": (
+                statistics.quantiles(self._decision_latencies, n=100)[98]
+                if len(self._decision_latencies) >= 100
+                else max(self._decision_latencies)
+            ),
             "avg_decision_latency_ms": statistics.mean(self._decision_latencies),
-            "total_decisions": len(self._decision_latencies)
+            "total_decisions": len(self._decision_latencies),
         }
 
 
 __all__ = [
-    "OrderState", "RejectReason", "ChildOrder", "ExecutionContext",
-    "RouterConfig", "ExecutionRouter"
+    "OrderState",
+    "RejectReason",
+    "ChildOrder",
+    "ExecutionContext",
+    "RouterConfig",
+    "ExecutionRouter",
 ]

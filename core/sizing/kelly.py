@@ -8,10 +8,11 @@ Implements the specified API contracts for Step 2: Sizing/Portfolio.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Dict, Optional, Any, Tuple, List, Callable
 import math
 import time
+from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 try:
     import numpy as np  # type: ignore
@@ -23,7 +24,7 @@ def kelly_binary(
     p_win: float,
     rr: float,
     risk_aversion: float = 1.0,
-    clip: Tuple[float, float] = (0.0, 0.2)
+    clip: Tuple[float, float] = (0.0, 0.2),
 ) -> float:
     """
     Kelly fraction for binary outcome with risk aversion and clipping.
@@ -85,7 +86,7 @@ def kelly_mu_sigma(
     mu: float,
     sigma: float,
     risk_aversion: float = 1.0,
-    clip: Tuple[float, float] = (0.0, 0.2)
+    clip: Tuple[float, float] = (0.0, 0.2),
 ) -> float:
     """
     Kelly fraction using mean-variance approximation.
@@ -126,7 +127,7 @@ def kelly_mu_sigma(
         return 0.0
 
     # Mean-variance Kelly
-    f = (mu / (sigma ** 2)) / risk_aversion
+    f = (mu / (sigma**2)) / risk_aversion
 
     # Clip to bounds
     f = max(clip_min, min(f, clip_max))
@@ -147,7 +148,7 @@ def fraction_to_qty(
     leverage: float = 1.0,
     initial_margin_pct: float = 0.1,
     maintenance_margin_pct: float = 0.05,
-    price_step: Optional[float] = None
+    price_step: Optional[float] = None,
 ) -> float:
     """
     Convert Kelly fraction to executable quantity with exchange constraints.
@@ -198,8 +199,14 @@ def fraction_to_qty(
         return 0.0
 
     # Input validation
-    if (notional_usd <= 0.0 or px <= 0.0 or lot_step <= 0.0 or
-        leverage <= 0.0 or initial_margin_pct <= 0.0 or maintenance_margin_pct <= 0.0):
+    if (
+        notional_usd <= 0.0
+        or px <= 0.0
+        or lot_step <= 0.0
+        or leverage <= 0.0
+        or initial_margin_pct <= 0.0
+        or maintenance_margin_pct <= 0.0
+    ):
         return 0.0
     if min_notional < 0.0 or max_notional < min_notional:
         return 0.0
@@ -212,7 +219,7 @@ def fraction_to_qty(
     if leverage > 1.0:
         # Required margin for the position
         required_margin = notional_usd / leverage
-        
+
         # Check if we have sufficient margin
         available_margin = notional_usd * initial_margin_pct
         if required_margin > available_margin:
@@ -241,10 +248,7 @@ def fraction_to_qty(
     return qty
 
 
-def edge_to_pwin(
-    edge_bps: float,
-    rr: float = 1.0
-) -> float:
+def edge_to_pwin(edge_bps: float, rr: float = 1.0) -> float:
     """
     Convert edge estimate to win probability for Kelly sizing.
 
@@ -297,7 +301,11 @@ def edge_to_pwin(
     return p_win
 
 
-def dd_haircut_factor(current_dd_bps: float, dd_max_bps: float = 300.0, beta: float = 2.0) -> float:
+def dd_haircut_factor(
+    current_dd_bps: Decimal,
+    dd_max_bps: Decimal = Decimal("300"),
+    beta: Decimal = Decimal("2"),
+) -> Decimal:
     """
     Calculate DD haircut factor for Kelly sizing.
 
@@ -308,16 +316,16 @@ def dd_haircut_factor(current_dd_bps: float, dd_max_bps: float = 300.0, beta: fl
 
     Parameters
     ----------
-    current_dd_bps : float
+    current_dd_bps : Decimal
         Current drawdown in basis points
-    dd_max_bps : float
+    dd_max_bps : Decimal
         Maximum allowed drawdown in basis points
-    beta : float
+    beta : Decimal
         Haircut steepness parameter
 
     Returns
     -------
-    float
+    Decimal
         Haircut factor ∈ [0, 1], where 1 = no haircut, 0 = full haircut
 
     Notes
@@ -326,56 +334,53 @@ def dd_haircut_factor(current_dd_bps: float, dd_max_bps: float = 300.0, beta: fl
     reducing position sizes to protect capital during losses.
     """
     try:
-        current_dd_bps = float(current_dd_bps)
-        dd_max_bps = float(dd_max_bps)
-        beta = float(beta)
-    except Exception:
-        return 1.0
+        current_dd_bps = Decimal(current_dd_bps)
+        dd_max_bps = Decimal(dd_max_bps)
+        beta = Decimal(beta)
+    except (InvalidOperation, TypeError):
+        return Decimal("1")
 
-    # Input validation
-    if dd_max_bps <= 0.0 or beta <= 0.0:
-        return 1.0
+    if dd_max_bps <= 0 or beta <= 0:
+        return Decimal("1")
 
-    # Calculate normalized drawdown
     d_norm = current_dd_bps / dd_max_bps
 
-    # Apply haircut formula
-    if d_norm >= 1.0:
-        return 0.0  # Full haircut when DD exceeds limit
-    elif d_norm <= 0.0:
-        return 1.0  # No haircut when no DD
-    else:
-        haircut = 1.0 - d_norm
-        return max(0.0, haircut ** beta)
+    if d_norm >= Decimal("1"):
+        return Decimal("0")
+    if d_norm <= Decimal("0"):
+        return Decimal("1")
+
+    haircut = Decimal("1") - d_norm
+    return max(Decimal("0"), haircut**beta)
 
 
 def apply_dd_haircut_to_kelly(
-    kelly_fraction: float,
-    current_dd_bps: float,
-    dd_max_bps: float = 300.0,
-    beta: float = 2.0
-) -> float:
+    kelly_fraction: Decimal,
+    current_dd_bps: Decimal,
+    dd_max_bps: Decimal = Decimal("300"),
+    beta: Decimal = Decimal("2"),
+) -> Decimal:
     """
     Apply DD haircut to Kelly fraction.
 
     Parameters
     ----------
-    kelly_fraction : float
+    kelly_fraction : Decimal
         Raw Kelly fraction
-    current_dd_bps : float
+    current_dd_bps : Decimal
         Current drawdown in basis points
-    dd_max_bps : float
+    dd_max_bps : Decimal
         Maximum allowed drawdown in basis points
-    beta : float
+    beta : Decimal
         Haircut steepness parameter
 
     Returns
     -------
-    float
+    Decimal
         Haircut-adjusted Kelly fraction
     """
     haircut = dd_haircut_factor(current_dd_bps, dd_max_bps, beta)
-    return kelly_fraction * haircut
+    return Decimal(kelly_fraction) * haircut
 
 
 # Legacy compatibility - keep existing functions
@@ -392,6 +397,7 @@ def raw_kelly_fraction(p: float, G: float, L: float, f_max: float = 1.0) -> floa
 @dataclass
 class KellyOrchestrator:
     """Legacy class - kept for compatibility."""
+
     cap: float = 1.0
 
     def lambda_product(self, lambdas: Optional[Dict[str, float]]) -> float:
@@ -407,8 +413,18 @@ class KellyOrchestrator:
             prod *= x
         return max(0.0, min(1.0, prod))
 
-    def size(self, p: float, G: float, L: float, *, lambdas: Optional[Dict[str, float]] = None, f_max: Optional[float] = None) -> float:
-        f_raw = raw_kelly_fraction(p, G, L, f_max=self.cap if f_max is None else min(self.cap, float(f_max)))
+    def size(
+        self,
+        p: float,
+        G: float,
+        L: float,
+        *,
+        lambdas: Optional[Dict[str, float]] = None,
+        f_max: Optional[float] = None,
+    ) -> float:
+        f_raw = raw_kelly_fraction(
+            p, G, L, f_max=self.cap if f_max is None else min(self.cap, float(f_max))
+        )
         mult = self.lambda_product(lambdas)
         f_star = f_raw * mult
         return max(0.0, min(self.cap, f_star))
@@ -499,9 +515,7 @@ class SizingStabilizer:
             self._clock = time.monotonic
 
     def apply_hysteresis(
-        self,
-        target_fraction: float,
-        current_fraction: float
+        self, target_fraction: float, current_fraction: float
     ) -> float:
         """
         Apply hysteresis to prevent small oscillations.
@@ -584,7 +598,7 @@ class SizingStabilizer:
         current_fraction: float = 0.0,
         apply_hysteresis: bool = True,
         apply_time_guard: bool = True,
-        apply_bucket: bool = True
+        apply_bucket: bool = True,
     ) -> tuple[float, dict]:
         """
         Apply all stabilization features to target fraction.
@@ -613,7 +627,7 @@ class SizingStabilizer:
             "time_guard_passed": True,
             "hysteresis_applied": False,
             "bucket_applied": False,
-            "final_fraction": target_fraction
+            "final_fraction": target_fraction,
         }
 
         # Start with target
@@ -649,7 +663,6 @@ class SizingStabilizer:
         return stabilized, metadata
 
 
-
 __all__ = [
     "kelly_binary",
     "kelly_mu_sigma",
@@ -660,5 +673,5 @@ __all__ = [
     "SizingStabilizer",
     "raw_kelly_fraction",
     "KellyOrchestrator",
-    "portfolio_kelly"
+    "portfolio_kelly",
 ]

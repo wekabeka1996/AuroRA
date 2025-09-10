@@ -15,28 +15,29 @@ Provides a unified interface for all exchange adapters with:
 import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Protocol, Type, Any, Union, Mapping
 from enum import Enum
+from typing import Any, Dict, List, Mapping, Optional, Protocol, Type, Union
 
+from core.execution.exchange.binance import BinanceExchange
 from core.execution.exchange.common import (
     AbstractExchange,
+    ExchangeError,
     Fees,
     OrderRequest,
     OrderResult,
-    SymbolInfo,
-    ExchangeError,
-    ValidationError,
     RateLimitError,
+    SymbolInfo,
+    ValidationError,
 )
-from core.execution.exchange.binance import BinanceExchange
-from core.execution.exchange.gate import GateExchange
 from core.execution.exchange.error_handling import exchange_operation_context
+from core.execution.exchange.gate import GateExchange
 
 logger = logging.getLogger(__name__)
 
 
 class ExchangeType(str, Enum):
     """Supported exchange types."""
+
     BINANCE = "binance"
     GATE = "gate"
     BINANCE_CCXT = "binance_ccxt"
@@ -44,6 +45,7 @@ class ExchangeType(str, Enum):
 
 class AdapterMode(str, Enum):
     """Adapter implementation modes."""
+
     DEPENDENCY_FREE = "dependency_free"  # Pure Python implementation
     CCXT = "ccxt"  # CCXT-based implementation
 
@@ -51,6 +53,7 @@ class AdapterMode(str, Enum):
 @dataclass
 class ExchangeConfig:
     """Configuration for exchange adapter."""
+
     exchange_type: ExchangeType
     adapter_mode: AdapterMode
     api_key: str
@@ -65,54 +68,31 @@ class ExchangeConfig:
     fees: Optional[Fees] = None
 
     @classmethod
-    def from_ssot_config(cls, exchange_name: str) -> 'ExchangeConfig':
-        """Create ExchangeConfig from SSOT configuration."""
+    def from_ssot_config(cls, exchange_name: str) -> "ExchangeConfig":
+        """Create ExchangeConfig from SSOT configuration using the SSOT manager.
+
+        This delegates to core.execution.exchange.config to ensure a single
+        source of truth and avoid duplicated parsing logic.
+        """
         try:
-            from core.config.loader import get_config
-            cfg = get_config()
-            base_key = f"execution.exchange.{exchange_name}"
+            from core.execution.exchange.config import get_config_manager
 
-            # Get basic exchange settings
-            exchange_type_str = cfg.get(f"{base_key}.type", exchange_name).lower()
-            adapter_mode_str = cfg.get(f"{base_key}.adapter_mode", "dependency_free").lower()
-
-            # Map to enums
-            exchange_type = ExchangeType(exchange_type_str)
-            adapter_mode = AdapterMode(adapter_mode_str)
-
-            # Get credentials
-            api_key = cfg.get(f"{base_key}.api_key", "")
-            api_secret = cfg.get(f"{base_key}.api_secret", "")
-
-            # Get optional settings
-            base_url = cfg.get(f"{base_key}.base_url")
-            futures = bool(cfg.get(f"{base_key}.futures", False))
-            testnet = bool(cfg.get(f"{base_key}.testnet", True))
-            recv_window_ms = int(cfg.get(f"{base_key}.recv_window_ms", 5000))
-            timeout_ms = int(cfg.get(f"{base_key}.timeout_ms", 20000))
-            enable_rate_limit = bool(cfg.get(f"{base_key}.enable_rate_limit", True))
-            dry_run = bool(cfg.get(f"{base_key}.dry_run", True))
-
-            # Get fees configuration
-            fees = Fees.from_exchange_config(exchange_name)
-
-            return cls(
-                exchange_type=exchange_type,
-                adapter_mode=adapter_mode,
-                api_key=api_key,
-                api_secret=api_secret,
-                base_url=base_url,
-                futures=futures,
-                testnet=testnet,
-                recv_window_ms=recv_window_ms,
-                timeout_ms=timeout_ms,
-                enable_rate_limit=enable_rate_limit,
-                dry_run=dry_run,
-                fees=fees,
-            )
+            mgr = get_config_manager()
+            ssot = mgr.get_config(exchange_name)
+            if ssot is None:
+                # If no persisted config found, try to create a default one and keep in-memory
+                # Default to the exchange_name as type when possible
+                try:
+                    ex_type = ExchangeType(exchange_name)
+                except Exception:
+                    ex_type = ExchangeType.BINANCE
+                ssot = mgr.create_config(exchange_name, ex_type)
+            return ssot.to_adapter_config()
         except Exception as e:
-            logger.warning(f"Failed to load SSOT config for {exchange_name}: {e}")
-            # Return conservative defaults
+            logger.warning(
+                f"Failed to load SSOT config via manager for {exchange_name}: {e}"
+            )
+            # Conservative fallback
             return cls(
                 exchange_type=ExchangeType.BINANCE,
                 adapter_mode=AdapterMode.DEPENDENCY_FREE,
@@ -125,15 +105,24 @@ class ExchangeConfig:
 
 class HttpClientProtocol(Protocol):
     """HTTP client protocol for dependency injection."""
-    def request(self, method: str, url: str, *, params: Optional[Mapping[str, object]] = None,
-                headers: Optional[Mapping[str, str]] = None, json: Optional[object] = None) -> Mapping[str, object]:
-        ...
+
+    def request(
+        self,
+        method: str,
+        url: str,
+        *,
+        params: Optional[Mapping[str, object]] = None,
+        headers: Optional[Mapping[str, str]] = None,
+        json: Optional[object] = None,
+    ) -> Mapping[str, object]: ...
 
 
 class UnifiedExchangeAdapter(ABC):
     """Abstract base class for unified exchange adapters."""
 
-    def __init__(self, config: ExchangeConfig, http_client: Optional[HttpClientProtocol] = None):
+    def __init__(
+        self, config: ExchangeConfig, http_client: Optional[HttpClientProtocol] = None
+    ):
         self.config = config
         self.http_client = http_client
         self._exchange: Optional[AbstractExchange] = None
@@ -159,38 +148,68 @@ class UnifiedExchangeAdapter(ABC):
     # Unified interface methods
     def get_symbol_info(self, symbol: str) -> SymbolInfo:
         """Get symbol information."""
-        with exchange_operation_context(self.exchange_name, "get_symbol_info", symbol=symbol):
+        with exchange_operation_context(
+            self.exchange_name, "get_symbol_info", symbol=symbol
+        ):
             return self._get_exchange().get_symbol_info(symbol)
 
     def validate_order(self, request: OrderRequest) -> OrderRequest:
         """Validate and normalize order request."""
-        with exchange_operation_context(self.exchange_name, "validate_order",
-                                      symbol=request.symbol, client_order_id=request.client_order_id):
+        with exchange_operation_context(
+            self.exchange_name,
+            "validate_order",
+            symbol=request.symbol,
+            client_order_id=request.client_order_id,
+        ):
             return self._get_exchange().validate_order(request)
 
     def place_order(self, request: OrderRequest) -> OrderResult:
         """Place an order."""
-        with exchange_operation_context(self.exchange_name, "place_order",
-                                      symbol=request.symbol, client_order_id=request.client_order_id) as ctx:
+        with exchange_operation_context(
+            self.exchange_name,
+            "place_order",
+            symbol=request.symbol,
+            client_order_id=request.client_order_id,
+        ) as ctx:
             validated_request = self.validate_order(request)
             result = self._get_exchange().place_order(validated_request)
             self._logger.info(f"Order placed: {result.order_id} ({result.status})")
             return result
 
-    def cancel_order(self, symbol: str, order_id: Optional[str] = None,
-                    client_order_id: Optional[str] = None) -> Dict[str, Any]:
+    def cancel_order(
+        self,
+        symbol: str,
+        order_id: Optional[str] = None,
+        client_order_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """Cancel an order."""
-        with exchange_operation_context(self.exchange_name, "cancel_order",
-                                      symbol=symbol, order_id=order_id, client_order_id=client_order_id):
-            result = self._get_exchange().cancel_order(symbol, order_id, client_order_id)
+        with exchange_operation_context(
+            self.exchange_name,
+            "cancel_order",
+            symbol=symbol,
+            order_id=order_id,
+            client_order_id=client_order_id,
+        ):
+            result = self._get_exchange().cancel_order(
+                symbol, order_id, client_order_id
+            )
             self._logger.info(f"Order cancelled: {order_id or client_order_id}")
             return dict(result)
 
-    def get_order(self, symbol: str, order_id: Optional[str] = None,
-                 client_order_id: Optional[str] = None) -> Dict[str, Any]:
+    def get_order(
+        self,
+        symbol: str,
+        order_id: Optional[str] = None,
+        client_order_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """Get order information."""
-        with exchange_operation_context(self.exchange_name, "get_order",
-                                      symbol=symbol, order_id=order_id, client_order_id=client_order_id):
+        with exchange_operation_context(
+            self.exchange_name,
+            "get_order",
+            symbol=symbol,
+            order_id=order_id,
+            client_order_id=client_order_id,
+        ):
             result = self._get_exchange().get_order(symbol, order_id, client_order_id)
             return dict(result)  # Convert Mapping to Dict
 
@@ -214,7 +233,11 @@ class BinanceAdapter(UnifiedExchangeAdapter):
         """Create Binance exchange instance."""
         base_url = self.config.base_url
         if self.config.testnet and not base_url:
-            base_url = "https://testnet.binance.vision" if not self.config.futures else "https://testnet.binancefuture.com"
+            base_url = (
+                "https://testnet.binance.vision"
+                if not self.config.futures
+                else "https://testnet.binancefuture.com"
+            )
 
         return BinanceExchange(
             api_key=self.config.api_key,
@@ -258,12 +281,12 @@ class CCXTExchangeWrapper(AbstractExchange):
         # extract symbol info from CCXT's market data
         return SymbolInfo(
             symbol=symbol,
-            base=symbol.split('/')[0] if '/' in symbol else symbol[:-4],
-            quote=symbol.split('/')[1] if '/' in symbol else symbol[-4:],
+            base=symbol.split("/")[0] if "/" in symbol else symbol[:-4],
+            quote=symbol.split("/")[1] if "/" in symbol else symbol[-4:],
             tick_size=0.01,
             step_size=0.001,
             min_qty=0.001,
-            min_notional=5.0
+            min_notional=5.0,
         )
 
     def place_order(self, req: OrderRequest) -> OrderResult:
@@ -279,10 +302,19 @@ class CCXTExchangeWrapper(AbstractExchange):
 
         # Convert back to our format
         from core.execution.exchange.common import Fill
+
         fills = []
         if not self._ccxt_adapter.dry:
             # In real execution, we'd parse actual fills
-            fills = [Fill(price=price or 0.0, qty=qty, fee=0.0, fee_asset="USDT", ts_ns=self.server_time_ns_hint())]
+            fills = [
+                Fill(
+                    price=price or 0.0,
+                    qty=qty,
+                    fee=0.0,
+                    fee_asset="USDT",
+                    ts_ns=self.server_time_ns_hint(),
+                )
+            ]
 
         return OrderResult(
             order_id=str(result.get("id", "")),
@@ -292,14 +324,24 @@ class CCXTExchangeWrapper(AbstractExchange):
             cumm_quote_cost=(price or 0.0) * qty if price else 0.0,
             fills=fills,
             ts_ns=self.server_time_ns_hint(),
-            raw=result
+            raw=result,
         )
 
-    def cancel_order(self, symbol: str, order_id: str | None = None, client_order_id: str | None = None) -> Mapping[str, object]:
+    def cancel_order(
+        self,
+        symbol: str,
+        order_id: str | None = None,
+        client_order_id: str | None = None,
+    ) -> Mapping[str, object]:
         """Cancel order via CCXT adapter."""
         return self._ccxt_adapter.cancel_all()  # Simplified - cancel all for now
 
-    def get_order(self, symbol: str, order_id: str | None = None, client_order_id: str | None = None) -> Mapping[str, object]:
+    def get_order(
+        self,
+        symbol: str,
+        order_id: str | None = None,
+        client_order_id: str | None = None,
+    ) -> Mapping[str, object]:
         """Get order info - simplified implementation."""
         return {"status": "unknown", "id": order_id}
 
@@ -333,6 +375,7 @@ class CCXTBinanceAdapter(UnifiedExchangeAdapter):
 
             # Set environment variables for credentials
             import os
+
             if self.config.api_key:
                 os.environ["BINANCE_API_KEY"] = self.config.api_key
             if self.config.api_secret:
@@ -355,8 +398,9 @@ class ExchangeAdapterFactory:
     }
 
     @classmethod
-    def create_adapter(cls, config: ExchangeConfig,
-                      http_client: Optional[HttpClientProtocol] = None) -> UnifiedExchangeAdapter:
+    def create_adapter(
+        cls, config: ExchangeConfig, http_client: Optional[HttpClientProtocol] = None
+    ) -> UnifiedExchangeAdapter:
         """Create an exchange adapter instance."""
         adapter_class = cls._adapters.get(config.exchange_type)
         if not adapter_class:
@@ -364,15 +408,20 @@ class ExchangeAdapterFactory:
 
         try:
             adapter = adapter_class(config, http_client)
-            logger.info(f"Created {config.adapter_mode.value} adapter for {config.exchange_type.value}")
+            logger.info(
+                f"Created {config.adapter_mode.value} adapter for {config.exchange_type.value}"
+            )
             return adapter
         except Exception as e:
-            logger.error(f"Failed to create adapter for {config.exchange_type.value}: {e}")
+            logger.error(
+                f"Failed to create adapter for {config.exchange_type.value}: {e}"
+            )
             raise ExchangeError(f"Adapter creation failed: {e}") from e
 
     @classmethod
-    def create_from_ssot(cls, exchange_name: str,
-                        http_client: Optional[HttpClientProtocol] = None) -> UnifiedExchangeAdapter:
+    def create_from_ssot(
+        cls, exchange_name: str, http_client: Optional[HttpClientProtocol] = None
+    ) -> UnifiedExchangeAdapter:
         """Create adapter from SSOT configuration."""
         config = ExchangeConfig.from_ssot_config(exchange_name)
         return cls.create_adapter(config, http_client)
@@ -384,11 +433,13 @@ class ExchangeAdapterFactory:
 
 
 # Convenience functions
-def create_exchange_adapter(exchange_name: str,
-                           api_key: str = "",
-                           api_secret: str = "",
-                           adapter_mode: str = "dependency_free",
-                           **kwargs) -> UnifiedExchangeAdapter:
+def create_exchange_adapter(
+    exchange_name: str,
+    api_key: str = "",
+    api_secret: str = "",
+    adapter_mode: str = "dependency_free",
+    **kwargs,
+) -> UnifiedExchangeAdapter:
     """Convenience function to create exchange adapter."""
     exchange_type = ExchangeType(exchange_name.lower())
     adapter_mode_enum = AdapterMode(adapter_mode.lower())
@@ -398,7 +449,7 @@ def create_exchange_adapter(exchange_name: str,
         adapter_mode=adapter_mode_enum,
         api_key=api_key,
         api_secret=api_secret,
-        **kwargs
+        **kwargs,
     )
 
     return ExchangeAdapterFactory.create_adapter(config)

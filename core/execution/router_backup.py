@@ -1,6 +1,19 @@
-from __future__ import annotations
 import warnings
-warnings.warn("core.execution.router_backup is archived; reference only. Use router_v2 for new code.", DeprecationWarning, stacklevel=2)
+
+warnings.warn(
+    "core.execution.router_backup is archived; use core.execution.router_v2.RouterV2",
+    DeprecationWarning,
+    stacklevel=2,
+)
+from __future__ import annotations
+
+import warnings
+
+warnings.warn(
+    "core.execution.router_backup is archived; reference only. Use router_v2 for new code.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 """
 Execution — Router (maker/taker decision with TCA gate)
@@ -38,7 +51,7 @@ Notes
 from dataclasses import dataclass
 from typing import Dict, Mapping, Optional, Tuple
 
-from core.config.loader import get_config, ConfigError
+from core.config.loader import ConfigError, get_config
 from core.execution.exchange.common import Fees
 from core.tca.hazard_cox import CoxPH
 from core.tca.latency import SLAGate
@@ -97,7 +110,11 @@ class Router:
                 max_latency_ms = float(cfg.get("execution.sla.max_latency_ms", 25))
             except (ConfigError, Exception):
                 max_latency_ms = 25.0
-            slagate = SLAGate(max_latency_ms=max_latency_ms, kappa_bps_per_ms=0.05, min_edge_after_bps=0.0)
+            slagate = SLAGate(
+                max_latency_ms=max_latency_ms,
+                kappa_bps_per_ms=0.05,
+                min_edge_after_bps=0.0,
+            )
         self._sla = slagate
         # min P(fill)
         if min_p_fill is None:
@@ -112,7 +129,14 @@ class Router:
             fees = Fees.from_exchange_config(exchange_name)
         self._fees = fees
 
-    def _tca_net_edge_bps(self, decision: str, features: Optional[Mapping[str, float]], edge_bps_estimate: float, latency_ms: float, half_spread_bps: float) -> float:
+    def _tca_net_edge_bps(
+        self,
+        decision: str,
+        features: Optional[Mapping[str, float]],
+        edge_bps_estimate: float,
+        latency_ms: float,
+        half_spread_bps: float,
+    ) -> float:
         """
         Канонічна підсумовка нет-edge: raw_edge + fees + slippage + impact + adverse + latency + rebate.
         Підпис значень: позитивне => покращує edge (наприклад, rebate), негативне => погіршує.
@@ -171,7 +195,9 @@ class Router:
         # routes unattractive and deny early. Tests rely on a denial when the
         # observed spread (from features) is very wide (e.g. 10 bps).
         try:
-            feat_spread = float(fill_features.get("spread_bps", 0.0) if fill_features else 0.0)
+            feat_spread = float(
+                fill_features.get("spread_bps", 0.0) if fill_features else 0.0
+            )
             if feat_spread >= 10.0:
                 return RouteDecision(
                     route="deny",
@@ -183,14 +209,20 @@ class Router:
                     taker_fee_bps=self._fees.taker_fee_bps,
                     net_e_maker_bps=e_maker,
                     net_e_taker_bps=e_taker,
-                    scores={"expected_maker_bps": e_maker, "taker_bps": e_taker, "p_fill": p_fill}
+                    scores={
+                        "expected_maker_bps": e_maker,
+                        "taker_bps": e_taker,
+                        "p_fill": p_fill,
+                    },
                 )
         except Exception:
             pass
 
         # configurable soft threshold to prefer taker when fill prob is low
         try:
-            p_taker_threshold = float(get_config().get("execution.router.p_taker_threshold", 0.3))
+            p_taker_threshold = float(
+                get_config().get("execution.router.p_taker_threshold", 0.3)
+            )
         except Exception:
             p_taker_threshold = 0.3
 
@@ -206,7 +238,11 @@ class Router:
                 taker_fee_bps=self._fees.taker_fee_bps,
                 net_e_maker_bps=e_maker,
                 net_e_taker_bps=e_taker,
-                scores={"expected_maker_bps": e_maker, "taker_bps": e_taker, "p_fill": p_fill}
+                scores={
+                    "expected_maker_bps": e_maker,
+                    "taker_bps": e_taker,
+                    "p_fill": p_fill,
+                },
             )
 
         # If SLA denies taker, fallback to maker if e_maker positive and p_fill ok
@@ -223,7 +259,11 @@ class Router:
                     taker_fee_bps=self._fees.taker_fee_bps,
                     net_e_maker_bps=e_maker,
                     net_e_taker_bps=e_taker,
-                    scores={"expected_maker_bps": e_maker, "taker_bps": e_taker, "p_fill": p_fill}
+                    scores={
+                        "expected_maker_bps": e_maker,
+                        "taker_bps": e_taker,
+                        "p_fill": p_fill,
+                    },
                 )
 
             # Special-case: if P(fill) is very low (below taker threshold) but taker
@@ -240,7 +280,11 @@ class Router:
                     taker_fee_bps=self._fees.taker_fee_bps,
                     net_e_maker_bps=e_maker,
                     net_e_taker_bps=e_taker,
-                    scores={"expected_maker_bps": e_maker, "taker_bps": e_taker, "p_fill": p_fill}
+                    scores={
+                        "expected_maker_bps": e_maker,
+                        "taker_bps": e_taker,
+                        "p_fill": p_fill,
+                    },
                 )
 
             # SLA denied taker - try fallback to maker first, then special cases
@@ -255,7 +299,11 @@ class Router:
                     taker_fee_bps=self._fees.taker_fee_bps,
                     net_e_maker_bps=e_maker,
                     net_e_taker_bps=e_taker,
-                    scores={"expected_maker_bps": e_maker, "taker_bps": e_taker, "p_fill": p_fill}
+                    scores={
+                        "expected_maker_bps": e_maker,
+                        "taker_bps": e_taker,
+                        "p_fill": p_fill,
+                    },
                 )
 
             # Special-case: if P(fill) is very low (below taker threshold) but taker
@@ -272,7 +320,11 @@ class Router:
                     taker_fee_bps=self._fees.taker_fee_bps,
                     net_e_maker_bps=e_taker,
                     net_e_taker_bps=e_taker,
-                    scores={"expected_maker_bps": e_maker, "taker_bps": e_taker, "p_fill": p_fill}
+                    scores={
+                        "expected_maker_bps": e_maker,
+                        "taker_bps": e_taker,
+                        "p_fill": p_fill,
+                    },
                 )
 
             # All fallbacks exhausted - deny
@@ -286,7 +338,11 @@ class Router:
                 taker_fee_bps=self._fees.taker_fee_bps,
                 net_e_maker_bps=e_maker,
                 net_e_taker_bps=e_taker,
-                scores={"expected_maker_bps": e_maker, "taker_bps": e_taker, "p_fill": p_fill}
+                scores={
+                    "expected_maker_bps": e_maker,
+                    "taker_bps": e_taker,
+                    "p_fill": p_fill,
+                },
             )
 
         # Both routes allowed: compute TCA net edges and choose higher expected value
@@ -297,7 +353,9 @@ class Router:
 
         # Prefer taker when P(fill) is low (configurable soft threshold).
         try:
-            p_taker_threshold = float(get_config().get("execution.router.p_taker_threshold", 0.3))
+            p_taker_threshold = float(
+                get_config().get("execution.router.p_taker_threshold", 0.3)
+            )
         except Exception:
             p_taker_threshold = 0.3
         if p_fill < p_taker_threshold and taker_net > 0.0:
@@ -311,7 +369,11 @@ class Router:
                 taker_fee_bps=self._fees.taker_fee_bps,
                 net_e_maker_bps=maker_net,
                 net_e_taker_bps=taker_net,
-                scores={"expected_maker_bps": exp_maker, "taker_bps": taker_net, "p_fill": p_fill},
+                scores={
+                    "expected_maker_bps": exp_maker,
+                    "taker_bps": taker_net,
+                    "p_fill": p_fill,
+                },
             )
 
         # Standard decision logic: choose route with higher expected edge
@@ -326,7 +388,11 @@ class Router:
                 taker_fee_bps=self._fees.taker_fee_bps,
                 net_e_maker_bps=maker_net,
                 net_e_taker_bps=taker_net,
-                scores={"expected_maker_bps": exp_maker, "taker_bps": taker_net, "p_fill": p_fill}
+                scores={
+                    "expected_maker_bps": exp_maker,
+                    "taker_bps": taker_net,
+                    "p_fill": p_fill,
+                },
             )
         if exp_maker > taker_net and exp_maker > 0.0 and p_fill >= self._min_p:
             return RouteDecision(
@@ -339,20 +405,32 @@ class Router:
                 taker_fee_bps=self._fees.taker_fee_bps,
                 net_e_maker_bps=maker_net,
                 net_e_taker_bps=taker_net,
-                scores={"expected_maker_bps": exp_maker, "taker_bps": taker_net, "p_fill": p_fill}
+                scores={
+                    "expected_maker_bps": exp_maker,
+                    "taker_bps": taker_net,
+                    "p_fill": p_fill,
+                },
             )
 
         # Heuristic: prefer maker when P(fill) is high and spread is tight (fallback logic)
         try:
-            tight_spread_bps = float(get_config().get("execution.router.tight_spread_bps", 1.5))
-            feat_spread = float(fill_features.get("spread_bps", half) if fill_features else half)
+            tight_spread_bps = float(
+                get_config().get("execution.router.tight_spread_bps", 1.5)
+            )
+            feat_spread = float(
+                fill_features.get("spread_bps", half) if fill_features else half
+            )
             effective_spread = min(half, feat_spread)
         except Exception:
             tight_spread_bps = 1.5
             effective_spread = half
-        
+
         # Strong preference for maker with high p_fill + tight spread (only as fallback)
-        if p_fill >= max(self._min_p, 0.6) and effective_spread <= tight_spread_bps and exp_maker > 0.0:
+        if (
+            p_fill >= max(self._min_p, 0.6)
+            and effective_spread <= tight_spread_bps
+            and exp_maker > 0.0
+        ):
             return RouteDecision(
                 route="maker",
                 e_maker_bps=e_maker,
@@ -363,7 +441,11 @@ class Router:
                 taker_fee_bps=self._fees.taker_fee_bps,
                 net_e_maker_bps=maker_net,
                 net_e_taker_bps=taker_net,
-                scores={"expected_maker_bps": exp_maker, "taker_bps": taker_net, "p_fill": p_fill},
+                scores={
+                    "expected_maker_bps": exp_maker,
+                    "taker_bps": taker_net,
+                    "p_fill": p_fill,
+                },
             )
 
         # Standard decision logic: choose route with higher expected edge
@@ -378,7 +460,11 @@ class Router:
                 taker_fee_bps=self._fees.taker_fee_bps,
                 net_e_maker_bps=maker_net,
                 net_e_taker_bps=taker_net,
-                scores={"expected_maker_bps": exp_maker, "taker_bps": taker_net, "p_fill": p_fill}
+                scores={
+                    "expected_maker_bps": exp_maker,
+                    "taker_bps": taker_net,
+                    "p_fill": p_fill,
+                },
             )
         if exp_maker > taker_net and exp_maker > 0.0 and p_fill >= self._min_p:
             return RouteDecision(
@@ -391,7 +477,11 @@ class Router:
                 taker_fee_bps=self._fees.taker_fee_bps,
                 net_e_maker_bps=maker_net,
                 net_e_taker_bps=taker_net,
-                scores={"expected_maker_bps": exp_maker, "taker_bps": taker_net, "p_fill": p_fill}
+                scores={
+                    "expected_maker_bps": exp_maker,
+                    "taker_bps": taker_net,
+                    "p_fill": p_fill,
+                },
             )
 
         # None attractive - use correct net edges in the denial message
@@ -405,9 +495,13 @@ class Router:
             taker_fee_bps=self._fees.taker_fee_bps,
             net_e_maker_bps=maker_net,
             net_e_taker_bps=taker_net,
-            scores={"expected_maker_bps": exp_maker, "taker_bps": taker_net, "p_fill": p_fill}
+            scores={
+                "expected_maker_bps": exp_maker,
+                "taker_bps": taker_net,
+                "p_fill": p_fill,
+            },
         )
-        
+
         # XAI logging
         why_code = "WHY_UNATTRACTIVE"
         if decision.route == "taker":
@@ -418,7 +512,7 @@ class Router:
             why_code = "WHY_SLA_DENY"
         elif p_fill < self._min_p:
             why_code = "WHY_LOW_PFILL"
-        
+
         # Log the routing decision (skip decision validation)
         log_entry = {
             "event_type": "ROUTE_DECISION",
@@ -433,7 +527,7 @@ class Router:
                 "p_fill": p_fill,
                 "min_p_fill": self._min_p,
                 "maker_fee_bps": self._fees.maker_fee_bps,
-                "taker_fee_bps": self._fees.taker_fee_bps
+                "taker_fee_bps": self._fees.taker_fee_bps,
             },
             "outputs": {
                 "route": decision.route,
@@ -441,18 +535,19 @@ class Router:
                 "e_taker_bps": decision.e_taker_bps,
                 "net_e_maker_bps": decision.net_e_maker_bps,
                 "net_e_taker_bps": decision.net_e_taker_bps,
-                "reason": decision.reason
-            }
+                "reason": decision.reason,
+            },
         }
-        
+
         # Simple file logging for routing events
         import json
         from pathlib import Path
+
         log_path = Path("logs/routing_decisions.jsonl")
         log_path.parent.mkdir(exist_ok=True)
         with open(log_path, "a", encoding="utf-8") as f:
             f.write(json.dumps(log_entry, separators=(",", ":")) + "\n")
-        
+
         return decision
 
     # ------------- internals -------------
@@ -469,10 +564,12 @@ class Router:
         # Use proper Cox model survival curve
         try:
             cfg = get_config()
-            horizon_ms = float(cfg.get("execution.router.horizon_ms", 1000.0))  # 1 second default
+            horizon_ms = float(
+                cfg.get("execution.router.horizon_ms", 1000.0)
+            )  # 1 second default
         except (ConfigError, Exception):
             horizon_ms = 1000.0
-        
+
         p = self._haz.p_fill(horizon_ms, feats)
         # Heuristic clamp: if order-side microstructure strongly disfavors fills
         # (large spread + negative order book imbalance), reduce P(fill) to a
@@ -486,6 +583,6 @@ class Router:
         except Exception:
             pass
         return p
-        
+
 
 __all__ = ["QuoteSnapshot", "RouteDecision", "Router"]
