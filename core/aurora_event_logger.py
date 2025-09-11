@@ -3,9 +3,8 @@ from __future__ import annotations
 import json
 import os
 import time
-from collections import deque
 from pathlib import Path
-from typing import Any, Deque, Dict, Optional, Tuple
+from typing import Any, Dict, Optional
 
 # Reuse robust JSONL writer and small LRU from order logger
 from core.order_logger import _JsonlWriter, _LRUSet  # type: ignore
@@ -19,18 +18,16 @@ from observability.codes import (  # Step 3 events
     DQ_EVENT_CROSSED_BOOK,
     DQ_EVENT_CYCLIC_SEQUENCE,
     DQ_EVENT_STALE_BOOK,
-    EXEC_DECISION,
-    FILL_EVENT,
-    ORDER_ACK,
-    ORDER_CXL,
-    ORDER_REPLACE,
+    IDEM_CHECK,
+    IDEM_CONFLICT,
+    IDEM_DUP,
+    IDEM_HIT,
+    IDEM_STORE,
+    IDEM_UPDATE,
     POLICY_DECISION,
     POLICY_TRAP_BLOCK,
     POLICY_TRAP_GUARD,
-    POSITION_CLOSED,
     POSTTRADE_LOG,
-    REWARD_UPDATE,
-    TCA_ANALYSIS,
 )
 
 
@@ -116,6 +113,13 @@ class AuroraEventLogger:
         "GOVERNANCE.TRANSITION",
         # Alpha ledger updates
         "ALPHA.LEDGER.UPDATE",
+        # Idempotency (guard + adapter)
+        IDEM_CHECK,
+        IDEM_STORE,
+        IDEM_HIT,
+        IDEM_UPDATE,
+        IDEM_CONFLICT,
+        IDEM_DUP,
     }
 
     def __init__(

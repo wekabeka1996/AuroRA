@@ -12,11 +12,13 @@ Provides a unified interface for all exchange adapters with:
 - Support for both dependency-free and CCXT-based implementations
 """
 
+import hashlib
+import json
 import logging
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from enum import Enum
-from typing import Any, Dict, List, Mapping, Optional, Protocol, Type, Union
+from typing import Any, Dict, List, Mapping, Optional, Protocol, Type
 
 from core.execution.exchange.binance import BinanceExchange
 from core.execution.exchange.common import (
@@ -25,12 +27,11 @@ from core.execution.exchange.common import (
     Fees,
     OrderRequest,
     OrderResult,
-    RateLimitError,
     SymbolInfo,
-    ValidationError,
 )
 from core.execution.exchange.error_handling import exchange_operation_context
 from core.execution.exchange.gate import GateExchange
+from core.execution.idem_guard import mark_status, pre_submit_check
 
 logger = logging.getLogger(__name__)
 
@@ -165,16 +166,108 @@ class UnifiedExchangeAdapter(ABC):
 
     def place_order(self, request: OrderRequest) -> OrderResult:
         """Place an order."""
+        # Delegate to idempotent variant to ensure guard is applied by default
+        return self.place_order_idempotent(request)
+
+    def place_order_idempotent(self, request: OrderRequest) -> OrderResult:
+        """Place an order with idempotency guard by client_order_id.
+
+        - Ensures client_order_id is present (validate_order will generate if missing)
+        - Computes a stable hash of the validated request as spec_hash
+        - pre_submit_check to detect duplicates or conflicts
+        - Marks status transitions (PENDING -> ACK/ERROR)
+        """
+        # Validate and compute spec hash first (validate_order has its own context)
+        validated = self.validate_order(request)
+        coid = validated.client_order_id or ""
+        # stable spec dump using dataclasses.asdict
+        try:
+            dump = json.dumps(asdict(validated), sort_keys=True, default=str)
+        except Exception:
+            dump = json.dumps(
+                getattr(validated, "__dict__", {}), sort_keys=True, default=str
+            )
+        spec_hash = hashlib.sha256(dump.encode("utf-8")).hexdigest()[:32]
+
+        # Perform idempotency check OUTSIDE of exchange operation context to preserve
+        # IdempotencyConflict semantics (should not be wrapped into ExchangeError)
+        hit = pre_submit_check(coid, spec_hash)
+        if hit is not None:
+            # Duplicate submit detected by guard: return cached result if present
+            cached = hit.get("result") if isinstance(hit, dict) else None
+            if isinstance(cached, Mapping):
+                # Reconstruct OrderResult best-effort
+                try:
+                    from core.execution.exchange.common import Fill, OrderResult
+
+                    fills = []
+                    for f in (
+                        (cached.get("fills") or [])
+                        if isinstance(cached.get("fills"), list)
+                        else []
+                    ):
+                        try:
+                            fills.append(
+                                Fill(
+                                    price=f.get("price", 0.0),
+                                    qty=f.get("qty", 0.0),
+                                    fee=f.get("fee", 0.0),
+                                    fee_asset=f.get("fee_asset", "USDT"),
+                                    ts_ns=int(f.get("ts_ns") or 0),
+                                )
+                            )
+                        except Exception:
+                            continue
+                    return OrderResult(
+                        order_id=str(cached.get("order_id", "")),
+                        client_order_id=str(cached.get("client_order_id", coid)),
+                        status=str(cached.get("status", "ACK")),
+                        executed_qty=cached.get("executed_qty", 0.0),
+                        cumm_quote_cost=cached.get("cumm_quote_cost", 0.0),
+                        fills=fills,
+                        ts_ns=int(cached.get("ts_ns") or 0),
+                        raw=cached.get("raw", {}),
+                    )
+                except Exception:
+                    pass
+            # If no cached result, synthesize a minimal ACK-like response
+            from core.execution.exchange.common import OrderResult
+
+            return OrderResult(
+                order_id=str((hit or {}).get("order_id") or ""),
+                client_order_id=coid,
+                status=str(hit.get("status") or "ACK"),
+                executed_qty=0.0,
+                cumm_quote_cost=0.0,
+                fills=[],
+                ts_ns=self._get_exchange().server_time_ns_hint(),
+                raw={"idempotent": True, "duplicate": True},
+            )
+
+        # Now perform the actual exchange operation under error handling context
         with exchange_operation_context(
             self.exchange_name,
-            "place_order",
+            "place_order_idempotent",
             symbol=request.symbol,
             client_order_id=request.client_order_id,
-        ) as ctx:
-            validated_request = self.validate_order(request)
-            result = self._get_exchange().place_order(validated_request)
-            self._logger.info(f"Order placed: {result.order_id} ({result.status})")
-            return result
+        ):
+            try:
+                mark_status(coid, "PENDING")
+                result = self._get_exchange().place_order(validated)
+                # cache full result for future HITs
+                try:
+                    mark_status(
+                        coid, getattr(result, "status", "ACK"), result=asdict(result)
+                    )
+                except Exception:
+                    mark_status(coid, getattr(result, "status", "ACK"))
+                self._logger.info(
+                    f"Order placed (idem): {result.order_id} ({result.status})"
+                )
+                return result
+            except Exception:
+                mark_status(coid, "ERROR")
+                raise
 
     def cancel_order(
         self,
@@ -293,7 +386,8 @@ class CCXTExchangeWrapper(AbstractExchange):
         """Place order via CCXT adapter."""
         # Convert to CCXT format and place order
         side = req.side.value.lower()
-        order_type = req.type.value.lower()
+        # order_type not currently used in simplified CCXT wrapper; keep for future extension if needed
+        # order_type = req.type.value.lower()
         qty = req.quantity
         price = req.price
 

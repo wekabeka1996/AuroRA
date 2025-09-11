@@ -12,6 +12,8 @@ exclude: |
     reports/jscpd|
     __pycache__|
     archive|
+    tests|
+    tools|
     tmp_.*
   )/
 

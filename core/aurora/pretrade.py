@@ -1,14 +1,33 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import List
-from typing import Optional
+from typing import List, Optional, Protocol, runtime_checkable
 
-from core.scalper.trap import TrapWindow, TrapMetrics
+from core.scalper.trap import TrapMetrics, TrapWindow
+
 try:
     from core.calibration.icp import SplitConformalBinary
-except ImportError:
+except ImportError:  # pragma: no cover - optional dependency
     SplitConformalBinary = None
+
+
+# Provide lightweight Protocols to satisfy type hints without runtime deps
+@runtime_checkable
+class IcpMetrics(Protocol):
+    flag: bool
+    icp_z: float
+
+
+@runtime_checkable
+class IcpWindow(Protocol):
+    def update(
+        self,
+        *,
+        price_deltas: List[float],
+        trades_cnt: int,
+        z_threshold: float,
+        pctl: int,
+    ) -> IcpMetrics: ...
 
 
 @dataclass
@@ -33,10 +52,13 @@ class PretradeReport:
     reasons: List[str] = field(default_factory=list)
 
 
-def gate_expected_return(e_pi_bps: float, pi_min_bps: float, reasons: List[str]) -> bool:
+def gate_expected_return(
+    e_pi_bps: float, pi_min_bps: float, reasons: List[str]
+) -> bool:
     # TESTNET BYPASS: Завжди повертаємо True для тестування виконання
     import os
-    if os.getenv('AURORA_MODE') == 'live' and os.getenv('BINANCE_ENV') == 'testnet':
+
+    if os.getenv("AURORA_MODE") == "live" and os.getenv("BINANCE_ENV") == "testnet":
         return True
     if e_pi_bps > pi_min_bps:
         return True
@@ -55,7 +77,9 @@ def gate_latency(latency_ms: float, lmax_ms: float, reasons: List[str]) -> bool:
     return False
 
 
-def gate_slippage(slip_bps: float, b_bps: float | None, eta_fraction_of_b: float, reasons: List[str]) -> bool:
+def gate_slippage(
+    slip_bps: float, b_bps: float | None, eta_fraction_of_b: float, reasons: List[str]
+) -> bool:
     """Slippage guard: require slip_bps <= eta * b_bps.
 
     If b_bps is None or non-positive, the guard is skipped (returns True) but adds a
@@ -128,32 +152,31 @@ def gate_icp(
 
 
 def gate_icp_uncertainty(
-    icp_predictor,
-    features: List[float],
-    reasons: List[str],
-    alpha: float = 0.1
+    icp_predictor, features: List[float], reasons: List[str], alpha: float = 0.1
 ) -> bool:
     """ICP uncertainty gate: blocks if prediction set is empty (high uncertainty).
-    
+
     Uses Inductive Conformal Prediction to assess prediction uncertainty.
     If the prediction set is empty, it indicates high uncertainty and the trade
     should be blocked.
-    
+
     Args:
         icp_predictor: Trained SplitConformalBinary predictor
         features: Feature vector for prediction
         reasons: List to append blocking reasons
         alpha: Significance level (default 0.1 for 90% confidence)
-    
+
     Returns:
         True if prediction set is non-empty (low uncertainty), False otherwise
     """
     if SplitConformalBinary is None:
         reasons.append("icp_guard_skipped_no_module")
         return True
-    
+
     try:
-        prediction_set = icp_predictor.predict_set(features[0])  # Use first feature as probability
+        prediction_set = icp_predictor.predict_set(
+            features[0]
+        )  # Use first feature as probability
         if not prediction_set:  # Empty prediction set = high uncertainty
             reasons.append(f"icp_guard_empty_prediction_set:alpha={alpha}")
             return False

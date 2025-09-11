@@ -10,16 +10,18 @@ Schema:
   - entries(key TEXT PRIMARY KEY, value TEXT, expiry_ns INTEGER, updated_ns INTEGER)
 
 Primary operations:
-  - seen(key): bool — true if exists and not expired
+    - seen(key): bool — true if exists and not expired
   - mark(key, ttl_sec): upsert with new expiry
   - get/put: optional value payload (TEXT)
-  - cleanup_expired: remove expired rows
+    - cleanup_expired: retention sweep (remove rows older than retention window)
   - clear/size: maintenance helpers
 
 Notes:
-  - WAL mode for better concurrency (single-process use with threads)
-  - Single connection per instance guarded by RLock
-  - Nanoseconds clock for consistency with the rest of the codebase
+    - WAL mode for better concurrency (single-process use with threads)
+    - Single connection per instance guarded by RLock
+    - Nanoseconds clock for consistency with the rest of the codebase
+    - Non-destructive reads: get()/seen() will NOT delete expired rows; deletion is performed only
+      by cleanup_expired() based on a retention window
 """
 
 import os
@@ -81,8 +83,7 @@ class SQLiteIdempotencyStore:
                 return False
             expiry_ns = int(row[0]) if row[0] is not None else 0
             if expiry_ns and expiry_ns < now:
-                # expired — delete and report not seen
-                self._conn.execute("DELETE FROM entries WHERE key = ?", (key,))
+                # expired — report not seen, do not delete (retention-only cleanup)
                 return False
             return True
 
@@ -90,21 +91,25 @@ class SQLiteIdempotencyStore:
         now = self._now_ns()
         expiry_ns = now + int(ttl_sec * 1e9)
         with self._lock, self._conn:
-            self._conn.execute(
-                "INSERT INTO entries(key, value, expiry_ns, updated_ns) VALUES(?, COALESCE((SELECT value FROM entries WHERE key=?), NULL), ?, ?) "
-                "ON CONFLICT(key) DO UPDATE SET expiry_ns=excluded.expiry_ns, updated_ns=excluded.updated_ns",
-                (key, key, expiry_ns, now),
+            insert_sql = (
+                "INSERT INTO entries(key, value, expiry_ns, updated_ns) "
+                "VALUES(?, COALESCE((SELECT value FROM entries WHERE key=?), NULL), ?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET "
+                "expiry_ns=excluded.expiry_ns, updated_ns=excluded.updated_ns"
             )
+            self._conn.execute(insert_sql, (key, key, expiry_ns, now))
 
     def put(self, key: str, value: str, ttl_sec: Optional[float] = None) -> None:
         now = self._now_ns()
         expiry_ns = None if ttl_sec is None else now + int(ttl_sec * 1e9)
         with self._lock, self._conn:
-            self._conn.execute(
-                "INSERT INTO entries(key, value, expiry_ns, updated_ns) VALUES(?, ?, ?, ?) "
-                "ON CONFLICT(key) DO UPDATE SET value=excluded.value, expiry_ns=excluded.expiry_ns, updated_ns=excluded.updated_ns",
-                (key, value, expiry_ns, now),
+            insert_sql = (
+                "INSERT INTO entries(key, value, expiry_ns, updated_ns) "
+                "VALUES(?, ?, ?, ?) ON CONFLICT(key) DO UPDATE SET "
+                "value=excluded.value, expiry_ns=excluded.expiry_ns, "
+                "updated_ns=excluded.updated_ns"
             )
+            self._conn.execute(insert_sql, (key, value, expiry_ns, now))
 
     def get(self, key: str) -> Optional[str]:
         now = self._now_ns()
@@ -117,17 +122,28 @@ class SQLiteIdempotencyStore:
                 return None
             value, expiry_ns = row[0], int(row[1]) if row[1] is not None else 0
             if expiry_ns and expiry_ns < now:
-                self._conn.execute("DELETE FROM entries WHERE key = ?", (key,))
+                # expired — do not delete on read; return None
                 return None
             return value
 
     def cleanup_expired(self) -> int:
+        # Retention-only cleanup: remove rows whose expiry is older than a retention window
+        # Env AURORA_IDEM_RETENTION_DAYS controls the window; default 30 days
+        days = os.getenv("AURORA_IDEM_RETENTION_DAYS")
+        try:
+            retention_days = int(days) if days is not None else 30
+        except ValueError:
+            retention_days = 30
+        retention_ns = int(retention_days * 24 * 60 * 60 * 1e9)
         now = self._now_ns()
+        cutoff_ns = now - retention_ns
         with self._lock, self._conn:
-            cur = self._conn.execute(
-                "DELETE FROM entries WHERE expiry_ns IS NOT NULL AND expiry_ns < ?",
-                (now,),
+            # Delete only entries that are expired and whose expiry is older than cutoff
+            delete_sql = (
+                "DELETE FROM entries WHERE expiry_ns IS NOT NULL "
+                "AND expiry_ns < ? AND expiry_ns < ?"
             )
+            cur = self._conn.execute(delete_sql, (now, cutoff_ns))
             return cur.rowcount if cur.rowcount is not None else 0
 
     def clear(self) -> None:

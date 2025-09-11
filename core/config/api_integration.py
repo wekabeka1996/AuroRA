@@ -2,115 +2,127 @@
 Aurora API Service Integration Layer
 ===================================
 
-Replaces the legacy config loading system in api/service.py with 
+Replaces the legacy config loading system in api/service.py with
 the new production-ready configuration manager.
 """
 
-import os
-import sys
-import asyncio
 import logging
+import os
 from contextlib import asynccontextmanager
-from pathlib import Path
 
 # Import the new production config system
 from core.config.production_loader import (
-    ProductionConfigManager, 
-    Environment, 
     ConfigurationError,
-    load_production_config,
+    Environment,
+    get_config_manager,
     initialize_config_system,
-    get_config_manager
+    load_production_config,
 )
-
-# Import existing Aurora components
-from core.aurora_event_logger import AuroraEventLogger
 from core.env_config import get_runtime_mode, validate_aurora_mode
+from core.execution.idem_wiring import wire_idem_observability
+
 
 def determine_environment() -> Environment:
     """Determine the Aurora environment from runtime settings"""
-    
-    aurora_mode = os.getenv('AURORA_MODE', 'testnet').lower().strip()
-    
+
+    aurora_mode = os.getenv("AURORA_MODE", "testnet").lower().strip()
+
     # Map Aurora modes to standard environments
     mode_mapping = {
-        'testnet': Environment.TESTNET,
-        'live': Environment.PRODUCTION,
-        'prod': Environment.PRODUCTION,
-        'production': Environment.PRODUCTION,
-        'dev': Environment.DEVELOPMENT,
-        'development': Environment.DEVELOPMENT
+        "testnet": Environment.TESTNET,
+        "live": Environment.PRODUCTION,
+        "prod": Environment.PRODUCTION,
+        "production": Environment.PRODUCTION,
+        "dev": Environment.DEVELOPMENT,
+        "development": Environment.DEVELOPMENT,
     }
-    
+
     environment = mode_mapping.get(aurora_mode, Environment.TESTNET)
-    
-    logging.info(f"Aurora mode '{aurora_mode}' mapped to environment: {environment.value}")
+
+    logging.info(
+        f"Aurora mode '{aurora_mode}' mapped to environment: {environment.value}"
+    )
     return environment
+
 
 def validate_production_config(config: dict) -> None:
     """Additional Aurora-specific validation"""
-    
+
     # Validate Aurora-specific requirements
-    if not config.get('security', {}).get('api_token'):
+    if not config.get("security", {}).get("api_token"):
         raise ConfigurationError("Aurora API token (AURORA_API_TOKEN) is required")
-    
+
     # Validate environment consistency
-    aurora_mode = os.getenv('AURORA_MODE', 'testnet')
-    config_env = config.get('env', 'unknown')
-    
-    if aurora_mode == 'testnet' and config_env not in ['testnet', 'development']:
-        logging.warning(f"Environment mismatch: AURORA_MODE={aurora_mode} but config env={config_env}")
-    
+    aurora_mode = os.getenv("AURORA_MODE", "testnet")
+    config_env = config.get("env", "unknown")
+
+    if aurora_mode == "testnet" and config_env not in ["testnet", "development"]:
+        logging.warning(
+            f"Environment mismatch: AURORA_MODE={aurora_mode} but config env={config_env}"
+        )
+
     logging.info("Aurora production config validation passed")
+
 
 @asynccontextmanager
 async def production_lifespan(app):
     """
     Production-ready lifespan manager for Aurora API.
-    
+
     Replaces the legacy config loading in api/service.py with
     the new transparent configuration system.
     """
-    
+
     logger = logging.getLogger("aurora.config")
-    
+
     try:
         # 1. Determine environment
         environment = determine_environment()
         logger.info(f"Starting Aurora API in {environment.value} environment")
-        
+
         # 2. Initialize configuration system
         config_manager = initialize_config_system(environment)
-        
+
         # 3. Load configuration
         config = config_manager.load_configuration()
-        
+
         # 4. Additional Aurora validation
         validate_production_config(config)
-        
+
         # 5. Store in app state
         app.state.config = config
         app.state.config_manager = config_manager
         app.state.environment = environment
-        
+
         # 6. Save audit log
         audit_file = config_manager.save_audit_log()
         logger.info(f"Configuration audit saved: {audit_file}")
-        
-        # 7. Emit configuration event (for observability)
+
+        # 7. Wire observability for idempotency and emit configuration event
         try:
-            events_emitter = getattr(app.state, 'events_emitter', None)
+            # Wire idem observability if registry and emitter are present
+            metrics_registry = getattr(app.state, "metrics_registry", None)
+            events_emitter = getattr(app.state, "events_emitter", None)
+            if metrics_registry or events_emitter:
+                try:
+                    wire_idem_observability(metrics_registry, events_emitter)
+                except Exception:
+                    pass
+            events_emitter = getattr(app.state, "events_emitter", None)
             if events_emitter:
                 audit_info = config_manager.get_config_audit_info()
-                events_emitter.emit('CONFIG.LOADED', {
-                    'environment': environment.value,
-                    'config_hash': audit_info['config_hash'][:16],
-                    'sources_count': len(audit_info['sources']),
-                    'audit_file': audit_file
-                })
+                events_emitter.emit(
+                    "CONFIG.LOADED",
+                    {
+                        "environment": environment.value,
+                        "config_hash": audit_info["config_hash"][:16],
+                        "sources_count": len(audit_info["sources"]),
+                        "audit_file": audit_file,
+                    },
+                )
         except Exception as e:
             logger.warning(f"Could not emit config event: {e}")
-        
+
         # 8. Validate Aurora mode consistency
         try:
             validate_aurora_mode()
@@ -119,12 +131,12 @@ async def production_lifespan(app):
         except Exception as e:
             logger.error(f"Aurora mode validation failed: {e}")
             raise
-        
+
         logger.info("Aurora API startup completed successfully")
-        
+
         # Yield control to the application
         yield
-        
+
     except ConfigurationError as e:
         logger.error(f"Configuration error during startup: {e}")
         raise
@@ -135,6 +147,7 @@ async def production_lifespan(app):
         # Cleanup
         logger.info("Aurora API shutdown completed")
 
+
 def get_current_config() -> dict:
     """Get the current loaded configuration"""
     try:
@@ -144,6 +157,7 @@ def get_current_config() -> dict:
         # Fallback for when the new system isn't initialized
         return {}
 
+
 def get_config_audit_summary() -> dict:
     """Get configuration audit summary"""
     try:
@@ -152,18 +166,19 @@ def get_config_audit_summary() -> dict:
     except ConfigurationError:
         return {"error": "Configuration system not initialized"}
 
+
 # Legacy compatibility functions
 def load_config_precedence() -> dict:
     """
     Legacy compatibility function.
-    
+
     This replaces the old load_config_precedence() from common/config.py
     with the new production system.
     """
-    
+
     # Determine environment
     environment = determine_environment()
-    
+
     # Load with new system
     try:
         config = load_production_config(environment)
@@ -173,12 +188,13 @@ def load_config_precedence() -> dict:
         # Return empty dict as fallback
         return {}
 
+
 # Export for backward compatibility
 __all__ = [
-    'production_lifespan',
-    'determine_environment', 
-    'validate_production_config',
-    'get_current_config',
-    'get_config_audit_summary',
-    'load_config_precedence'  # Legacy compatibility
+    "production_lifespan",
+    "determine_environment",
+    "validate_production_config",
+    "get_current_config",
+    "get_config_audit_summary",
+    "load_config_precedence",  # Legacy compatibility
 ]
