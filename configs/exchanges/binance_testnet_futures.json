@@ -1,0 +1,42 @@
+{
+  "name": "binance_testnet_futures",
+  "credentials": {
+    "api_key": "",
+    "api_secret": ""
+  },
+  "settings": {
+    "type": "binance",
+    "adapter_mode": "dependency_free",
+    "base_url": "https://testnet.binancefuture.com",
+    "futures": true,
+    "testnet": true,
+    "recv_window_ms": 5000,
+    "timeout_ms": 20000,
+    "enable_rate_limit": true,
+    "dry_run": false,
+    "symbol": "BTC/USDT",
+    "leverage": 25.0
+  },
+  "fees": {
+    "maker_fee_bps": 2.0,
+    "taker_fee_bps": 4.0
+  },
+  "metadata": {
+    "created_at": "2024-01-11T00:00:00Z",
+    "updated_at": "2024-01-11T00:00:00Z",
+    "version": "1.0",
+    "description": "Binance testnet futures configuration with 25x leverage",
+    "env": "testnet",
+    "endpoints": {
+      "rest": "https://testnet.binancefuture.com",
+      "websocket": "wss://stream.binancefuture.com/ws/"
+    },
+    "supported_symbols": ["BTCUSDT", "ETHUSDT", "ADAUSDT", "SOLUSDT"],
+    "risk_settings": {
+      "max_leverage": 25,
+      "default_leverage": 25,
+      "min_notional": 5.0,
+      "max_notional": 50000.0
+    }
+  }
+}

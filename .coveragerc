@@ -1,0 +1,34 @@
+# Coverage configuration for Aurora project
+[run]
+source = core, skalp_bot, tools, infra
+omit =
+    tests/*
+    */test_*
+    */__pycache__/*
+    */migrations/*
+    setup.py
+    */conftest.py
+
+[report]
+precision = 1
+show_missing = true
+skip_covered = false
+exclude_lines =
+    pragma: no cover
+    def __repr__
+    raise AssertionError
+    raise NotImplementedError
+    if __name__ == .__main__.:
+    if TYPE_CHECKING:
+    @abstractmethod
+
+[html]
+directory = reports/coverage_html
+
+[xml]
+output = reports/coverage.xml
+
+# BLOCKING COVERAGE THRESHOLDS
+[coverage:report]
+fail_under = 90
+skip_empty = true

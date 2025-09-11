@@ -32,6 +32,13 @@ IDEM_UPDATE: Final = "IDEM.UPDATE"
 IDEM_CONFLICT: Final = "IDEM.CONFLICT"
 IDEM_DUP: Final = "IDEM.DUP"
 
+# Exchange operation events
+EXCHANGE_OP_START: Final = "EXCHANGE.OP.START"
+EXCHANGE_OP_END: Final = "EXCHANGE.OP.END"
+EXCHANGE_ERROR: Final = "EXCHANGE.ERROR"
+EXCHANGE_RETRY_BACKOFF: Final = "EXCHANGE.RETRY.BACKOFF"
+EXCHANGE_CB_STATE: Final = "EXCHANGE.CB.STATE"
+
 # Post-trade events
 POSTTRADE_LOG: Final = "POSTTRADE.LOG"
 
@@ -166,4 +173,10 @@ def get_all_event_codes() -> list[str]:
         IDEM_UPDATE,
         IDEM_CONFLICT,
         IDEM_DUP,
+        # Exchange operation events
+        EXCHANGE_OP_START,
+        EXCHANGE_OP_END,
+        EXCHANGE_ERROR,
+        EXCHANGE_RETRY_BACKOFF,
+        EXCHANGE_CB_STATE,
     ]

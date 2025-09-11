@@ -2,6 +2,8 @@
 .env
 .env.*
 !.env.example
+!.env.testnet.example
+.env.testnet.local
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -155,7 +157,7 @@ data/tmp/
 *.pth
 snapshot.json
 
-# Trading specific  
+# Trading specific
 *.csv
 *.parquet
 trading_logs/

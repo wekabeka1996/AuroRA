@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from prometheus_client import Counter
+from prometheus_client import Counter, Gauge, Histogram
 
 
 class IdemMetrics:
@@ -49,4 +49,81 @@ class IdemMetrics:
             pass
 
 
-__all__ = ["IdemMetrics"]
+class ExchangeMetrics:
+    """Prometheus metrics for exchange operations with retry and circuit breaker."""
+
+    def __init__(self, registry) -> None:
+        # Retry metrics
+        self.retry_total = Counter(
+            "aurora_exchange_retry_total",
+            "Total exchange retry attempts",
+            ["exchange", "operation", "error_category"],
+            registry=registry,
+        )
+
+        # Operation latency
+        self.operation_latency = Histogram(
+            "aurora_exchange_op_latency_ms",
+            "Exchange operation latency in milliseconds",
+            ["exchange", "operation", "status"],  # status: success|failure
+            buckets=[1, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000],
+            registry=registry,
+        )
+
+        # Circuit breaker state
+        self.cb_state = Gauge(
+            "aurora_exchange_cb_state",
+            "Circuit breaker state (0=CLOSED, 1=HALF_OPEN, 2=OPEN)",
+            ["exchange"],
+            registry=registry,
+        )
+
+        # Error classification
+        self.error_total = Counter(
+            "aurora_exchange_error_total",
+            "Total exchange errors by category",
+            ["exchange", "operation", "category", "severity"],
+            registry=registry,
+        )
+
+    # Convenience helpers
+    def inc_retry(self, exchange: str, operation: str, error_category: str) -> None:
+        try:
+            self.retry_total.labels(
+                exchange=exchange, operation=operation, error_category=error_category
+            ).inc()
+        except Exception:
+            pass
+
+    def observe_latency(
+        self, exchange: str, operation: str, status: str, latency_ms: float
+    ) -> None:
+        try:
+            self.operation_latency.labels(
+                exchange=exchange, operation=operation, status=status
+            ).observe(latency_ms)
+        except Exception:
+            pass
+
+    def set_cb_state(self, exchange: str, state_value: int) -> None:
+        """Set circuit breaker state: 0=CLOSED, 1=HALF_OPEN, 2=OPEN"""
+        try:
+            self.cb_state.labels(exchange=exchange).set(state_value)
+        except Exception:
+            pass
+
+    def inc_error(
+        self, exchange: str, operation: str, category: str, severity: str
+    ) -> None:
+        try:
+            self.error_total.labels(
+                exchange=exchange,
+                operation=operation,
+                category=category,
+                severity=severity,
+            ).inc()
+        except Exception:
+            pass
+
+
+__all__ = ["IdemMetrics", "ExchangeMetrics"]

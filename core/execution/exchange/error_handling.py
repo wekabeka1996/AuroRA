@@ -14,20 +14,57 @@ Comprehensive error handling and logging for exchange operations:
 """
 
 import logging
-import time
 import threading
+import time
+from contextlib import contextmanager
 from dataclasses import dataclass
 from enum import Enum
-from typing import Dict, List, Optional, Any, Callable
-from contextlib import contextmanager
+from typing import Any, Callable, Dict, List, Optional
 
-from core.execution.exchange.common import ExchangeError, ValidationError, RateLimitError
+from core.execution.exchange.common import (
+    ExchangeError,
+    RateLimitError,
+    ValidationError,
+)
+from observability.codes import (
+    EXCHANGE_CB_STATE,
+    EXCHANGE_ERROR,
+    EXCHANGE_OP_END,
+    EXCHANGE_OP_START,
+    EXCHANGE_RETRY_BACKOFF,
+)
 
 logger = logging.getLogger(__name__)
+
+# Global XAI logger and metrics instances (to be set by initialization)
+_xai_logger = None
+_exchange_metrics = None
+
+
+def set_xai_logger(logger_instance):
+    """Set global XAI logger instance."""
+    global _xai_logger
+    _xai_logger = logger_instance
+
+
+def set_exchange_metrics(metrics_instance):
+    """Set global exchange metrics instance."""
+    global _exchange_metrics
+    _exchange_metrics = metrics_instance
+
+
+def emit_xai_event(code: str, data: Dict[str, Any]):
+    """Emit XAI event if logger is available."""
+    if _xai_logger:
+        try:
+            _xai_logger.emit(code, data)
+        except Exception:
+            pass  # Don't fail operations due to logging issues
 
 
 class ErrorSeverity(Enum):
     """Error severity levels."""
+
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"
@@ -36,6 +73,7 @@ class ErrorSeverity(Enum):
 
 class ErrorCategory(Enum):
     """Error categories for classification."""
+
     NETWORK = "network"
     AUTHENTICATION = "authentication"
     VALIDATION = "validation"
@@ -47,6 +85,7 @@ class ErrorCategory(Enum):
 @dataclass
 class ExchangeErrorContext:
     """Context information for exchange errors."""
+
     exchange_name: str
     operation: str
     symbol: Optional[str] = None
@@ -65,6 +104,7 @@ class ExchangeErrorContext:
 @dataclass
 class ExchangeErrorInfo:
     """Structured error information."""
+
     error: Exception
     category: ErrorCategory
     severity: ErrorSeverity
@@ -96,7 +136,7 @@ class ExchangeErrorInfo:
                 "client_order_id": self.context.client_order_id,
                 "correlation_id": self.context.correlation_id,
                 "timestamp_ns": self.context.timestamp_ns,
-            }
+            },
         }
 
 
@@ -165,7 +205,9 @@ class ExchangeErrorHandler:
             },
         }
 
-    def classify_error(self, error: Exception, context: ExchangeErrorContext) -> ExchangeErrorInfo:
+    def classify_error(
+        self, error: Exception, context: ExchangeErrorContext
+    ) -> ExchangeErrorInfo:
         """Classify an error and create structured error info."""
         error_type = error.__class__.__name__
 
@@ -180,8 +222,8 @@ class ExchangeErrorHandler:
 
         # Special handling for HTTP status codes
         error_dict = vars(error)
-        if 'response' in error_dict and hasattr(error_dict['response'], 'status_code'):
-            status_code = error_dict['response'].status_code
+        if "response" in error_dict and hasattr(error_dict["response"], "status_code"):
+            status_code = error_dict["response"].status_code
             if status_code == 429:
                 category = ErrorCategory.RATE_LIMIT
                 severity = ErrorSeverity.MEDIUM
@@ -207,11 +249,12 @@ class ExchangeErrorHandler:
             context=context,
             retryable=retryable,
             retry_after_seconds=retry_after,
-            user_message=user_message
+            user_message=user_message,
         )
 
-    def _generate_user_message(self, error: Exception, category: ErrorCategory,
-                              context: ExchangeErrorContext) -> str:
+    def _generate_user_message(
+        self, error: Exception, category: ErrorCategory, context: ExchangeErrorContext
+    ) -> str:
         """Generate user-friendly error message."""
         base_messages = {
             ErrorCategory.NETWORK: f"Network connectivity issue with {context.exchange_name}",
@@ -234,12 +277,14 @@ class ExchangeErrorHandler:
 class RetryConfig:
     """Configuration for retry behavior."""
 
-    def __init__(self,
-                 max_attempts: int = 3,
-                 base_delay: float = 1.0,
-                 max_delay: float = 60.0,
-                 backoff_factor: float = 2.0,
-                 jitter: bool = True):
+    def __init__(
+        self,
+        max_attempts: int = 3,
+        base_delay: float = 1.0,
+        max_delay: float = 60.0,
+        backoff_factor: float = 2.0,
+        jitter: bool = True,
+    ):
         self.max_attempts = max_attempts
         self.base_delay = base_delay
         self.max_delay = max_delay
@@ -253,9 +298,12 @@ class ExchangeRetryHandler:
     def __init__(self, config: RetryConfig):
         self.config = config
 
-    def execute_with_retry(self, operation: Callable[[], Any],
-                          error_handler: ExchangeErrorHandler,
-                          context: ExchangeErrorContext) -> Any:
+    def execute_with_retry(
+        self,
+        operation: Callable[[], Any],
+        error_handler: ExchangeErrorHandler,
+        context: ExchangeErrorContext,
+    ) -> Any:
         """Execute operation with retry logic."""
         last_error = None
 
@@ -272,12 +320,60 @@ class ExchangeRetryHandler:
                     f"{error_info.error_code} - {e}"
                 )
 
+                # Emit XAI error event
+                emit_xai_event(
+                    EXCHANGE_ERROR,
+                    {
+                        "exchange": context.exchange_name,
+                        "operation": context.operation,
+                        "symbol": context.symbol,
+                        "coid": context.client_order_id,
+                        "error_code": error_info.error_code,
+                        "error_category": error_info.category.value,
+                        "error_severity": error_info.severity.value,
+                        "attempt": attempt + 1,
+                        "max_attempts": self.config.max_attempts,
+                        "retryable": error_info.retryable,
+                    },
+                )
+
+                # Update metrics
+                if _exchange_metrics:
+                    _exchange_metrics.inc_error(
+                        context.exchange_name,
+                        context.operation,
+                        error_info.category.value,
+                        error_info.severity.value,
+                    )
+
                 # Check if we should retry
                 if not error_info.retryable or attempt == self.config.max_attempts - 1:
                     break
 
                 # Calculate delay
                 delay = self._calculate_delay(attempt, error_info.retry_after_seconds)
+
+                # Emit XAI retry backoff event
+                emit_xai_event(
+                    EXCHANGE_RETRY_BACKOFF,
+                    {
+                        "exchange": context.exchange_name,
+                        "operation": context.operation,
+                        "symbol": context.symbol,
+                        "coid": context.client_order_id,
+                        "attempt": attempt + 1,
+                        "delay_sec": delay,
+                        "error_category": error_info.category.value,
+                    },
+                )
+
+                # Update retry metrics
+                if _exchange_metrics:
+                    _exchange_metrics.inc_retry(
+                        context.exchange_name,
+                        context.operation,
+                        error_info.category.value,
+                    )
 
                 # Log retry
                 logger.info(
@@ -301,7 +397,7 @@ class ExchangeRetryHandler:
         if suggested_delay is not None:
             delay = suggested_delay
         else:
-            delay = self.config.base_delay * (self.config.backoff_factor ** attempt)
+            delay = self.config.base_delay * (self.config.backoff_factor**attempt)
 
         # Apply maximum delay
         delay = min(delay, self.config.max_delay)
@@ -309,31 +405,34 @@ class ExchangeRetryHandler:
         # Add jitter if enabled
         if self.config.jitter:
             import random
-            delay *= (0.5 + random.random() * 0.5)  # 50-100% of calculated delay
+
+            delay *= 0.5 + random.random() * 0.5  # 50-100% of calculated delay
 
         return delay
 
 
 class CircuitBreakerState(Enum):
     """Circuit breaker states."""
-    CLOSED = "closed"      # Normal operation
-    OPEN = "open"          # Failing, requests rejected
+
+    CLOSED = "closed"  # Normal operation
+    OPEN = "open"  # Failing, requests rejected
     HALF_OPEN = "half_open"  # Testing if service recovered
 
 
 @dataclass
 class CircuitBreakerConfig:
     """Configuration for circuit breaker."""
-    failure_threshold: int = 5      # Failures before opening
+
+    failure_threshold: int = 5  # Failures before opening
     recovery_timeout: float = 60.0  # Seconds before attempting recovery
-    success_threshold: int = 3      # Successes needed to close circuit
-    
+    success_threshold: int = 3  # Successes needed to close circuit
+
     # Enhanced recovery features
-    adaptive_timeout: bool = True    # Adaptive recovery timeout based on failure rate
+    adaptive_timeout: bool = True  # Adaptive recovery timeout based on failure rate
     max_recovery_timeout: float = 300.0  # Maximum recovery timeout
-    health_check_enabled: bool = True     # Enable periodic health checks
-    health_check_interval: float = 30.0   # Seconds between health checks
-    gradual_recovery: bool = True         # Gradual recovery with limited requests
+    health_check_enabled: bool = True  # Enable periodic health checks
+    health_check_interval: float = 30.0  # Seconds between health checks
+    gradual_recovery: bool = True  # Gradual recovery with limited requests
 
 
 class ExchangeCircuitBreaker:
@@ -346,7 +445,7 @@ class ExchangeCircuitBreaker:
         self._success_count = 0
         self._last_failure_time = 0.0
         self._lock = threading.Lock()
-        
+
         # Enhanced recovery features
         self._consecutive_failures = 0
         self._total_operations = 0
@@ -359,24 +458,33 @@ class ExchangeCircuitBreaker:
         """Execute operation through enhanced circuit breaker."""
         with self._lock:
             self._total_operations += 1
-            
+
             # Perform health check if enabled
             if self.config.health_check_enabled:
                 self._perform_health_check()
-            
+
             if self._state == CircuitBreakerState.OPEN:
                 if self._should_attempt_reset():
                     self._state = CircuitBreakerState.HALF_OPEN
                     self._success_count = 0
                     self._half_open_request_count = 0
-                    logger.info("Circuit breaker transitioning to HALF_OPEN - attempting recovery")
+                    logger.info(
+                        "Circuit breaker transitioning to HALF_OPEN - attempting recovery"
+                    )
                 else:
-                    raise ExchangeError(f"Circuit breaker is OPEN - recovery in {self._get_remaining_recovery_time():.1f}s")
-            
+                    raise ExchangeError(
+                        f"Circuit breaker is OPEN - recovery in {self._get_remaining_recovery_time():.1f}s"
+                    )
+
             elif self._state == CircuitBreakerState.HALF_OPEN:
                 # Gradual recovery - limit number of requests in HALF_OPEN
-                if self.config.gradual_recovery and self._half_open_request_count >= self._max_half_open_requests:
-                    raise ExchangeError("Circuit breaker HALF_OPEN - gradual recovery limit reached")
+                if (
+                    self.config.gradual_recovery
+                    and self._half_open_request_count >= self._max_half_open_requests
+                ):
+                    raise ExchangeError(
+                        "Circuit breaker HALF_OPEN - gradual recovery limit reached"
+                    )
 
             try:
                 result = operation()
@@ -389,12 +497,14 @@ class ExchangeCircuitBreaker:
     def _should_attempt_reset(self) -> bool:
         """Enhanced check if we should attempt to reset the circuit."""
         base_timeout = self.config.recovery_timeout
-        
+
         try:
             if self.config.adaptive_timeout:
                 # Adaptive timeout based on consecutive failures
                 adaptive_timeout = base_timeout * self._adaptive_timeout_multiplier
-                adaptive_timeout = min(adaptive_timeout, self.config.max_recovery_timeout)
+                adaptive_timeout = min(
+                    adaptive_timeout, self.config.max_recovery_timeout
+                )
                 return (time.time() - self._last_failure_time) >= adaptive_timeout
             else:
                 return (time.time() - self._last_failure_time) >= base_timeout
@@ -406,17 +516,23 @@ class ExchangeCircuitBreaker:
         """Perform periodic health check when enabled."""
         if not self.config.health_check_enabled:
             return
-            
+
         try:
             current_time = time.time()
-            if (current_time - self._last_health_check) >= self.config.health_check_interval:
+            if (
+                current_time - self._last_health_check
+            ) >= self.config.health_check_interval:
                 self._last_health_check = current_time
-                
+
                 # Health check logic - could be extended with actual health probes
                 if self._state == CircuitBreakerState.OPEN:
-                    failure_rate = self._consecutive_failures / max(1, self._total_operations) 
-                    logger.info(f"Circuit breaker health check - failure rate: {failure_rate:.2%}, "
-                               f"time since last failure: {current_time - self._last_failure_time:.1f}s")
+                    failure_rate = self._consecutive_failures / max(
+                        1, self._total_operations
+                    )
+                    logger.info(
+                        f"Circuit breaker health check - failure rate: {failure_rate:.2%}, "
+                        f"time since last failure: {current_time - self._last_failure_time:.1f}s"
+                    )
         except TypeError:
             # Handle mock objects or other type issues in tests
             logger.debug("Health check skipped due to mock time objects")
@@ -432,25 +548,39 @@ class ExchangeCircuitBreaker:
 
     def _on_success(self):
         """Enhanced successful operation handling."""
+        old_state = self._state
+
         if self._state == CircuitBreakerState.HALF_OPEN:
             self._success_count += 1
             self._half_open_request_count += 1
-            
+
             if self._success_count >= self.config.success_threshold:
                 self._state = CircuitBreakerState.CLOSED
                 self._failure_count = 0
                 self._consecutive_failures = 0
                 self._adaptive_timeout_multiplier = 1.0  # Reset adaptive multiplier
                 logger.info("Circuit breaker CLOSED - service fully recovered")
+
+                # Emit XAI state change event
+                self._emit_cb_state_event("CLOSED", "recovered")
+
             else:
-                logger.debug(f"Circuit breaker HALF_OPEN - success {self._success_count}/{self.config.success_threshold}")
-        
+                logger.debug(
+                    f"Circuit breaker HALF_OPEN - success {self._success_count}/{self.config.success_threshold}"
+                )
+
         elif self._state == CircuitBreakerState.CLOSED:
             # Reset consecutive failures on success
             self._consecutive_failures = 0
 
+        # Update metrics if state changed
+        if old_state != self._state and _exchange_metrics:
+            state_value = self._get_state_value(self._state)
+            _exchange_metrics.set_cb_state("exchange", state_value)
+
     def _on_failure(self):
         """Enhanced failed operation handling."""
+        old_state = self._state
         self._failure_count += 1
         self._consecutive_failures += 1
         self._last_failure_time = time.time()
@@ -459,15 +589,34 @@ class ExchangeCircuitBreaker:
             self._state = CircuitBreakerState.OPEN
             # Increase adaptive timeout multiplier for repeated failures
             if self.config.adaptive_timeout:
-                self._adaptive_timeout_multiplier = min(self._adaptive_timeout_multiplier * 1.5, 5.0)
-            logger.warning(f"Circuit breaker OPEN - service still failing (adaptive timeout: {self._adaptive_timeout_multiplier}x)")
-            
-        elif (self._state == CircuitBreakerState.CLOSED and
-              self._failure_count >= self.config.failure_threshold):
+                self._adaptive_timeout_multiplier = min(
+                    self._adaptive_timeout_multiplier * 1.5, 5.0
+                )
+            logger.warning(
+                f"Circuit breaker OPEN - service still failing (adaptive timeout: {self._adaptive_timeout_multiplier}x)"
+            )
+
+            # Emit XAI state change event
+            self._emit_cb_state_event("OPEN", "still_failing")
+
+        elif (
+            self._state == CircuitBreakerState.CLOSED
+            and self._failure_count >= self.config.failure_threshold
+        ):
             self._state = CircuitBreakerState.OPEN
             if self.config.adaptive_timeout:
                 self._adaptive_timeout_multiplier = 1.5  # Start with modest increase
-            logger.warning(f"Circuit breaker OPEN - failure threshold exceeded ({self._failure_count} failures)")
+            logger.warning(
+                f"Circuit breaker OPEN - failure threshold exceeded ({self._failure_count} failures)"
+            )
+
+            # Emit XAI state change event
+            self._emit_cb_state_event("OPEN", "threshold_exceeded")
+
+        # Update metrics if state changed
+        if old_state != self._state and _exchange_metrics:
+            state_value = self._get_state_value(self._state)
+            _exchange_metrics.set_cb_state("exchange", state_value)
 
     def get_stats(self) -> Dict[str, Any]:
         """Get circuit breaker statistics."""
@@ -480,7 +629,8 @@ class ExchangeCircuitBreaker:
                 "total_operations": self._total_operations,
                 "adaptive_timeout_multiplier": self._adaptive_timeout_multiplier,
                 "remaining_recovery_time": self._get_remaining_recovery_time(),
-                "failure_rate": self._consecutive_failures / max(1, self._total_operations)
+                "failure_rate": self._consecutive_failures
+                / max(1, self._total_operations),
             }
 
     def force_open(self):
@@ -491,7 +641,7 @@ class ExchangeCircuitBreaker:
             logger.warning("Circuit breaker FORCED OPEN")
 
     def force_close(self):
-        """Force circuit breaker to CLOSED state (for manual recovery).""" 
+        """Force circuit breaker to CLOSED state (for manual recovery)."""
         with self._lock:
             self._state = CircuitBreakerState.CLOSED
             self._failure_count = 0
@@ -504,13 +654,39 @@ class ExchangeCircuitBreaker:
         """Get current circuit breaker state."""
         return self._state
 
+    def _get_state_value(self, state: CircuitBreakerState) -> int:
+        """Convert circuit breaker state to numeric value for metrics."""
+        return {
+            CircuitBreakerState.CLOSED: 0,
+            CircuitBreakerState.HALF_OPEN: 1,
+            CircuitBreakerState.OPEN: 2,
+        }.get(state, -1)
+
+    def _emit_cb_state_event(self, new_state: str, reason: str):
+        """Emit XAI circuit breaker state change event."""
+        emit_xai_event(
+            EXCHANGE_CB_STATE,
+            {
+                "exchange": "exchange",  # TODO: Add exchange name to CB config
+                "state": new_state,
+                "reason": reason,
+                "failure_count": self._failure_count,
+                "consecutive_failures": self._consecutive_failures,
+                "total_operations": self._total_operations,
+                "adaptive_timeout_multiplier": self._adaptive_timeout_multiplier,
+            },
+        )
+
 
 @contextmanager
-def exchange_operation_context(exchange_name: str, operation: str,
-                              symbol: Optional[str] = None,
-                              order_id: Optional[str] = None,
-                              client_order_id: Optional[str] = None,
-                              correlation_id: Optional[str] = None):
+def exchange_operation_context(
+    exchange_name: str,
+    operation: str,
+    symbol: Optional[str] = None,
+    order_id: Optional[str] = None,
+    client_order_id: Optional[str] = None,
+    correlation_id: Optional[str] = None,
+):
     """Context manager for exchange operations with automatic error handling."""
     context = ExchangeErrorContext(
         exchange_name=exchange_name,
@@ -518,32 +694,91 @@ def exchange_operation_context(exchange_name: str, operation: str,
         symbol=symbol,
         order_id=order_id,
         client_order_id=client_order_id,
-        correlation_id=correlation_id
+        correlation_id=correlation_id,
     )
 
     start_time = time.time_ns()
+
+    # Emit XAI operation start event
+    emit_xai_event(
+        EXCHANGE_OP_START,
+        {
+            "exchange": exchange_name,
+            "operation": operation,
+            "symbol": symbol,
+            "order_id": order_id,
+            "coid": client_order_id,
+            "correlation_id": correlation_id,
+        },
+    )
+
     try:
-        logger.info(f"Starting {operation} on {exchange_name}" +
-                   (f" for {symbol}" if symbol else ""))
+        logger.info(
+            f"Starting {operation} on {exchange_name}"
+            + (f" for {symbol}" if symbol else "")
+        )
         yield context
     except Exception as e:
         duration_ms = (time.time_ns() - start_time) / 1_000_000
         error_handler = ExchangeErrorHandler()
         error_info = error_handler.classify_error(e, context)
 
+        # Emit XAI operation end event (failure)
+        emit_xai_event(
+            EXCHANGE_OP_END,
+            {
+                "exchange": exchange_name,
+                "operation": operation,
+                "symbol": symbol,
+                "order_id": order_id,
+                "coid": client_order_id,
+                "correlation_id": correlation_id,
+                "status": "failure",
+                "duration_ms": duration_ms,
+                "error_code": error_info.error_code,
+                "error_category": error_info.category.value,
+                "error_severity": error_info.severity.value,
+            },
+        )
+
+        # Update latency metrics
+        if _exchange_metrics:
+            _exchange_metrics.observe_latency(
+                exchange_name, operation, "failure", duration_ms
+            )
+
         # Log structured error
         logger.error(
             f"Exchange operation failed after {duration_ms:.2f}ms",
-            extra={
-                "error_info": error_info.to_dict(),
-                "duration_ms": duration_ms
-            }
+            extra={"error_info": error_info.to_dict(), "duration_ms": duration_ms},
         )
-        
+
         # Re-raise with additional context
         raise ExchangeError(f"{error_info.user_message}: {e}") from e
     else:
         duration_ms = (time.time_ns() - start_time) / 1_000_000
+
+        # Emit XAI operation end event (success)
+        emit_xai_event(
+            EXCHANGE_OP_END,
+            {
+                "exchange": exchange_name,
+                "operation": operation,
+                "symbol": symbol,
+                "order_id": order_id,
+                "coid": client_order_id,
+                "correlation_id": correlation_id,
+                "status": "success",
+                "duration_ms": duration_ms,
+            },
+        )
+
+        # Update latency metrics
+        if _exchange_metrics:
+            _exchange_metrics.observe_latency(
+                exchange_name, operation, "success", duration_ms
+            )
+
         logger.info(f"Completed {operation} on {exchange_name} in {duration_ms:.2f}ms")
 
 
@@ -559,4 +794,6 @@ __all__ = [
     "CircuitBreakerConfig",
     "ExchangeCircuitBreaker",
     "exchange_operation_context",
+    "set_xai_logger",
+    "set_exchange_metrics",
 ]
